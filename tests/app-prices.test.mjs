@@ -182,6 +182,9 @@ assert.match(window.document.querySelector("#categoryBreakdown").textContent, /�
 assert.match(window.document.querySelector("#categoryBreakdown").textContent, /ETF/);
 assert.match(window.document.querySelector("#categoryBreakdown").textContent, /국내\/해외 비중/);
 assert.match(window.document.querySelector("#categoryBreakdown").textContent, /해외/);
+assert.equal(window.document.querySelectorAll(".pie-chart").length, 4);
+assert.match(window.document.querySelector(".pie-chart").style.background, /conic-gradient/);
+assert.equal(window.document.querySelector("#assetTableWrap").classList.contains("asset-table-wrap"), true);
 assert.deepEqual(
   saved.assets.map((asset) => ({
     amount: asset.amount,

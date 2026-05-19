@@ -2,6 +2,7 @@ const STORAGE_KEY = "finance-ledger-retirement-v1";
 const CLOUD_DOC_ID = "primary";
 const PRICE_FILE_PATH = "prices.json";
 const PUBLIC_PRICE_FILE_URL = "https://yjmoonn.github.io/assettrail/prices.json";
+const PIE_COLORS = ["#1f7a4d", "#2f6fbb", "#d58a1f", "#8b5cf6", "#0f766e", "#be123c", "#64748b"];
 const firebaseConfig = window.firebaseConfig || {};
 const ASSET_TYPE_LABELS = {
   KRX: "KRX 국내",
@@ -914,24 +915,59 @@ function renderBreakdownSection(title, entries, total, limit = Infinity) {
   section.className = "breakdown-section";
   section.innerHTML = `<h3>${escapeHtml(title)}</h3>`;
 
-  [...entries.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, limit)
-    .forEach(([category, value]) => {
-      const ratio = total ? value / total : 0;
-      const item = document.createElement("div");
-      item.className = "breakdown-item";
-      item.innerHTML = `
-        <div class="breakdown-line">
-          <span class="breakdown-name">${escapeHtml(category)}</span>
-          <span class="breakdown-value">${money(value)} · ${(ratio * 100).toFixed(1)}%</span>
-        </div>
-        <div class="bar"><span style="width: ${Math.max(2, ratio * 100)}%"></span></div>
-      `;
-      section.append(item);
-    });
+  const displayEntries = limitedBreakdownEntries(entries, limit);
+  const body = document.createElement("div");
+  body.className = "pie-breakdown";
+  body.innerHTML = `
+    <div class="pie-chart" role="img" aria-label="${escapeHtml(title)} 파이차트"></div>
+    <div class="pie-legend"></div>
+  `;
 
+  const chart = body.querySelector(".pie-chart");
+  const legend = body.querySelector(".pie-legend");
+  chart.style.background = pieGradient(displayEntries);
+
+  displayEntries.forEach(([category, value], index) => {
+    const ratio = total ? value / total : 0;
+    const item = document.createElement("div");
+    item.className = "pie-legend-item";
+    item.innerHTML = `
+      <span class="pie-swatch" style="background: ${PIE_COLORS[index % PIE_COLORS.length]}"></span>
+      <span class="breakdown-name">${escapeHtml(category)}</span>
+      <span class="breakdown-value">${money(value)} · ${(ratio * 100).toFixed(1)}%</span>
+    `;
+    legend.append(item);
+  });
+
+  section.append(body);
   els.categoryBreakdown.append(section);
+}
+
+function limitedBreakdownEntries(entries, limit = Infinity) {
+  const sorted = [...entries.entries()].sort((a, b) => b[1] - a[1]);
+  if (!Number.isFinite(limit) || sorted.length <= limit) return sorted;
+
+  const visible = sorted.slice(0, Math.max(1, limit - 1));
+  const otherValue = sorted.slice(Math.max(1, limit - 1)).reduce((sum, [, value]) => sum + value, 0);
+  return otherValue > 0 ? [...visible, ["기타", otherValue]] : visible;
+}
+
+function pieGradient(entries) {
+  const positiveEntries = entries
+    .map((entry, index) => ({ category: entry[0], value: Math.max(0, entry[1]), color: PIE_COLORS[index % PIE_COLORS.length] }))
+    .filter((entry) => entry.value > 0);
+
+  const total = positiveEntries.reduce((sum, entry) => sum + entry.value, 0);
+  if (!total) return "#edf0ee";
+
+  let cursor = 0;
+  const segments = positiveEntries.map((entry, index) => {
+    const start = cursor;
+    const end = index === positiveEntries.length - 1 ? 100 : cursor + (entry.value / total) * 100;
+    cursor = end;
+    return `${entry.color} ${start.toFixed(2)}% ${end.toFixed(2)}%`;
+  });
+  return `conic-gradient(${segments.join(", ")})`;
 }
 
 function renderHistory() {
