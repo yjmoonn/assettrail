@@ -156,6 +156,7 @@ function replaceState(nextState) {
   state.assets = Array.isArray(nextState.assets) ? nextState.assets.map(normalizeAsset) : [];
   state.snapshots = Array.isArray(nextState.snapshots) ? nextState.snapshots : [];
   state.retirement = { ...state.retirement, ...(nextState.retirement || {}) };
+  applyPricesToAssets();
   hydrateRetirementInputs();
 }
 
