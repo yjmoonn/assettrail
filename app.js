@@ -211,6 +211,7 @@ async function initFirebase() {
     cloud.auth = authModule.getAuth(app);
     cloud.db = firestoreModule.getFirestore(app);
     cloud.provider = new authModule.GoogleAuthProvider();
+    cloud.signInWithPopup = authModule.signInWithPopup;
     cloud.signInWithRedirect = authModule.signInWithRedirect;
     cloud.getRedirectResult = authModule.getRedirectResult;
     cloud.signOut = authModule.signOut;
@@ -219,6 +220,10 @@ async function initFirebase() {
     cloud.setDoc = firestoreModule.setDoc;
     cloud.enabled = true;
     cloud.ready = true;
+
+    if (authModule.setPersistence && authModule.browserLocalPersistence) {
+      await authModule.setPersistence(cloud.auth, authModule.browserLocalPersistence);
+    }
 
     authModule.onAuthStateChanged(cloud.auth, async (user) => {
       cloud.user = user;
@@ -233,10 +238,17 @@ async function initFirebase() {
       }
     });
 
-    cloud.getRedirectResult(cloud.auth).catch((error) => {
-      console.error(error);
-      setSyncStatus(`Login failed: ${error.code || "unknown"}`);
-    });
+    cloud.getRedirectResult(cloud.auth)
+      .then((result) => {
+        if (result?.user) {
+          cloud.user = result.user;
+          updateAuthUi();
+        }
+      })
+      .catch((error) => {
+        console.error(error);
+        setSyncStatus(`Login failed: ${error.code || "unknown"}`);
+      });
   } catch (error) {
     console.error(error);
     setSyncStatus("Firebase load failed");
@@ -1105,11 +1117,21 @@ els.loginBtn.addEventListener("click", async () => {
   }
   try {
     setSyncStatus("Opening Google login...");
+    if (cloud.signInWithPopup) {
+      await cloud.signInWithPopup(cloud.auth, cloud.provider);
+      setSyncStatus("Login completing...", true);
+      return;
+    }
     await cloud.signInWithRedirect(cloud.auth, cloud.provider);
   } catch (error) {
     console.error(error);
-    setSyncStatus("Login failed");
-    alert("로그인에 실패했습니다. Firebase Authentication 설정을 확인하세요.");
+    if (cloud.signInWithRedirect && ["auth/popup-blocked", "auth/operation-not-supported-in-this-environment"].includes(error.code)) {
+      setSyncStatus("Redirecting to Google login...");
+      await cloud.signInWithRedirect(cloud.auth, cloud.provider);
+      return;
+    }
+    setSyncStatus(`Login failed: ${error.code || "unknown"}`);
+    alert(`로그인에 실패했습니다: ${error.code || "unknown"}`);
   }
 });
 

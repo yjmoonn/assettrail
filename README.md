@@ -8,6 +8,8 @@ Live app: https://yjmoonn.github.io/assettrail/
 
 1. Open the live app.
 2. Sign in with Google.
+   - Before sign-in: the status shows `Cloud ready`.
+   - After sign-in: the status shows `Cloud: your-email`, and `Logout`/`Sync` are shown.
 3. Add assets with one of four types: `KRX`, `US`, `CASH`, `MANUAL`.
 4. Press "조회 기록 저장" when you want to record a portfolio snapshot.
 5. Use the retirement simulator presets or edit the assumptions directly.
