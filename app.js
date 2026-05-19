@@ -1,13 +1,19 @@
 (function () {
   const app = document.querySelector("#app");
-  const firebaseProjectId = window.assetTrailFirebase?.projectId || "not configured";
-  const baseCurrency = window.assetTrailPrices?.baseCurrency || "USD";
-  const trackedAssets = window.assetTrailPrices?.trackedAssets || [];
+
+  if (!app) {
+    return;
+  }
+
+  const firebaseConfig = window.assetTrailFirebase || {};
+  const firebaseProjectId = firebaseConfig.projectId || "not configured";
+  const firebaseAuthDomain = firebaseConfig.authDomain || "not configured";
+  const hasFirebaseConfig = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
 
   const items = [
-    ["Firebase", firebaseProjectId],
-    ["Base currency", baseCurrency],
-    ["Tracked assets", trackedAssets.length ? trackedAssets.join(", ") : "none yet"],
+    ["Firebase project", firebaseProjectId],
+    ["Auth domain", firebaseAuthDomain],
+    ["Sync status", hasFirebaseConfig ? "ready for Firebase integration" : "configuration needed"],
   ];
 
   app.innerHTML = items
@@ -21,4 +27,3 @@
     )
     .join("");
 })();
-
