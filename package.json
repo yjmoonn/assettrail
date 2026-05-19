@@ -7,9 +7,10 @@
     "check:js": "node --check app.js",
     "test:cloud": "node tests/app-cloud-sync.test.mjs",
     "test:cloud-prices": "node tests/app-cloud-prices.test.mjs",
+    "test:price-fallback": "node tests/app-price-fallback.test.mjs",
     "test:prices": "node tests/app-prices.test.mjs",
     "test:firestore": "JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH firebase emulators:exec --only firestore \"node tests/firestore-rules.test.mjs\"",
-    "test": "npm run check:js && npm run test:prices && npm run test:cloud && npm run test:cloud-prices && npm run test:firestore"
+    "test": "npm run check:js && npm run test:prices && npm run test:price-fallback && npm run test:cloud && npm run test:cloud-prices && npm run test:firestore"
   },
   "repository": {
     "type": "git",

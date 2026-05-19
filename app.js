@@ -1,6 +1,7 @@
 const STORAGE_KEY = "finance-ledger-retirement-v1";
 const CLOUD_DOC_ID = "primary";
-const PRICE_FILE_URL = "prices.json";
+const PRICE_FILE_PATH = "prices.json";
+const PUBLIC_PRICE_FILE_URL = "https://yjmoonn.github.io/assettrail/prices.json";
 const firebaseConfig = window.firebaseConfig || {};
 const ASSET_TYPE_LABELS = {
   KRX: "KRX 국내",
@@ -32,6 +33,7 @@ let priceBook = {
     US: {}
   }
 };
+let activePriceFileUrl = PRICE_FILE_PATH;
 
 const els = {
   totalAsset: document.querySelector("#totalAsset"),
@@ -184,15 +186,9 @@ async function initPrices() {
   setPriceStatus("Prices loading...");
 
   try {
-    const response = await fetch(`${PRICE_FILE_URL}?v=${Date.now()}`, { cache: "no-store" });
-    if (!response.ok) {
-      applyPricesToAssets();
-      setPriceStatus(response.status === 404 ? "Prices not found" : "Prices unavailable");
-      render(false);
-      return;
-    }
-
-    priceBook = normalizePriceBook(await response.json());
+    const loaded = await loadPriceBook();
+    priceBook = normalizePriceBook(loaded.data);
+    activePriceFileUrl = loaded.url;
     applyPricesToAssets();
     setPriceStatus(priceBook.generatedAt ? `Prices: ${shortDate(priceBook.generatedAt)}` : "Prices loaded", true);
     render(false);
@@ -202,6 +198,39 @@ async function initPrices() {
     setPriceStatus("Prices unavailable");
     render(false);
   }
+}
+
+async function loadPriceBook() {
+  let lastError = null;
+
+  for (const url of priceFileCandidates()) {
+    try {
+      const response = await fetch(cacheBustedUrl(url), { cache: "no-store" });
+      if (!response.ok) {
+        lastError = new Error(response.status === 404 ? "Prices not found" : `Prices unavailable: ${response.status}`);
+        continue;
+      }
+      return { data: await response.json(), url };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("Prices unavailable");
+}
+
+function priceFileCandidates() {
+  const candidates = [PRICE_FILE_PATH];
+  const protocol = window.location?.protocol || "";
+  const host = window.location?.hostname || "";
+  const needsPublicFallback = protocol === "file:" || host === "localhost" || host === "127.0.0.1" || host === "";
+  if (needsPublicFallback) candidates.push(PUBLIC_PRICE_FILE_URL);
+  return [...new Set(candidates)];
+}
+
+function cacheBustedUrl(url) {
+  const separator = String(url).includes("?") ? "&" : "?";
+  return `${url}${separator}v=${Date.now()}`;
 }
 
 async function initFirebase() {
@@ -408,7 +437,7 @@ function normalizeTicker(type, ticker) {
 
 function tickerHelpForType(type) {
   if (type === "KRX") return "KRX 가격은 매일 전체 자동 수집됩니다. 6자리 영문/숫자 코드를 입력하세요.";
-  if (type === "US") return "US 가격 수집 대상은 tickers.json의 US 목록에 추가합니다. 평단가는 달러 기준으로 입력하세요.";
+  if (type === "US") return "US 이름은 자동완성됩니다. 평가금액은 가격표에 포함된 티커만 계산됩니다. 평단가는 달러 기준으로 입력하세요.";
   return "CASH/MANUAL은 티커 없이 수동평가금액으로 계산합니다.";
 }
 
@@ -551,7 +580,7 @@ function applyPricesToAssets() {
       currentPrice: price ? price.close : 0,
       kind: price?.kind || symbolForAsset(normalized)?.kind || null,
       priceDate: price?.date || priceBook.generatedAt || null,
-      priceSource: price?.source || PRICE_FILE_URL,
+      priceSource: price?.source || activePriceFileUrl,
       priceUpdatedAt: priceBook.generatedAt
     };
   });
@@ -791,7 +820,7 @@ function renderPriceNotice() {
     const krxMissing = missing.filter((item) => item.startsWith("KRX:"));
     const usMissing = missing.filter((item) => item.startsWith("US:"));
     if (krxMissing.length) parts.push(`KRX 가격 대기: ${krxMissing.join(", ")}. 다음 가격표 업데이트 후 다시 확인하세요.`);
-    if (usMissing.length) parts.push(`US 가격 대기: ${usMissing.join(", ")}. tickers.json에 추가하세요.`);
+    if (usMissing.length) parts.push(`US 가격 대기: ${usMissing.join(", ")}. 가격표 생성 대상(tickers.json)에 추가해야 평가금액이 계산됩니다.`);
   }
   if (errors.length) {
     const errorText = errors
@@ -811,7 +840,7 @@ function assetValueDetail(asset) {
   if (marketPriceMissing(asset)) {
     const ticker = normalizeTicker(type, asset.ticker);
     const code = ticker ? `${type}:${ticker}` : type;
-    const help = type === "KRX" ? "다음 가격표 업데이트 후 확인" : `tickers.json에 ${code} 추가`;
+    const help = type === "KRX" ? "다음 가격표 업데이트 후 확인" : `${code} 가격표 생성 대상 아님`;
     return `<small class="sub-value warning">가격 대기 · ${escapeHtml(help)}</small>`;
   }
 
