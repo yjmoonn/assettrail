@@ -69,6 +69,11 @@ function submitAsset() {
     .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
 }
 
+assert.equal(window.document.querySelector("#assetFormPanel").hidden, true);
+window.document.querySelector("#toggleAssetFormBtn").click();
+assert.equal(window.document.querySelector("#assetFormPanel").hidden, false);
+assert.equal(window.document.querySelector("#toggleAssetFormBtn").textContent, "닫기");
+
 setValue("#assetCategory", "KRX");
 setValue("#assetName", "삼성전자");
 setValue("#assetTicker", "005930");
@@ -92,6 +97,17 @@ const rows = [...window.document.querySelectorAll("#assetRows tr")].map((row) =>
   row.textContent.replace(/\s+/g, " ").trim()
 );
 const saved = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
+
+assert.equal(window.document.querySelector("#assetFormPanel").hidden, true);
+assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "전체 3개");
+setValue("#assetSearch", "Apple");
+assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "1 / 3개");
+assert.match(window.document.querySelector("#assetRows").textContent, /Apple/);
+setValue("#assetSearch", "");
+setValue("#assetTypeFilter", "CASH");
+assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "1 / 3개");
+assert.match(window.document.querySelector("#assetRows").textContent, /현금/);
+setValue("#assetTypeFilter", "ALL");
 
 assert.equal(window.document.querySelector("#priceStatus").textContent, "Prices: 5월 19일");
 assert.equal(window.document.querySelector("#totalAsset").textContent, "₩1,740,380");

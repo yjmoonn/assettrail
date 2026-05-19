@@ -37,6 +37,8 @@ const els = {
   retireGap: document.querySelector("#retireGap"),
   retireGapLabel: document.querySelector("#retireGapLabel"),
   assetForm: document.querySelector("#assetForm"),
+  assetFormPanel: document.querySelector("#assetFormPanel"),
+  assetFormTitle: document.querySelector("#assetFormTitle"),
   assetId: document.querySelector("#assetId"),
   assetName: document.querySelector("#assetName"),
   assetTicker: document.querySelector("#assetTicker"),
@@ -50,6 +52,9 @@ const els = {
   cancelEditBtn: document.querySelector("#cancelEditBtn"),
   snapshotBtn: document.querySelector("#snapshotBtn"),
   assetRows: document.querySelector("#assetRows"),
+  assetSearch: document.querySelector("#assetSearch"),
+  assetTypeFilter: document.querySelector("#assetTypeFilter"),
+  visibleAssetCount: document.querySelector("#visibleAssetCount"),
   categoryBreakdown: document.querySelector("#categoryBreakdown"),
   historyChart: document.querySelector("#historyChart"),
   historyRows: document.querySelector("#historyRows"),
@@ -72,6 +77,7 @@ const els = {
   targetStatusDetail: document.querySelector("#targetStatusDetail"),
   priceStatus: document.querySelector("#priceStatus"),
   syncStatus: document.querySelector("#syncStatus"),
+  toggleAssetFormBtn: document.querySelector("#toggleAssetFormBtn"),
   loginBtn: document.querySelector("#loginBtn"),
   logoutBtn: document.querySelector("#logoutBtn"),
   cloudSyncBtn: document.querySelector("#cloudSyncBtn"),
@@ -82,6 +88,10 @@ const els = {
 };
 
 const state = loadState();
+const uiState = {
+  assetSearch: "",
+  assetType: "ALL"
+};
 
 function loadState() {
   const fallback = {
@@ -544,13 +554,24 @@ function renderSummary() {
 
 function renderAssets() {
   els.assetRows.textContent = "";
+  updateVisibleAssetCount(state.assets.length, state.assets.length);
   if (!state.assets.length) {
     els.assetRows.append(els.emptyAssetTemplate.content.cloneNode(true));
     return;
   }
 
   const sorted = [...state.assets].sort((a, b) => assetValue(b) - assetValue(a));
-  sorted.forEach((asset) => {
+  const filtered = sorted.filter(assetMatchesFilters);
+  updateVisibleAssetCount(filtered.length, state.assets.length);
+
+  if (!filtered.length) {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td colspan="8" class="empty">조건에 맞는 자산이 없습니다.</td>`;
+    els.assetRows.append(row);
+    return;
+  }
+
+  filtered.forEach((asset) => {
     const gain = assetGain(asset);
     const gainRate = gain === null ? null : gain / assetCost(asset);
     const valueDetail = assetValueDetail(asset);
@@ -572,6 +593,28 @@ function renderAssets() {
     `;
     els.assetRows.append(row);
   });
+}
+
+function assetMatchesFilters(asset) {
+  const type = assetType(asset);
+  if (uiState.assetType !== "ALL" && type !== uiState.assetType) return false;
+
+  const query = normalizeAssetKey(uiState.assetSearch);
+  if (!query) return true;
+
+  const haystack = [
+    asset.name,
+    asset.ticker,
+    asset.note,
+    type,
+    assetTypeLabel(asset)
+  ].map(normalizeAssetKey).join(" ");
+  return haystack.includes(query);
+}
+
+function updateVisibleAssetCount(visible, total) {
+  if (!els.visibleAssetCount) return;
+  els.visibleAssetCount.textContent = visible === total ? `전체 ${total}개` : `${visible} / ${total}개`;
 }
 
 function assetValueDetail(asset) {
@@ -850,8 +893,27 @@ function escapeHtml(value) {
 function resetAssetForm() {
   els.assetId.value = "";
   els.assetForm.reset();
+  if (els.assetFormTitle) els.assetFormTitle.textContent = "자산 추가";
   els.saveAssetBtn.textContent = "자산 저장";
   updateAssetFormForType();
+  hideAssetForm();
+}
+
+function showAssetForm(mode = "create") {
+  if (els.assetFormPanel) els.assetFormPanel.hidden = false;
+  if (els.assetFormTitle) els.assetFormTitle.textContent = mode === "edit" ? "자산 수정" : "자산 추가";
+  if (els.toggleAssetFormBtn) {
+    els.toggleAssetFormBtn.textContent = "닫기";
+    els.toggleAssetFormBtn.setAttribute("aria-expanded", "true");
+  }
+}
+
+function hideAssetForm() {
+  if (els.assetFormPanel) els.assetFormPanel.hidden = true;
+  if (els.toggleAssetFormBtn) {
+    els.toggleAssetFormBtn.textContent = "자산 추가";
+    els.toggleAssetFormBtn.setAttribute("aria-expanded", "false");
+  }
 }
 
 function normalizeAssetKey(value) {
@@ -918,6 +980,7 @@ els.assetRows.addEventListener("click", (event) => {
   if (!asset) return;
 
   if (button.dataset.action === "edit") {
+    showAssetForm("edit");
     els.assetId.value = asset.id;
     els.assetName.value = asset.name;
     els.assetTicker.value = asset.ticker || "";
@@ -935,6 +998,15 @@ els.assetRows.addEventListener("click", (event) => {
     state.assets = state.assets.filter((item) => item.id !== asset.id);
     resetAssetForm();
     render();
+  }
+});
+
+els.toggleAssetFormBtn.addEventListener("click", () => {
+  if (els.assetFormPanel.hidden) {
+    showAssetForm("create");
+    els.assetName.focus();
+  } else {
+    resetAssetForm();
   }
 });
 
@@ -974,6 +1046,17 @@ els.cloudSyncBtn.addEventListener("click", async () => {
 els.cancelEditBtn.addEventListener("click", resetAssetForm);
 
 els.assetCategory.addEventListener("change", updateAssetFormForType);
+
+els.assetSearch.addEventListener("input", () => {
+  uiState.assetSearch = els.assetSearch.value;
+  render(false);
+});
+
+els.assetTypeFilter.addEventListener("change", () => {
+  uiState.assetType = normalizeAssetType(els.assetTypeFilter.value);
+  if (els.assetTypeFilter.value === "ALL") uiState.assetType = "ALL";
+  render(false);
+});
 
 els.snapshotBtn.addEventListener("click", () => {
   const now = new Date().toISOString();
