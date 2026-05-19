@@ -50,7 +50,8 @@ yjmoonn.github.io
 ## Operations
 
 - GitHub Pages deploys from `.github/workflows/deploy-pages.yml`.
-- The same workflow generates `prices.json` on push, manual dispatch, and the daily schedule.
+- The workflow generates `prices.json` only for the daily schedule, manual price updates, or changes to price inputs/generator files (`tickers.json`, `requirements.txt`, `scripts/generate_prices.py`).
+- UI-only deploys reuse the currently deployed `prices.json` so Pages deploys do not wait on price collection.
 - If prices fail, check the latest "Deploy GitHub Pages" workflow run in GitHub Actions.
 - Keep personal portfolio data restricted to signed-in users only:
 

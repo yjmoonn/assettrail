@@ -7,6 +7,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      generate_prices:
+        description: "Regenerate prices.json before deploying"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -19,6 +25,7 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PAGES_URL: https://yjmoonn.github.io/assettrail
 
 jobs:
   deploy:
@@ -29,22 +36,95 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
           enablement: true
 
+      - name: Determine price mode
+        id: price_mode
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          generate="false"
+          reason="reuse existing prices.json"
+
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            generate="true"
+            reason="scheduled daily price update"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            generate="${{ inputs.generate_prices }}"
+            if [[ "$generate" == "true" ]]; then
+              reason="manual price update requested"
+            else
+              reason="manual deploy without price update"
+            fi
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            before="${{ github.event.before }}"
+            after="${{ github.sha }}"
+            if [[ "$before" =~ ^0+$ ]]; then
+              changed_files="$(git diff-tree --no-commit-id --name-only -r "$after")"
+            else
+              changed_files="$(git diff --name-only "$before" "$after")"
+            fi
+
+            echo "$changed_files" | sed 's/^/changed: /'
+            if echo "$changed_files" | grep -Eq '^(tickers\.json|requirements\.txt|scripts/generate_prices\.py)$'; then
+              generate="true"
+              reason="price input or generator changed"
+            fi
+          fi
+
+          echo "generate=$generate" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          echo "Price mode: $reason"
+
       - name: Set up Python
+        if: steps.price_mode.outputs.generate == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install price dependencies
+        if: steps.price_mode.outputs.generate == 'true'
         run: pip install -r requirements.txt
 
       - name: Generate prices
+        if: steps.price_mode.outputs.generate == 'true'
         run: python scripts/generate_prices.py
+
+      - name: Reuse deployed prices
+        if: steps.price_mode.outputs.generate != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! curl -fsSL "$PAGES_URL/prices.json?v=${{ github.sha }}" -o prices.json; then
+            cat > prices.json <<'JSON'
+          {
+            "errors": [
+              {
+                "error": "deployed prices.json could not be reused",
+                "ticker": "prices.json",
+                "type": "DEPLOY"
+              }
+            ],
+            "fx": {},
+            "generatedAt": null,
+            "prices": {
+              "KRX": {},
+              "US": {}
+            },
+            "symbols": {
+              "KRX": {},
+              "US": {}
+            }
+          }
+          JSON
+          fi
 
       - name: Prepare static site
         run: |
