@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AssetTrail</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="hero">
+        <p class="eyebrow">AssetTrail</p>
+        <h1>Track assets with a clearer trail.</h1>
+        <p class="lede">
+          A lightweight starting point for asset inventory, price settings,
+          and Firebase-backed records.
+        </p>
+      </section>
+
+      <section class="panel" aria-labelledby="status-title">
+        <h2 id="status-title">Project Status</h2>
+        <div id="app" class="status-grid"></div>
+      </section>
+    </main>
+
+    <script src="firebase-config.js"></script>
+    <script src="price-config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
+
