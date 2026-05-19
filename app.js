@@ -46,6 +46,7 @@ const els = {
   assetTickerHelp: document.querySelector("#assetTickerHelp"),
   assetCategory: document.querySelector("#assetCategory"),
   assetAmount: document.querySelector("#assetAmount"),
+  assetAmountField: document.querySelector("#assetAmountField"),
   assetQuantity: document.querySelector("#assetQuantity"),
   assetAveragePrice: document.querySelector("#assetAveragePrice"),
   assetNote: document.querySelector("#assetNote"),
@@ -1044,7 +1045,9 @@ function updateAssetFormForType() {
   const manualValued = isManualValuedType(type);
   const marketValued = isMarketType(type);
   els.assetAmount.disabled = !manualValued;
-  els.assetAmount.placeholder = manualValued ? "현금/수동 자산 평가금액" : "prices.json에서 자동 계산";
+  els.assetAmount.placeholder = "금액 입력";
+  if (els.assetAmountField) els.assetAmountField.hidden = !manualValued;
+  if (!manualValued) els.assetAmount.value = "";
   els.assetTicker.disabled = !marketValued;
   els.assetTicker.placeholder = type === "KRX" ? "예: 005930, 0092B0" : type === "US" ? "예: AAPL, QQQ" : "티커 불필요";
   if (!marketValued) {

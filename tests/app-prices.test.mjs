@@ -83,6 +83,7 @@ assert.equal(window.document.querySelector("#assetFormPanel").hidden, false);
 assert.equal(window.document.querySelector("#toggleAssetFormBtn").textContent, "닫기");
 
 setValue("#assetCategory", "KRX");
+assert.equal(window.document.querySelector("#assetAmountField").hidden, true);
 setValue("#assetTicker", "005930");
 window.document.querySelector("#assetTicker").dispatchEvent(new window.Event("blur", { bubbles: true }));
 assert.equal(window.document.querySelector("#assetName").value, "삼성전자");
@@ -105,6 +106,7 @@ setValue("#assetAveragePrice", "180");
 submitAsset();
 
 setValue("#assetCategory", "CASH");
+assert.equal(window.document.querySelector("#assetAmountField").hidden, false);
 setValue("#assetName", "현금");
 setValue("#assetAmount", "1000000");
 submitAsset();
