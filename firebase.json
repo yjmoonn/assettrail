@@ -6,9 +6,14 @@
     "public": ".",
     "ignore": [
       "firebase.json",
+      "firestore.rules",
+      ".firebase/**",
+      ".git/**",
+      ".github/**",
+      ".gitignore",
+      ".firebaserc",
       "**/.*",
       "**/node_modules/**"
     ]
   }
 }
-

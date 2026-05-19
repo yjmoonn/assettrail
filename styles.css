@@ -251,6 +251,11 @@ textarea:focus {
   box-shadow: 0 0 0 3px rgba(31, 122, 77, 0.12);
 }
 
+input:disabled {
+  background: #f4f6f4;
+  color: var(--muted);
+}
+
 textarea {
   line-height: 1.5;
   min-height: 130px;
@@ -341,6 +346,14 @@ tbody tr:last-child td {
 .ticker {
   color: var(--blue);
   font-weight: 900;
+}
+
+.sub-value {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+  font-weight: 800;
+  margin-top: 4px;
 }
 
 .breakdown {

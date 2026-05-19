@@ -1,6 +1,13 @@
 const STORAGE_KEY = "finance-ledger-retirement-v1";
 const CLOUD_DOC_ID = "primary";
+const PRICE_FILE_URL = "prices.json";
 const firebaseConfig = window.firebaseConfig || {};
+const ASSET_TYPE_LABELS = {
+  KRX: "KRX 국내",
+  US: "US 미국",
+  CASH: "CASH 현금",
+  MANUAL: "MANUAL 수동"
+};
 
 let cloud = {
   auth: null,
@@ -9,6 +16,15 @@ let cloud = {
   enabled: false,
   ready: false,
   user: null
+};
+
+let priceBook = {
+  generatedAt: null,
+  loaded: false,
+  prices: {
+    KRX: {},
+    US: {}
+  }
 };
 
 const els = {
@@ -53,6 +69,7 @@ const els = {
   returnWithContrib: document.querySelector("#returnWithContrib"),
   targetStatus: document.querySelector("#targetStatus"),
   targetStatusDetail: document.querySelector("#targetStatusDetail"),
+  priceStatus: document.querySelector("#priceStatus"),
   syncStatus: document.querySelector("#syncStatus"),
   loginBtn: document.querySelector("#loginBtn"),
   logoutBtn: document.querySelector("#logoutBtn"),
@@ -87,7 +104,7 @@ function loadState() {
     return {
       ...fallback,
       ...saved,
-      assets: Array.isArray(saved.assets) ? saved.assets : [],
+      assets: Array.isArray(saved.assets) ? saved.assets.map(normalizeAsset) : [],
       snapshots: Array.isArray(saved.snapshots) ? saved.snapshots : [],
       retirement: { ...fallback.retirement, ...(saved.retirement || {}) }
     };
@@ -97,7 +114,7 @@ function loadState() {
 }
 
 function persist() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(storageSafeState()));
 }
 
 function hasFirebaseConfig() {
@@ -106,15 +123,21 @@ function hasFirebaseConfig() {
 
 function cloudSafeState() {
   return {
-    assets: state.assets,
-    snapshots: state.snapshots,
-    retirement: state.retirement,
+    ...storageSafeState(),
     updatedAt: new Date().toISOString()
   };
 }
 
+function storageSafeState() {
+  return {
+    assets: state.assets.map(serializeAsset),
+    snapshots: state.snapshots,
+    retirement: state.retirement
+  };
+}
+
 function replaceState(nextState) {
-  state.assets = Array.isArray(nextState.assets) ? nextState.assets : [];
+  state.assets = Array.isArray(nextState.assets) ? nextState.assets.map(normalizeAsset) : [];
   state.snapshots = Array.isArray(nextState.snapshots) ? nextState.snapshots : [];
   state.retirement = { ...state.retirement, ...(nextState.retirement || {}) };
   hydrateRetirementInputs();
@@ -124,6 +147,36 @@ function setSyncStatus(text, online = false) {
   if (!els.syncStatus) return;
   els.syncStatus.textContent = text;
   els.syncStatus.classList.toggle("online", online);
+}
+
+function setPriceStatus(text, online = false) {
+  if (!els.priceStatus) return;
+  els.priceStatus.textContent = text;
+  els.priceStatus.classList.toggle("online", online);
+}
+
+async function initPrices() {
+  setPriceStatus("Prices loading...");
+
+  try {
+    const response = await fetch(`${PRICE_FILE_URL}?v=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) {
+      applyPricesToAssets();
+      setPriceStatus(response.status === 404 ? "Prices not found" : "Prices unavailable");
+      render(false);
+      return;
+    }
+
+    priceBook = normalizePriceBook(await response.json());
+    applyPricesToAssets();
+    setPriceStatus(priceBook.generatedAt ? `Prices: ${shortDate(priceBook.generatedAt)}` : "Prices loaded", true);
+    render(false);
+  } catch (error) {
+    console.error(error);
+    applyPricesToAssets();
+    setPriceStatus("Prices unavailable");
+    render(false);
+  }
 }
 
 async function initFirebase() {
@@ -141,7 +194,8 @@ async function initFirebase() {
     cloud.auth = authModule.getAuth(app);
     cloud.db = firestoreModule.getFirestore(app);
     cloud.provider = new authModule.GoogleAuthProvider();
-    cloud.signInWithPopup = authModule.signInWithPopup;
+    cloud.signInWithRedirect = authModule.signInWithRedirect;
+    cloud.getRedirectResult = authModule.getRedirectResult;
     cloud.signOut = authModule.signOut;
     cloud.doc = firestoreModule.doc;
     cloud.getDoc = firestoreModule.getDoc;
@@ -154,7 +208,17 @@ async function initFirebase() {
       updateAuthUi();
       if (!user) return;
       cloud.docRef = cloud.doc(cloud.db, "users", user.uid, "financeData", CLOUD_DOC_ID);
-      await pullCloudData();
+      try {
+        await pullCloudData();
+      } catch (error) {
+        console.error(error);
+        setSyncStatus("Cloud load failed");
+      }
+    });
+
+    cloud.getRedirectResult(cloud.auth).catch((error) => {
+      console.error(error);
+      setSyncStatus(`Login failed: ${error.code || "unknown"}`);
     });
   } catch (error) {
     console.error(error);
@@ -224,18 +288,165 @@ function uid() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function normalizeAsset(asset) {
+  const { category, ...rest } = asset || {};
+  const type = normalizeAssetType(rest.type || inferLegacyAssetType(asset));
+  const currentPrice = Number(rest.currentPrice || 0);
+  return {
+    ...rest,
+    type,
+    ticker: String(rest.ticker || "").trim().toUpperCase(),
+    amount: isManualValuedType(type) ? Number(rest.amount || 0) : 0,
+    currentPrice: isMarketType(type) && Number.isFinite(currentPrice) ? currentPrice : 0,
+    quantity: Number(rest.quantity || 0),
+    averagePrice: Number(rest.averagePrice || 0)
+  };
+}
+
+function serializeAsset(asset) {
+  const normalized = normalizeAsset(asset);
+  const { currentPrice, priceDate, priceSource, priceUpdatedAt, ...saved } = normalized;
+  return saved;
+}
+
+function inferLegacyAssetType(asset) {
+  const category = String(asset?.category || "").trim();
+  const ticker = String(asset?.ticker || "").trim().toUpperCase();
+  if (category === "현금" || category === "예금") return "CASH";
+  if (category === "주식" || category === "ETF") return /^[A-Z.]+$/.test(ticker) ? "US" : "KRX";
+  return "MANUAL";
+}
+
+function normalizeAssetType(value) {
+  const type = String(value || "").trim().toUpperCase();
+  return ASSET_TYPE_LABELS[type] ? type : "MANUAL";
+}
+
+function assetType(asset) {
+  return normalizeAssetType(asset?.type || inferLegacyAssetType(asset));
+}
+
+function assetTypeLabel(asset) {
+  return ASSET_TYPE_LABELS[assetType(asset)];
+}
+
+function isMarketType(type) {
+  return type === "KRX" || type === "US";
+}
+
+function isManualValuedType(type) {
+  return type === "CASH" || type === "MANUAL";
+}
+
+function marketPriceMissing(asset) {
+  return isMarketType(assetType(asset)) && !(Number(asset.currentPrice || 0) > 0);
+}
+
+function assetIdentity(asset) {
+  const type = assetType(asset);
+  const ticker = normalizeAssetKey(asset.ticker);
+  if (isMarketType(type) && ticker) return `${type}:${ticker}`;
+  return `${type}:${normalizeAssetKey(asset.name)}`;
+}
+
+function normalizeTicker(type, ticker) {
+  const normalized = String(ticker || "").trim().toUpperCase();
+  if (type === "KRX" && /^\d+$/.test(normalized)) return normalized.padStart(6, "0");
+  return normalized;
+}
+
+function normalizePriceBook(data) {
+  const nextBook = {
+    generatedAt: data?.generatedAt || data?.updatedAt || data?.date || null,
+    loaded: true,
+    prices: {
+      KRX: {},
+      US: {}
+    }
+  };
+
+  addPriceGroup(nextBook, "KRX", data?.prices?.KRX || data?.KRX);
+  addPriceGroup(nextBook, "US", data?.prices?.US || data?.US);
+
+  if (data?.prices && !data.prices.KRX && !data.prices.US) {
+    Object.entries(data.prices).forEach(([key, entry]) => {
+      const [type, ticker] = String(key).split(":");
+      addPriceEntry(nextBook, normalizeAssetType(type), ticker, entry);
+    });
+  }
+
+  return nextBook;
+}
+
+function addPriceGroup(book, type, group) {
+  if (!group || typeof group !== "object") return;
+  Object.entries(group).forEach(([ticker, entry]) => addPriceEntry(book, type, ticker, entry));
+}
+
+function addPriceEntry(book, type, ticker, entry) {
+  if (!isMarketType(type)) return;
+  const key = normalizeTicker(type, ticker);
+  const price = parsePriceEntry(entry);
+  if (!key || !price) return;
+  book.prices[type][key] = price;
+}
+
+function parsePriceEntry(entry) {
+  if (typeof entry === "number") return Number.isFinite(entry) ? { close: entry } : null;
+  if (!entry || typeof entry !== "object") return null;
+
+  const close = Number(entry.close ?? entry.price ?? entry.value ?? entry.last);
+  if (!Number.isFinite(close) || close <= 0) return null;
+
+  return {
+    close,
+    date: entry.date || entry.asOf || entry.updatedAt || null,
+    source: entry.source || null
+  };
+}
+
+function priceForAsset(asset) {
+  const type = assetType(asset);
+  if (!isMarketType(type)) return null;
+
+  const ticker = normalizeTicker(type, asset.ticker);
+  return priceBook.prices[type][ticker] || null;
+}
+
+function applyPricesToAssets() {
+  state.assets = state.assets.map((asset) => {
+    const normalized = normalizeAsset(asset);
+    const type = assetType(normalized);
+    if (!isMarketType(type)) return normalized;
+
+    const price = priceForAsset(normalized);
+    return {
+      ...normalized,
+      currentPrice: price ? price.close : 0,
+      priceDate: price?.date || priceBook.generatedAt || null,
+      priceSource: price?.source || PRICE_FILE_URL,
+      priceUpdatedAt: priceBook.generatedAt
+    };
+  });
+}
+
 function totalAssets() {
   return state.assets.reduce((sum, asset) => sum + assetValue(asset), 0);
 }
 
 function assetValue(asset) {
+  const type = assetType(asset);
+  if (isManualValuedType(type)) return Number(asset.amount || 0);
+
   const quantity = Number(asset.quantity || 0);
   const currentPrice = Number(asset.currentPrice || 0);
   if (quantity > 0 && currentPrice > 0) return quantity * currentPrice;
-  return Number(asset.amount || 0);
+  return 0;
 }
 
 function assetCost(asset) {
+  if (!isMarketType(assetType(asset))) return 0;
+
   const quantity = Number(asset.quantity || 0);
   const averagePrice = Number(asset.averagePrice || 0);
   if (quantity > 0 && averagePrice > 0) return quantity * averagePrice;
@@ -244,7 +455,7 @@ function assetCost(asset) {
 
 function assetGain(asset) {
   const cost = assetCost(asset);
-  if (!cost) return null;
+  if (!cost || marketPriceMissing(asset)) return null;
   return assetValue(asset) - cost;
 }
 
@@ -325,13 +536,14 @@ function renderAssets() {
   sorted.forEach((asset) => {
     const gain = assetGain(asset);
     const gainRate = gain === null ? null : gain / assetCost(asset);
+    const valueDetail = assetValueDetail(asset);
     const row = document.createElement("tr");
     row.innerHTML = `
       <td><strong>${escapeHtml(asset.name)}</strong></td>
       <td>${asset.ticker ? `<span class="ticker">${escapeHtml(asset.ticker)}</span>` : ""}</td>
-      <td><span class="badge">${escapeHtml(asset.category)}</span></td>
+      <td><span class="badge">${escapeHtml(assetTypeLabel(asset))}</span></td>
       <td class="number">${asset.quantity ? formatPlainNumber(asset.quantity) : "-"}</td>
-      <td class="number">${money(assetValue(asset))}</td>
+      <td class="number">${money(assetValue(asset))}${valueDetail}</td>
       <td class="number ${gain > 0 ? "positive" : gain < 0 ? "negative" : ""}">${gain === null ? "-" : `${gain > 0 ? "+" : ""}${money(gain)}${gainRate ? ` (${gainRate > 0 ? "+" : ""}${percent(gainRate)})` : ""}`}</td>
       <td>${escapeHtml(asset.note || "")}</td>
       <td>
@@ -343,6 +555,15 @@ function renderAssets() {
     `;
     els.assetRows.append(row);
   });
+}
+
+function assetValueDetail(asset) {
+  if (!isMarketType(assetType(asset))) return "";
+  if (marketPriceMissing(asset)) return `<small class="sub-value">가격 대기</small>`;
+
+  const price = formatPlainNumber(asset.currentPrice);
+  const date = asset.priceDate ? ` · ${escapeHtml(shortDate(asset.priceDate))}` : "";
+  return `<small class="sub-value">종가 ${price}${date}</small>`;
 }
 
 function renderBreakdown() {
@@ -358,7 +579,8 @@ function renderBreakdown() {
 
   const categories = new Map();
   state.assets.forEach((asset) => {
-    categories.set(asset.category, (categories.get(asset.category) || 0) + assetValue(asset));
+    const typeLabel = assetTypeLabel(asset);
+    categories.set(typeLabel, (categories.get(typeLabel) || 0) + assetValue(asset));
   });
 
   [...categories.entries()]
@@ -578,6 +800,16 @@ function formatDate(value) {
   }).format(new Date(value));
 }
 
+function shortDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "short",
+    day: "numeric"
+  }).format(date);
+}
+
 function compactMoney(value) {
   if (value >= 100000000) return `${(value / 100000000).toFixed(1)}억`;
   if (value >= 10000) return `${(value / 10000).toFixed(0)}만`;
@@ -597,10 +829,18 @@ function resetAssetForm() {
   els.assetId.value = "";
   els.assetForm.reset();
   els.saveAssetBtn.textContent = "자산 저장";
+  updateAssetFormForType();
 }
 
 function normalizeAssetKey(value) {
   return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function updateAssetFormForType() {
+  const type = normalizeAssetType(els.assetCategory.value);
+  const manualValued = isManualValuedType(type);
+  els.assetAmount.disabled = !manualValued;
+  els.assetAmount.placeholder = manualValued ? "현금/수동 자산 평가금액" : "prices.json에서 자동 계산";
 }
 
 function parseAmount(value) {
@@ -613,12 +853,13 @@ function parseAmount(value) {
 
 els.assetForm.addEventListener("submit", (event) => {
   event.preventDefault();
+  const type = normalizeAssetType(els.assetCategory.value);
   const asset = {
     id: els.assetId.value || uid(),
     name: els.assetName.value.trim(),
     ticker: els.assetTicker.value.trim().toUpperCase(),
-    category: els.assetCategory.value,
-    amount: numberValue(els.assetAmount),
+    type,
+    amount: isManualValuedType(type) ? numberValue(els.assetAmount) : 0,
     quantity: decimalValue(els.assetQuantity),
     averagePrice: decimalValue(els.assetAveragePrice),
     note: els.assetNote.value.trim(),
@@ -626,13 +867,18 @@ els.assetForm.addEventListener("submit", (event) => {
   };
 
   if (!asset.name) return;
+  if (isMarketType(type) && !asset.ticker) {
+    alert("KRX/US 자산은 티커를 입력하세요.");
+    return;
+  }
 
   const index = state.assets.findIndex((item) =>
-    els.assetId.value ? item.id === asset.id : normalizeAssetKey(item.name) === normalizeAssetKey(asset.name)
+    els.assetId.value ? item.id === asset.id : assetIdentity(item) === assetIdentity(asset)
   );
-  if (index >= 0) state.assets[index] = { ...state.assets[index], ...asset, id: state.assets[index].id };
-  else state.assets.push(asset);
+  if (index >= 0) state.assets[index] = normalizeAsset({ ...state.assets[index], ...asset, id: state.assets[index].id });
+  else state.assets.push(normalizeAsset(asset));
 
+  applyPricesToAssets();
   resetAssetForm();
   render();
 });
@@ -647,12 +893,13 @@ els.assetRows.addEventListener("click", (event) => {
     els.assetId.value = asset.id;
     els.assetName.value = asset.name;
     els.assetTicker.value = asset.ticker || "";
-    els.assetCategory.value = asset.category;
-    els.assetAmount.value = formatPlainNumber(asset.amount || assetValue(asset));
+    els.assetCategory.value = assetType(asset);
+    els.assetAmount.value = isManualValuedType(assetType(asset)) ? formatPlainNumber(asset.amount || 0) : "";
     els.assetQuantity.value = asset.quantity || "";
     els.assetAveragePrice.value = asset.averagePrice || "";
     els.assetNote.value = asset.note || "";
     els.saveAssetBtn.textContent = "수정 저장";
+    updateAssetFormForType();
     els.assetName.focus();
   }
 
@@ -669,9 +916,11 @@ els.loginBtn.addEventListener("click", async () => {
     return;
   }
   try {
-    await cloud.signInWithPopup(cloud.auth, cloud.provider);
+    setSyncStatus("Opening Google login...");
+    await cloud.signInWithRedirect(cloud.auth, cloud.provider);
   } catch (error) {
     console.error(error);
+    setSyncStatus("Login failed");
     alert("로그인에 실패했습니다. Firebase Authentication 설정을 확인하세요.");
   }
 });
@@ -696,6 +945,8 @@ els.cloudSyncBtn.addEventListener("click", async () => {
 
 els.cancelEditBtn.addEventListener("click", resetAssetForm);
 
+els.assetCategory.addEventListener("change", updateAssetFormForType);
+
 els.snapshotBtn.addEventListener("click", () => {
   const now = new Date().toISOString();
   state.snapshots.push({
@@ -703,9 +954,10 @@ els.snapshotBtn.addEventListener("click", () => {
     createdAt: now,
     total: totalAssets(),
     assets: state.assets.map((asset) => ({ ...asset })),
-    categoryTotals: Object.fromEntries(
+    typeTotals: Object.fromEntries(
       state.assets.reduce((map, asset) => {
-        map.set(asset.category, (map.get(asset.category) || 0) + assetValue(asset));
+        const type = assetType(asset);
+        map.set(type, (map.get(type) || 0) + assetValue(asset));
         return map;
       }, new Map())
     )
@@ -750,6 +1002,7 @@ els.importInput.addEventListener("change", async (event) => {
     state.assets = imported.assets;
     state.snapshots = imported.snapshots;
     state.retirement = { ...state.retirement, ...(imported.retirement || {}) };
+    applyPricesToAssets();
     hydrateRetirementInputs();
     render();
   } catch {
@@ -760,6 +1013,10 @@ els.importInput.addEventListener("change", async (event) => {
 });
 
 hydrateRetirementInputs();
+state.assets = state.assets.map(normalizeAsset);
+applyPricesToAssets();
+updateAssetFormForType();
 render();
 updateAuthUi();
+initPrices();
 initFirebase();

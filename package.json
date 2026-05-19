@@ -1,0 +1,28 @@
+{
+  "name": "assettrail",
+  "version": "1.0.0",
+  "description": "AssetTrail static finance tracker",
+  "private": true,
+  "scripts": {
+    "check:js": "node --check app.js",
+    "test:prices": "node tests/app-prices.test.mjs",
+    "test:firestore": "JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH firebase emulators:exec --only firestore \"node tests/firestore-rules.test.mjs\"",
+    "test": "npm run check:js && npm run test:prices && npm run test:firestore"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yjmoonn/assettrail.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "bugs": {
+    "url": "https://github.com/yjmoonn/assettrail/issues"
+  },
+  "homepage": "https://github.com/yjmoonn/assettrail#readme",
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
+    "firebase": "^12.13.0",
+    "jsdom": "^29.1.1"
+  }
+}

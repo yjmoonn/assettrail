@@ -1,0 +1,3 @@
+setuptools==80.9.0
+pykrx==1.0.51
+yfinance==0.2.66

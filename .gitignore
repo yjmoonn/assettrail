@@ -1,8 +1,11 @@
 .DS_Store
+.firebase/
+__pycache__/
+*.pyc
+prices.json
 node_modules/
 dist/
 build/
 .env
 .env.*
 *.log
-
