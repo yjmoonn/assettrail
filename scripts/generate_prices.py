@@ -97,9 +97,19 @@ def build_krx_price_entry(item, source):
     return ticker, {
         "close": close,
         "date": parse_trade_date(item.get("localTradedAt")),
+        "kind": kind_from_source(source),
         "name": name,
         "source": source
     }
+
+
+def kind_from_source(source):
+    source_text = str(source or "").upper()
+    if "ETF" in source_text:
+        return "ETF"
+    if "ETN" in source_text:
+        return "ETN"
+    return "STOCK"
 
 
 def fetch_naver_category_prices(path, source):
@@ -243,7 +253,7 @@ def fetch_us_symbols():
     return symbols
 
 
-def fetch_us_close(ticker, lookback_days):
+def fetch_us_close(ticker, lookback_days, us_symbols=None):
     frame = yf.download(
         ticker,
         period=f"{lookback_days}d",
@@ -266,24 +276,57 @@ def fetch_us_close(ticker, lookback_days):
     if hasattr(close, "item"):
         close = close.item()
 
+    symbol = (us_symbols or {}).get(ticker, {})
     return {
         "close": float(close),
         "date": last_date.strftime("%Y-%m-%d"),
+        "kind": symbol.get("kind") or "STOCK",
         "name": fetch_us_name(ticker),
         "source": "yfinance"
+    }
+
+
+def fetch_usdkrw(lookback_days):
+    frame = yf.download(
+        "KRW=X",
+        period=f"{lookback_days}d",
+        interval="1d",
+        auto_adjust=False,
+        progress=False,
+        threads=False
+    )
+
+    if frame.empty or "Close" not in frame:
+        return None
+
+    closes = frame["Close"].dropna()
+    closes = closes[closes > 0]
+    if closes.empty:
+        return None
+
+    last_date = closes.index[-1]
+    close = closes.iloc[-1]
+    if hasattr(close, "item"):
+        close = close.item()
+
+    return {
+        "date": last_date.strftime("%Y-%m-%d"),
+        "rate": float(close),
+        "source": "yfinance KRW=X"
     }
 
 
 def build_prices(tickers, lookback_days):
     prices = {"KRX": {}, "US": {}}
     symbols = {"KRX": {}, "US": {}}
+    fx = {}
     errors = []
 
     try:
         prices["KRX"] = fetch_all_krx_prices()
         symbols["KRX"] = {
             ticker: {
-                "kind": "ETF" if "ETF" in str(price.get("source") or "") else "STOCK",
+                "kind": price.get("kind") or kind_from_source(price.get("source")),
                 "name": price.get("name"),
                 "source": price.get("source")
             }
@@ -297,6 +340,11 @@ def build_prices(tickers, lookback_days):
         symbols["US"] = fetch_us_symbols()
     except Exception as error:
         errors.append({"type": "US", "ticker": "SYMBOLS", "error": str(error)})
+
+    try:
+        fx["USDKRW"] = fetch_usdkrw(lookback_days)
+    except Exception as error:
+        errors.append({"type": "FX", "ticker": "USDKRW", "error": str(error)})
 
     for ticker in tickers["KRX"]:
         if ticker in prices["KRX"]:
@@ -312,7 +360,7 @@ def build_prices(tickers, lookback_days):
 
     for ticker in tickers["US"]:
         try:
-            price = fetch_us_close(ticker, lookback_days)
+            price = fetch_us_close(ticker, lookback_days, symbols["US"])
             if price:
                 prices["US"][ticker] = price
             else:
@@ -322,6 +370,7 @@ def build_prices(tickers, lookback_days):
 
     return {
         "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "fx": fx,
         "prices": prices,
         "symbols": symbols,
         "errors": errors

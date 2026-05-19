@@ -297,7 +297,7 @@ h3 {
 }
 
 .asset-form {
-  grid-template-columns: minmax(180px, 1.2fr) 130px 150px repeat(3, minmax(130px, 0.8fr)) minmax(180px, 1fr) auto;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
 }
 
 label {
@@ -487,8 +487,26 @@ tbody tr:last-child td {
 }
 
 .breakdown {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
+}
+
+.breakdown-section {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+}
+
+.breakdown-section:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.breakdown-section h3 {
+  color: var(--ink);
+  font-size: 14px;
 }
 
 .breakdown-item {

@@ -20,6 +20,7 @@ let cloud = {
 
 let priceBook = {
   errors: [],
+  fx: {},
   generatedAt: null,
   loaded: false,
   prices: {
@@ -309,6 +310,14 @@ function money(value) {
   }).format(Number.isFinite(value) ? value : 0);
 }
 
+function usd(value) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2
+  }).format(Number.isFinite(value) ? value : 0);
+}
+
 function formatPlainNumber(value) {
   return new Intl.NumberFormat("ko-KR", {
     maximumFractionDigits: 6
@@ -399,7 +408,7 @@ function normalizeTicker(type, ticker) {
 
 function tickerHelpForType(type) {
   if (type === "KRX") return "KRX 가격은 매일 전체 자동 수집됩니다. 6자리 영문/숫자 코드를 입력하세요.";
-  if (type === "US") return "US 가격 수집 대상은 tickers.json의 US 목록에 영문 티커로 추가합니다.";
+  if (type === "US") return "US 가격 수집 대상은 tickers.json의 US 목록에 추가합니다. 평단가는 달러 기준으로 입력하세요.";
   return "CASH/MANUAL은 티커 없이 수동평가금액으로 계산합니다.";
 }
 
@@ -415,6 +424,7 @@ function validateTicker(type, ticker) {
 function normalizePriceBook(data) {
   const nextBook = {
     errors: Array.isArray(data?.errors) ? data.errors : [],
+    fx: normalizeFx(data?.fx),
     generatedAt: data?.generatedAt || data?.updatedAt || data?.date || null,
     loaded: true,
     prices: {
@@ -440,6 +450,20 @@ function normalizePriceBook(data) {
   }
 
   return nextBook;
+}
+
+function normalizeFx(fx) {
+  const usdkrw = typeof fx?.USDKRW === "number" ? { rate: fx.USDKRW } : fx?.USDKRW;
+  const rate = Number(usdkrw?.rate || usdkrw?.close || usdkrw?.value || 0);
+  return {
+    USDKRW: Number.isFinite(rate) && rate > 0
+      ? {
+          date: usdkrw?.date || usdkrw?.asOf || usdkrw?.updatedAt || null,
+          rate,
+          source: usdkrw?.source || null
+        }
+      : null
+  };
 }
 
 function addSymbolGroup(book, type, group) {
@@ -493,6 +517,7 @@ function parsePriceEntry(entry) {
   return {
     close,
     date: entry.date || entry.asOf || entry.updatedAt || null,
+    kind: entry.kind || null,
     name: entry.name || entry.shortName || entry.longName || null,
     source: entry.source || null
   };
@@ -524,6 +549,7 @@ function applyPricesToAssets() {
     return {
       ...normalized,
       currentPrice: price ? price.close : 0,
+      kind: price?.kind || symbolForAsset(normalized)?.kind || null,
       priceDate: price?.date || priceBook.generatedAt || null,
       priceSource: price?.source || PRICE_FILE_URL,
       priceUpdatedAt: priceBook.generatedAt
@@ -541,17 +567,64 @@ function assetValue(asset) {
 
   const quantity = Number(asset.quantity || 0);
   const currentPrice = Number(asset.currentPrice || 0);
-  if (quantity > 0 && currentPrice > 0) return quantity * currentPrice;
+  if (quantity > 0 && currentPrice > 0) return quantity * currentPrice * priceMultiplier(type);
   return 0;
 }
 
 function assetCost(asset) {
-  if (!isMarketType(assetType(asset))) return 0;
+  const type = assetType(asset);
+  if (!isMarketType(type)) return 0;
 
   const quantity = Number(asset.quantity || 0);
   const averagePrice = Number(asset.averagePrice || 0);
-  if (quantity > 0 && averagePrice > 0) return quantity * averagePrice;
+  if (quantity > 0 && averagePrice > 0) return quantity * averagePrice * priceMultiplier(type);
   return 0;
+}
+
+function priceMultiplier(type) {
+  return type === "US" ? usdKrwRate() : 1;
+}
+
+function usdKrwRate() {
+  return Number(priceBook.fx?.USDKRW?.rate || 0) || 0;
+}
+
+function symbolForAsset(asset) {
+  const type = assetType(asset);
+  if (!isMarketType(type)) return null;
+  return priceBook.symbols[type][normalizeTicker(type, asset.ticker)] || null;
+}
+
+function assetKind(asset) {
+  const type = assetType(asset);
+  if (type === "CASH") return "CASH";
+  if (type === "MANUAL") return "MANUAL";
+  return String(asset.kind || priceForAsset(asset)?.kind || symbolForAsset(asset)?.kind || "STOCK").toUpperCase();
+}
+
+function productKindLabel(kind) {
+  const labels = {
+    STOCK: "개별종목",
+    ETF: "ETF",
+    ETN: "ETN",
+    CASH: "현금",
+    MANUAL: "수동평가"
+  };
+  return labels[kind] || kind;
+}
+
+function regionLabel(asset) {
+  const type = assetType(asset);
+  if (type === "KRX") return "국내";
+  if (type === "US") return "해외";
+  return "기타";
+}
+
+function accountClassLabel(asset) {
+  const text = `${asset.account || ""} ${asset.name || ""} ${asset.note || ""}`.toLowerCase();
+  if (/(연금|irp|퇴직)/i.test(text)) return "연금계좌";
+  if (asset.account) return "일반계좌";
+  return "계좌 미지정";
 }
 
 function assetGain(asset) {
@@ -733,18 +806,19 @@ function renderPriceNotice() {
 }
 
 function assetValueDetail(asset) {
-  if (!isMarketType(assetType(asset))) return "";
+  const type = assetType(asset);
+  if (!isMarketType(type)) return "";
   if (marketPriceMissing(asset)) {
-    const type = assetType(asset);
     const ticker = normalizeTicker(type, asset.ticker);
     const code = ticker ? `${type}:${ticker}` : type;
     const help = type === "KRX" ? "다음 가격표 업데이트 후 확인" : `tickers.json에 ${code} 추가`;
     return `<small class="sub-value warning">가격 대기 · ${escapeHtml(help)}</small>`;
   }
 
-  const price = formatPlainNumber(asset.currentPrice);
+  const price = type === "US" ? usd(Number(asset.currentPrice || 0)) : formatPlainNumber(asset.currentPrice);
+  const fx = type === "US" && usdKrwRate() ? ` · 환율 ${formatPlainNumber(usdKrwRate())}원` : "";
   const date = asset.priceDate ? ` · ${escapeHtml(shortDate(asset.priceDate))}` : "";
-  return `<small class="sub-value">종가 ${price}${date}</small>`;
+  return `<small class="sub-value">종가 ${price}${fx}${date}</small>`;
 }
 
 function renderBreakdown() {
@@ -758,14 +832,36 @@ function renderBreakdown() {
     return;
   }
 
-  const categories = new Map();
+  const accountClasses = new Map();
+  const accounts = new Map();
+  const kinds = new Map();
+  const regions = new Map();
   state.assets.forEach((asset) => {
-    const typeLabel = assetTypeLabel(asset);
-    categories.set(typeLabel, (categories.get(typeLabel) || 0) + assetValue(asset));
+    const value = assetValue(asset);
+    addBreakdownValue(accountClasses, accountClassLabel(asset), value);
+    addBreakdownValue(accounts, asset.account || "계좌 미지정", value);
+    addBreakdownValue(kinds, productKindLabel(assetKind(asset)), value);
+    addBreakdownValue(regions, regionLabel(asset), value);
   });
 
-  [...categories.entries()]
+  renderBreakdownSection("계좌 분석", accountClasses, total);
+  renderBreakdownSection("계좌별", accounts, total, 6);
+  renderBreakdownSection("상품 유형 분석", kinds, total);
+  renderBreakdownSection("국내/해외 비중", regions, total);
+}
+
+function addBreakdownValue(map, key, value) {
+  map.set(key, (map.get(key) || 0) + value);
+}
+
+function renderBreakdownSection(title, entries, total, limit = Infinity) {
+  const section = document.createElement("section");
+  section.className = "breakdown-section";
+  section.innerHTML = `<h3>${escapeHtml(title)}</h3>`;
+
+  [...entries.entries()]
     .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
     .forEach(([category, value]) => {
       const ratio = total ? value / total : 0;
       const item = document.createElement("div");
@@ -777,8 +873,10 @@ function renderBreakdown() {
         </div>
         <div class="bar"><span style="width: ${Math.max(2, ratio * 100)}%"></span></div>
       `;
-      els.categoryBreakdown.append(item);
+      section.append(item);
     });
+
+  els.categoryBreakdown.append(section);
 }
 
 function renderHistory() {
@@ -1095,6 +1193,7 @@ function updateAssetFormForType() {
   if (!manualValued) els.assetAmount.value = "";
   els.assetTicker.disabled = !marketValued;
   els.assetTicker.placeholder = type === "KRX" ? "예: 005930, 0092B0" : type === "US" ? "예: AAPL, QQQ" : "티커 불필요";
+  els.assetAveragePrice.placeholder = type === "US" ? "달러 평단가" : "0";
   if (!marketValued) {
     els.assetTicker.value = "";
     uiState.autofilledAssetName = "";

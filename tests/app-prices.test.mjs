@@ -34,17 +34,26 @@ window.fetch = async () => ({
   ok: true,
   json: async () => ({
     generatedAt: "2026-05-19T00:00:00.000Z",
+    fx: {
+      USDKRW: {
+        date: "2026-05-18",
+        rate: 1300,
+        source: "yfinance KRW=X"
+      }
+    },
     prices: {
       KRX: {
         "005930": {
           close: 74000,
           date: "2026-05-18",
+          kind: "STOCK",
           name: "삼성전자",
           source: "KRX"
         },
         "0092B0": {
           close: 19645,
           date: "2026-05-19",
+          kind: "ETF",
           name: "SOL 한국원자력SMR",
           source: "KRX ETF"
         }
@@ -53,6 +62,7 @@ window.fetch = async () => ({
         AAPL: {
           close: 190,
           date: "2026-05-18",
+          kind: "STOCK",
           name: "Apple Inc.",
           source: "yfinance"
         }
@@ -159,12 +169,19 @@ assert.equal(window.document.querySelector("#postReturnRate").value, "4.5");
 assert.match(window.document.querySelector("#retirementProgressLabel").textContent, /%/);
 
 assert.equal(window.document.querySelector("#priceStatus").textContent, "Prices: 5월 19일");
-assert.equal(window.document.querySelector("#totalAsset").textContent, "₩2,130,025");
+assert.equal(window.document.querySelector("#totalAsset").textContent, "₩2,623,645");
 assert.match(rows.join("\n"), /삼성전자 삼성증권 005930 KRX 국내 10 ₩740,000종가 74,000 · 5월 18일 \+₩40,000/);
 assert.match(rows.join("\n"), /삼성전자 미래에셋 005930 KRX 국내 5 ₩370,000종가 74,000 · 5월 18일 \+₩10,000/);
 assert.match(rows.join("\n"), /SOL 한국원자력SMR 연금저축 0092B0 KRX 국내 1 ₩19,645종가 19,645 · 5월 19일 \+₩9,645/);
-assert.match(rows.join("\n"), /Apple Inc\. AAPL US 미국 2 ₩380종가 190 · 5월 18일 \+₩20/);
+assert.match(rows.join("\n"), /Apple Inc\. AAPL US 미국 2 ₩494,000종가 \$190\.00 · 환율 1,300원 · 5월 18일 \+₩26,000/);
 assert.match(rows.join("\n"), /현금 CASH 현금 - ₩1,000,000/);
+assert.match(window.document.querySelector("#categoryBreakdown").textContent, /계좌 분석/);
+assert.match(window.document.querySelector("#categoryBreakdown").textContent, /연금계좌/);
+assert.match(window.document.querySelector("#categoryBreakdown").textContent, /상품 유형 분석/);
+assert.match(window.document.querySelector("#categoryBreakdown").textContent, /개별종목/);
+assert.match(window.document.querySelector("#categoryBreakdown").textContent, /ETF/);
+assert.match(window.document.querySelector("#categoryBreakdown").textContent, /국내\/해외 비중/);
+assert.match(window.document.querySelector("#categoryBreakdown").textContent, /해외/);
 assert.deepEqual(
   saved.assets.map((asset) => ({
     amount: asset.amount,
