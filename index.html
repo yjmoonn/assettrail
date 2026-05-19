@@ -16,13 +16,79 @@
         </p>
       </section>
 
-      <section class="panel" aria-labelledby="status-title">
-        <h2 id="status-title">Project Status</h2>
-        <div id="app" class="status-grid"></div>
+      <section class="toolbar" aria-label="Account">
+        <div>
+          <p class="eyebrow">Workspace</p>
+          <h2>Asset ledger</h2>
+        </div>
+        <div class="auth-actions">
+          <span id="authStatus" class="auth-status">Signed out</span>
+          <button id="signInButton" type="button">Sign in</button>
+          <button id="signOutButton" type="button" hidden>Sign out</button>
+        </div>
+      </section>
+
+      <section class="summary-grid" aria-label="Portfolio summary">
+        <article class="metric">
+          <strong>Total cost</strong>
+          <span id="totalCost">0</span>
+        </article>
+        <article class="metric">
+          <strong>Manual value</strong>
+          <span id="manualValue">0</span>
+        </article>
+        <article class="metric">
+          <strong>Assets</strong>
+          <span id="assetCount">0</span>
+        </article>
+      </section>
+
+      <section class="panel" aria-labelledby="asset-form-title">
+        <h2 id="asset-form-title">Add Asset</h2>
+        <form id="assetForm" class="asset-form">
+          <label>
+            Asset type
+            <select id="assetType" name="assetType" required>
+              <option value="KRX">KRX stock/ETF</option>
+              <option value="US">US stock/ETF</option>
+              <option value="CASH">Cash</option>
+              <option value="MANUAL">Manual</option>
+            </select>
+          </label>
+          <label>
+            Name
+            <input id="assetName" name="assetName" list="assetSuggestions" autocomplete="off" required>
+          </label>
+          <label>
+            Ticker
+            <input id="assetTicker" name="assetTicker" list="tickerSuggestions" autocomplete="off" required>
+          </label>
+          <label>
+            Quantity
+            <input id="quantity" name="quantity" type="number" inputmode="decimal" min="0" step="any" required>
+          </label>
+          <label>
+            Average price
+            <input id="averagePrice" name="averagePrice" type="number" inputmode="decimal" min="0" step="any" required>
+          </label>
+          <label>
+            Manual value
+            <input id="manualValueInput" name="manualValue" type="number" inputmode="decimal" min="0" step="any">
+          </label>
+          <button type="submit">Save asset</button>
+        </form>
+        <datalist id="assetSuggestions"></datalist>
+        <datalist id="tickerSuggestions"></datalist>
+      </section>
+
+      <section class="panel" aria-labelledby="asset-list-title">
+        <h2 id="asset-list-title">Assets</h2>
+        <div id="emptyState" class="empty-state">No assets yet</div>
+        <div id="assetList" class="asset-list"></div>
       </section>
     </main>
 
     <script src="firebase-config.js"></script>
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
   </body>
 </html>
