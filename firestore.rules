@@ -5,5 +5,15 @@ service cloud.firestore {
     match /users/{userId}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+
+    match /priceRequests/{market} {
+      allow read: if market == "us";
+      allow create, update: if request.auth != null
+        && market == "us"
+        && request.resource.data.keys().hasOnly(["tickers", "updatedAt"])
+        && request.resource.data.tickers is list
+        && request.resource.data.tickers.size() <= 500
+        && request.resource.data.updatedAt is string;
+    }
   }
 }

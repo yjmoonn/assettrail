@@ -31,6 +31,9 @@ try {
   const aliceDoc = doc(aliceDb, DATA_PATH);
   const bobViewOfAliceDoc = doc(bobDb, DATA_PATH);
   const guestViewOfAliceDoc = doc(guestDb, DATA_PATH);
+  const priceRequestsForAlice = doc(aliceDb, "priceRequests/us");
+  const priceRequestsForGuest = doc(guestDb, "priceRequests/us");
+  const blockedPriceRequests = doc(aliceDb, "priceRequests/eu");
 
   await assertSucceeds(
     setDoc(aliceDoc, {
@@ -53,6 +56,19 @@ try {
   await assertFails(setDoc(bobViewOfAliceDoc, { assets: ["blocked"] }));
   await assertFails(getDoc(guestViewOfAliceDoc));
   await assertFails(setDoc(guestViewOfAliceDoc, { assets: ["blocked"] }));
+
+  await assertSucceeds(getDoc(priceRequestsForGuest));
+  await assertSucceeds(
+    setDoc(priceRequestsForAlice, {
+      tickers: ["TSLA"],
+      updatedAt: new Date("2026-05-19T00:00:00.000Z").toISOString()
+    })
+  );
+  await assertSucceeds(getDoc(priceRequestsForGuest));
+  await assertFails(setDoc(priceRequestsForGuest, { tickers: ["MSFT"], updatedAt: "2026-05-19T00:00:00.000Z" }));
+  await assertFails(setDoc(blockedPriceRequests, { tickers: ["TSLA"], updatedAt: "2026-05-19T00:00:00.000Z" }));
+  await assertFails(setDoc(priceRequestsForAlice, { tickers: Array(501).fill("AAPL"), updatedAt: "2026-05-19T00:00:00.000Z" }));
+  await assertFails(setDoc(priceRequestsForAlice, { tickers: ["AAPL"], extra: true, updatedAt: "2026-05-19T00:00:00.000Z" }));
 
   await assertSucceeds(deleteDoc(aliceDoc));
 } finally {

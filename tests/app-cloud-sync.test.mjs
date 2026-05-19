@@ -73,6 +73,7 @@ window.assetTrailFirebaseModules = {
       exists: () => false
     }),
     getFirestore: () => ({ app: "test" }),
+    arrayUnion: (...values) => ({ __arrayUnion: values }),
     setDoc: async (ref, data, options) => {
       writes.push({
         data: JSON.parse(JSON.stringify(data)),
@@ -112,21 +113,36 @@ setValue("#assetAveragePrice", "70000");
 submitAsset();
 await new Promise((resolve) => window.setTimeout(resolve, 10));
 
+setValue("#assetCategory", "US");
+setValue("#assetName", "Tesla Inc.");
+setValue("#assetTicker", "TSLA");
+setValue("#assetQuantity", "2");
+setValue("#assetAveragePrice", "200");
+submitAsset();
+await new Promise((resolve) => window.setTimeout(resolve, 10));
+
 window.document.querySelector("#snapshotBtn").click();
 await new Promise((resolve) => window.setTimeout(resolve, 10));
 
 setValue("#monthlySpend", "4200000");
 await new Promise((resolve) => window.setTimeout(resolve, 10));
 
-const lastWrite = writes.at(-1);
+const lastWrite = writes.filter((write) => write.path === "users/alice/financeData/primary").at(-1);
 assert.equal(lastWrite.options.merge, true);
 assert.equal(lastWrite.path, "users/alice/financeData/primary");
-assert.equal(lastWrite.data.assets.length, 1);
+assert.equal(lastWrite.data.assets.length, 2);
 assert.equal(lastWrite.data.assets[0].ticker, "005930");
 assert.equal(lastWrite.data.assets[0].type, "KRX");
 assert.equal(lastWrite.data.assets[0].account, "삼성증권");
 assert.equal(lastWrite.data.assets[0].currentPrice, undefined);
+assert.equal(lastWrite.data.assets[1].ticker, "TSLA");
+assert.equal(lastWrite.data.assets[1].type, "US");
 assert.equal(lastWrite.data.snapshots.length, 1);
 assert.equal(lastWrite.data.snapshots[0].total, 222000);
 assert.equal(lastWrite.data.retirement.monthlySpend, 4200000);
 assert.match(lastWrite.data.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
+
+const priceRequestWrite = writes.filter((write) => write.path === "priceRequests/us").at(-1);
+assert.deepEqual(priceRequestWrite.data.tickers.__arrayUnion, ["TSLA"]);
+assert.equal(priceRequestWrite.options.merge, true);
+assert.match(priceRequestWrite.data.updatedAt, /^\d{4}-\d{2}-\d{2}T/);

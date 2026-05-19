@@ -90,6 +90,7 @@ window.assetTrailFirebaseModules = {
       })
     }),
     getFirestore: () => ({ app: "test" }),
+    arrayUnion: (...values) => ({ __arrayUnion: values }),
     setDoc: async () => {}
   }
 };

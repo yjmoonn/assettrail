@@ -256,6 +256,7 @@ async function initFirebase() {
     cloud.doc = firestoreModule.doc;
     cloud.getDoc = firestoreModule.getDoc;
     cloud.setDoc = firestoreModule.setDoc;
+    cloud.arrayUnion = firestoreModule.arrayUnion;
     cloud.enabled = true;
     cloud.ready = true;
 
@@ -318,6 +319,7 @@ async function pullCloudData() {
   if (snapshot.exists()) {
     replaceState(snapshot.data());
     render(false);
+    await syncPriceRequests();
   } else {
     await pushCloudData();
   }
@@ -328,7 +330,31 @@ async function pushCloudData() {
   if (!cloud.docRef) return;
   setSyncStatus("Cloud saving...", true);
   await cloud.setDoc(cloud.docRef, cloudSafeState(), { merge: true });
+  await syncPriceRequests();
   updateAuthUi();
+}
+
+async function syncPriceRequests() {
+  if (!cloud.db || !cloud.user || !cloud.doc || !cloud.setDoc) return;
+  const tickers = usTickersInState();
+  if (!tickers.length) return;
+
+  const ref = cloud.doc(cloud.db, "priceRequests", "us");
+  const tickerValue = typeof cloud.arrayUnion === "function" ? cloud.arrayUnion(...tickers) : tickers;
+  await cloud.setDoc(ref, {
+    tickers: tickerValue,
+    updatedAt: new Date().toISOString()
+  }, { merge: true });
+}
+
+function usTickersInState() {
+  return [...new Set(
+    state.assets
+      .map(normalizeAsset)
+      .filter((asset) => assetType(asset) === "US")
+      .map((asset) => normalizeTicker("US", asset.ticker))
+      .filter(Boolean)
+  )].sort();
 }
 
 function money(value) {

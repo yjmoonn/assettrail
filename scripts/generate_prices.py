@@ -20,6 +20,7 @@ NASDAQ_SYMBOL_URLS = (
     "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt",
     "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"
 )
+FIREBASE_CONFIG_PATH = "firebase-config.js"
 
 
 def normalize_krx_ticker(ticker):
@@ -37,6 +38,51 @@ def read_tickers(path):
         "KRX": [normalize_krx_ticker(ticker) for ticker in data.get("KRX", []) if str(ticker).strip()],
         "US": [normalize_us_ticker(ticker) for ticker in data.get("US", []) if str(ticker).strip()]
     }
+
+
+def merge_tickers(base, extra):
+    return {
+        "KRX": sorted(
+            {normalize_krx_ticker(ticker) for ticker in base.get("KRX", [])}
+            | {normalize_krx_ticker(ticker) for ticker in extra.get("KRX", [])}
+        ),
+        "US": sorted(
+            {normalize_us_ticker(ticker) for ticker in base.get("US", [])}
+            | {normalize_us_ticker(ticker) for ticker in extra.get("US", [])}
+        )
+    }
+
+
+def read_firebase_project_id(path=FIREBASE_CONFIG_PATH):
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+
+    match = re.search(r'projectId:\s*"([^"]+)"', text)
+    return match.group(1) if match else None
+
+
+def parse_firestore_string_array(document, field):
+    values = (
+        document.get("fields", {})
+        .get(field, {})
+        .get("arrayValue", {})
+        .get("values", [])
+    )
+    return [value.get("stringValue") for value in values if value.get("stringValue")]
+
+
+def fetch_requested_us_tickers(project_id):
+    if not project_id:
+        return []
+
+    url = f"https://firestore.googleapis.com/v1/projects/{project_id}/databases/(default)/documents/priceRequests/us"
+    response = requests.get(url, timeout=15)
+    if response.status_code == 404:
+        return []
+    response.raise_for_status()
+    return [normalize_us_ticker(ticker) for ticker in parse_firestore_string_array(response.json(), "tickers")]
 
 
 def parse_price(value):
@@ -382,9 +428,16 @@ def main():
     parser.add_argument("--tickers", default="tickers.json")
     parser.add_argument("--output", default="prices.json")
     parser.add_argument("--lookback-days", type=int, default=10)
+    parser.add_argument("--firebase-project-id", default=read_firebase_project_id())
     args = parser.parse_args()
 
     tickers = read_tickers(args.tickers)
+    try:
+        requested_us = fetch_requested_us_tickers(args.firebase_project_id)
+        tickers = merge_tickers(tickers, {"US": requested_us})
+    except Exception as error:
+        print(f"US PRICE REQUESTS: {error}", file=sys.stderr)
+
     output = build_prices(tickers, args.lookback_days)
     Path(args.output).write_text(
         json.dumps(output, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
