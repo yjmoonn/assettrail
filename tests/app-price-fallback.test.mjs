@@ -42,7 +42,7 @@ window.localStorage.setItem(
         type: "US",
         account: "해외계좌",
         amount: 0,
-        quantity: 2,
+        quantity: 1,
         averagePrice: 180
       }
     ],
@@ -65,7 +65,7 @@ window.fetch = async (url) => {
         fx: {
           USDKRW: {
             date: "2026-05-18",
-            rate: 1300,
+            rate: 1300.25,
             source: "yfinance KRW=X"
           }
         },
@@ -95,5 +95,8 @@ await new Promise((resolve) => window.setTimeout(resolve, 20));
 assert.match(fetchCalls[0], /^prices\.json\?v=/);
 assert.match(fetchCalls[1], /^https:\/\/yjmoonn\.github\.io\/assettrail\/prices\.json\?v=/);
 assert.equal(window.document.querySelector("#priceStatus").textContent, "Prices: 5월 19일");
-assert.equal(window.document.querySelector("#totalAsset").textContent, "₩494,000");
-assert.match(window.document.querySelector("#assetRows").textContent, /종가 \$190\.00 · 환율 1,300원/);
+assert.equal(window.document.querySelector("#totalAsset").textContent, "₩247,048");
+assert.match(window.document.querySelector("#assetRows").textContent, /종가 \$190\.00 · 환율 1,300\.25원/);
+
+window.document.querySelector("#syncAssetsBtn").click();
+assert.equal(window.document.querySelector("#currentInvestable").value, "247,048");

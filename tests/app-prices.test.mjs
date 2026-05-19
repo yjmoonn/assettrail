@@ -164,7 +164,7 @@ assert.match(window.document.querySelector("#historySummary").textContent, /기�
 assert.match(window.document.querySelector("#historySummary").textContent, /1회/);
 
 window.document.querySelector('[data-retirement-preset="growth"]').click();
-assert.equal(window.document.querySelector("#monthlyInvest").value, "1500000");
+assert.equal(window.document.querySelector("#monthlyInvest").value, "1,500,000");
 assert.equal(window.document.querySelector("#postReturnRate").value, "4.5");
 assert.match(window.document.querySelector("#retirementProgressLabel").textContent, /%/);
 

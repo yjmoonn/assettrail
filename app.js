@@ -3,6 +3,7 @@ const CLOUD_DOC_ID = "primary";
 const PRICE_FILE_PATH = "prices.json";
 const PUBLIC_PRICE_FILE_URL = "https://yjmoonn.github.io/assettrail/prices.json";
 const PIE_COLORS = ["#1f7a4d", "#2f6fbb", "#d58a1f", "#8b5cf6", "#0f766e", "#be123c", "#64748b"];
+const RETIREMENT_MONEY_FIELDS = new Set(["currentInvestable", "monthlyInvest", "monthlySpend"]);
 const firebaseConfig = window.firebaseConfig || {};
 const ASSET_TYPE_LABELS = {
   KRX: "KRX 국내",
@@ -380,6 +381,12 @@ function formatPlainNumber(value) {
   }).format(Number(value || 0));
 }
 
+function formatIntegerNumber(value) {
+  return new Intl.NumberFormat("ko-KR", {
+    maximumFractionDigits: 0
+  }).format(Number(value || 0));
+}
+
 function percent(value) {
   if (!Number.isFinite(value)) return "계산 불가";
   return `${(value * 100).toFixed(2)}%`;
@@ -719,8 +726,14 @@ function saveRetirementInputs() {
 
 function hydrateRetirementInputs() {
   Object.entries(state.retirement).forEach(([key, value]) => {
-    if (els[key]) els[key].value = value;
+    if (!els[key]) return;
+    els[key].value = RETIREMENT_MONEY_FIELDS.has(key) ? formatIntegerNumber(value) : value;
   });
+}
+
+function formatRetirementMoneyInput(input) {
+  if (!input || !RETIREMENT_MONEY_FIELDS.has(input.id)) return;
+  input.value = formatIntegerNumber(parseAmount(input.value));
 }
 
 function render(syncCloud = true) {
@@ -1485,8 +1498,12 @@ els.clearHistoryBtn.addEventListener("click", () => {
 
 els.retirementForm.addEventListener("input", render);
 
+els.retirementForm.addEventListener("focusout", (event) => {
+  formatRetirementMoneyInput(event.target);
+});
+
 els.syncAssetsBtn.addEventListener("click", () => {
-  els.currentInvestable.value = totalAssets();
+  els.currentInvestable.value = formatIntegerNumber(Math.ceil(totalAssets()));
   render();
 });
 
@@ -1500,7 +1517,8 @@ document.querySelectorAll("[data-retirement-preset]").forEach((button) => {
     const preset = presets[button.dataset.retirementPreset];
     if (!preset) return;
     Object.entries(preset).forEach(([key, value]) => {
-      if (els[key]) els[key].value = value;
+      if (!els[key]) return;
+      els[key].value = RETIREMENT_MONEY_FIELDS.has(key) ? formatIntegerNumber(value) : value;
     });
     render();
   });
