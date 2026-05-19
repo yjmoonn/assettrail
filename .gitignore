@@ -1,11 +1,43 @@
 .DS_Store
-.firebase/
-__pycache__/
-*.pyc
-prices.json
-node_modules/
-dist/
-build/
+
+# Local secrets
 .env
 .env.*
+*.local
+*service-account*.json
+*serviceAccount*.json
+*firebase-adminsdk*.json
+*credentials*.json
+*.pem
+*.p12
+*.key
+
+# Dependencies
+node_modules/
+.venv/
+venv/
+
+# Build and deploy output
+dist/
+build/
+_site/
+.firebase/
+
+# Generated app data
+prices.json
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Test and tool output
+coverage/
+.nyc_output/
+.pytest_cache/
+.mypy_cache/
+
+# Logs
 *.log
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
