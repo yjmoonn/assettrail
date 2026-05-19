@@ -95,7 +95,8 @@ const els = {
 const state = loadState();
 const uiState = {
   assetSearch: "",
-  assetType: "ALL"
+  assetType: "ALL",
+  autofilledAssetName: ""
 };
 
 function loadState() {
@@ -450,6 +451,7 @@ function parsePriceEntry(entry) {
   return {
     close,
     date: entry.date || entry.asOf || entry.updatedAt || null,
+    name: entry.name || entry.shortName || entry.longName || null,
     source: entry.source || null
   };
 }
@@ -460,6 +462,12 @@ function priceForAsset(asset) {
 
   const ticker = normalizeTicker(type, asset.ticker);
   return priceBook.prices[type][ticker] || null;
+}
+
+function priceNameForTicker(type, ticker) {
+  if (!isMarketType(type)) return "";
+  const price = priceBook.prices[type][normalizeTicker(type, ticker)];
+  return String(price?.name || "").trim();
 }
 
 function applyPricesToAssets() {
@@ -997,6 +1005,7 @@ function escapeHtml(value) {
 function resetAssetForm() {
   els.assetId.value = "";
   els.assetForm.reset();
+  uiState.autofilledAssetName = "";
   if (els.assetFormTitle) els.assetFormTitle.textContent = "자산 추가";
   els.saveAssetBtn.textContent = "자산 저장";
   updateAssetFormForType();
@@ -1032,8 +1041,22 @@ function updateAssetFormForType() {
   els.assetAmount.placeholder = manualValued ? "현금/수동 자산 평가금액" : "prices.json에서 자동 계산";
   els.assetTicker.disabled = !marketValued;
   els.assetTicker.placeholder = type === "KRX" ? "예: 005930, 0092B0" : type === "US" ? "예: AAPL, QQQ" : "티커 불필요";
-  if (!marketValued) els.assetTicker.value = "";
+  if (!marketValued) {
+    els.assetTicker.value = "";
+    uiState.autofilledAssetName = "";
+  }
   if (els.assetTickerHelp) els.assetTickerHelp.textContent = tickerHelpForType(type);
+}
+
+function fillAssetNameFromTicker() {
+  const currentName = els.assetName.value.trim();
+  if (currentName && currentName !== uiState.autofilledAssetName) return;
+  const type = normalizeAssetType(els.assetCategory.value);
+  const inferredName = priceNameForTicker(type, els.assetTicker.value);
+  if (inferredName) {
+    els.assetName.value = inferredName;
+    uiState.autofilledAssetName = inferredName;
+  }
 }
 
 function parseAmount(value) {
@@ -1047,10 +1070,11 @@ function parseAmount(value) {
 els.assetForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const type = normalizeAssetType(els.assetCategory.value);
+  const ticker = normalizeTicker(type, els.assetTicker.value);
   const asset = {
     id: els.assetId.value || uid(),
-    name: els.assetName.value.trim(),
-    ticker: normalizeTicker(type, els.assetTicker.value),
+    name: els.assetName.value.trim() || priceNameForTicker(type, ticker),
+    ticker,
     type,
     amount: isManualValuedType(type) ? numberValue(els.assetAmount) : 0,
     quantity: decimalValue(els.assetQuantity),
@@ -1093,6 +1117,7 @@ els.assetRows.addEventListener("click", (event) => {
     els.assetQuantity.value = asset.quantity || "";
     els.assetAveragePrice.value = asset.averagePrice || "";
     els.assetNote.value = asset.note || "";
+    uiState.autofilledAssetName = "";
     els.saveAssetBtn.textContent = "수정 저장";
     updateAssetFormForType();
     els.assetName.focus();
@@ -1164,6 +1189,16 @@ els.cloudSyncBtn.addEventListener("click", async () => {
 els.cancelEditBtn.addEventListener("click", resetAssetForm);
 
 els.assetCategory.addEventListener("change", updateAssetFormForType);
+
+els.assetName.addEventListener("input", () => {
+  if (els.assetName.value.trim() !== uiState.autofilledAssetName) uiState.autofilledAssetName = "";
+});
+
+els.assetTicker.addEventListener("input", fillAssetNameFromTicker);
+
+els.assetTicker.addEventListener("blur", fillAssetNameFromTicker);
+
+els.assetTicker.addEventListener("change", fillAssetNameFromTicker);
 
 els.assetSearch.addEventListener("input", () => {
   uiState.assetSearch = els.assetSearch.value;

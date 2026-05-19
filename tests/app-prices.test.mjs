@@ -39,6 +39,7 @@ window.fetch = async () => ({
         "005930": {
           close: 74000,
           date: "2026-05-18",
+          name: "삼성전자",
           source: "KRX"
         }
       },
@@ -46,6 +47,7 @@ window.fetch = async () => ({
         AAPL: {
           close: 190,
           date: "2026-05-18",
+          name: "Apple Inc.",
           source: "yfinance"
         }
       }
@@ -75,8 +77,9 @@ assert.equal(window.document.querySelector("#assetFormPanel").hidden, false);
 assert.equal(window.document.querySelector("#toggleAssetFormBtn").textContent, "닫기");
 
 setValue("#assetCategory", "KRX");
-setValue("#assetName", "삼성전자");
 setValue("#assetTicker", "005930");
+window.document.querySelector("#assetTicker").dispatchEvent(new window.Event("blur", { bubbles: true }));
+assert.equal(window.document.querySelector("#assetName").value, "삼성전자");
 setValue("#assetQuantity", "10");
 setValue("#assetAveragePrice", "70000");
 submitAsset();

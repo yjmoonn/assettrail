@@ -38,6 +38,7 @@ window.fetch = async () => ({
         "0092B0": {
           close: 19645,
           date: "2026-05-19",
+          name: "SOL 한국원자력SMR",
           source: "KRX"
         }
       },

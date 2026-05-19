@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 import argparse
+import html
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import requests
 import yfinance as yf
 from pykrx import stock
 
@@ -26,6 +29,50 @@ def read_tickers(path):
     }
 
 
+def clean_name(value):
+    if value is None:
+        return None
+    if hasattr(value, "empty") and value.empty:
+        return None
+    text = str(value).strip()
+    if not text or text.startswith("Empty DataFrame"):
+        return None
+    return text
+
+
+def fetch_naver_krx_name(ticker):
+    response = requests.get(
+        f"https://finance.naver.com/item/main.naver?code={ticker}",
+        headers={"User-Agent": "Mozilla/5.0"},
+        timeout=10
+    )
+    response.raise_for_status()
+    page = response.text
+
+    match = re.search(r"<title>(.*?)</title>", page, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return None
+
+    title = html.unescape(re.sub(r"\s+", " ", match.group(1))).strip()
+    name = re.sub(r"\s*:\s*(Npay|네이버페이)\s*증권\s*$", "", title).strip()
+    return name or None
+
+
+def fetch_krx_name(ticker):
+    for fetcher in (stock.get_market_ticker_name, stock.get_etf_ticker_name, stock.get_etn_ticker_name):
+        try:
+            name = clean_name(fetcher(ticker))
+        except Exception:
+            name = None
+        if name:
+            return name
+
+    try:
+        return clean_name(fetch_naver_krx_name(ticker))
+    except Exception:
+        return None
+
+
 def fetch_krx_close(ticker, lookback_days):
     end = datetime.now(timezone.utc).date()
     start = end.fromordinal(end.toordinal() - lookback_days)
@@ -43,8 +90,17 @@ def fetch_krx_close(ticker, lookback_days):
     return {
         "close": float(closes.iloc[-1]),
         "date": last_date.strftime("%Y-%m-%d"),
+        "name": fetch_krx_name(ticker),
         "source": "KRX"
     }
+
+
+def fetch_us_name(ticker):
+    try:
+        info = yf.Ticker(ticker).get_info()
+    except Exception:
+        return None
+    return clean_name(info.get("shortName") or info.get("longName"))
 
 
 def fetch_us_close(ticker, lookback_days):
@@ -73,6 +129,7 @@ def fetch_us_close(ticker, lookback_days):
     return {
         "close": float(close),
         "date": last_date.strftime("%Y-%m-%d"),
+        "name": fetch_us_name(ticker),
         "source": "yfinance"
     }
 
