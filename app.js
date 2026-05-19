@@ -225,24 +225,17 @@ async function initFirebase() {
       await authModule.setPersistence(cloud.auth, authModule.browserLocalPersistence);
     }
 
-    authModule.onAuthStateChanged(cloud.auth, async (user) => {
-      cloud.user = user;
-      updateAuthUi();
-      if (!user) return;
-      cloud.docRef = cloud.doc(cloud.db, "users", user.uid, "financeData", CLOUD_DOC_ID);
-      try {
-        await pullCloudData();
-      } catch (error) {
+    authModule.onAuthStateChanged(cloud.auth, (user) => {
+      completeCloudSignIn(user).catch((error) => {
         console.error(error);
         setSyncStatus("Cloud load failed");
-      }
+      });
     });
 
     cloud.getRedirectResult(cloud.auth)
-      .then((result) => {
+      .then(async (result) => {
         if (result?.user) {
-          cloud.user = result.user;
-          updateAuthUi();
+          await completeCloudSignIn(result.user);
         }
       })
       .catch((error) => {
@@ -253,6 +246,16 @@ async function initFirebase() {
     console.error(error);
     setSyncStatus("Firebase load failed");
   }
+}
+
+async function completeCloudSignIn(user) {
+  cloud.user = user;
+  cloud.docRef = null;
+  updateAuthUi();
+  if (!user) return;
+
+  cloud.docRef = cloud.doc(cloud.db, "users", user.uid, "financeData", CLOUD_DOC_ID);
+  await pullCloudData();
 }
 
 function updateAuthUi() {
@@ -1118,8 +1121,12 @@ els.loginBtn.addEventListener("click", async () => {
   try {
     setSyncStatus("Opening Google login...");
     if (cloud.signInWithPopup) {
-      await cloud.signInWithPopup(cloud.auth, cloud.provider);
-      setSyncStatus("Login completing...", true);
+      const result = await cloud.signInWithPopup(cloud.auth, cloud.provider);
+      if (result?.user) {
+        await completeCloudSignIn(result.user);
+      } else {
+        setSyncStatus("Login completing...", true);
+      }
       return;
     }
     await cloud.signInWithRedirect(cloud.auth, cloud.provider);
