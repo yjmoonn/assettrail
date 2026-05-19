@@ -19,6 +19,7 @@ let cloud = {
 };
 
 let priceBook = {
+  errors: [],
   generatedAt: null,
   loaded: false,
   prices: {
@@ -54,10 +55,12 @@ const els = {
   assetRows: document.querySelector("#assetRows"),
   assetSearch: document.querySelector("#assetSearch"),
   assetTypeFilter: document.querySelector("#assetTypeFilter"),
+  priceAlert: document.querySelector("#priceAlert"),
   visibleAssetCount: document.querySelector("#visibleAssetCount"),
   categoryBreakdown: document.querySelector("#categoryBreakdown"),
   historyChart: document.querySelector("#historyChart"),
   historyRows: document.querySelector("#historyRows"),
+  historySummary: document.querySelector("#historySummary"),
   clearHistoryBtn: document.querySelector("#clearHistoryBtn"),
   syncAssetsBtn: document.querySelector("#syncAssetsBtn"),
   retirementForm: document.querySelector("#retirementForm"),
@@ -75,6 +78,8 @@ const els = {
   returnWithContrib: document.querySelector("#returnWithContrib"),
   targetStatus: document.querySelector("#targetStatus"),
   targetStatusDetail: document.querySelector("#targetStatusDetail"),
+  retirementProgressBar: document.querySelector("#retirementProgressBar"),
+  retirementProgressLabel: document.querySelector("#retirementProgressLabel"),
   priceStatus: document.querySelector("#priceStatus"),
   syncStatus: document.querySelector("#syncStatus"),
   toggleAssetFormBtn: document.querySelector("#toggleAssetFormBtn"),
@@ -384,6 +389,7 @@ function validateTicker(type, ticker) {
 
 function normalizePriceBook(data) {
   const nextBook = {
+    errors: Array.isArray(data?.errors) ? data.errors : [],
     generatedAt: data?.generatedAt || data?.updatedAt || data?.date || null,
     loaded: true,
     prices: {
@@ -523,6 +529,7 @@ function hydrateRetirementInputs() {
 function render(syncCloud = true) {
   renderAssets();
   renderBreakdown();
+  renderPriceNotice();
   renderHistory();
   renderRetirement();
   renderSummary();
@@ -617,6 +624,39 @@ function updateVisibleAssetCount(visible, total) {
   els.visibleAssetCount.textContent = visible === total ? `전체 ${total}개` : `${visible} / ${total}개`;
 }
 
+function marketAssetsMissingPrices() {
+  return state.assets
+    .map(normalizeAsset)
+    .filter((asset) => marketPriceMissing(asset))
+    .map((asset) => `${assetType(asset)}:${normalizeTicker(assetType(asset), asset.ticker)}`);
+}
+
+function renderPriceNotice() {
+  if (!els.priceAlert) return;
+
+  const missing = [...new Set(marketAssetsMissingPrices())].filter((item) => !item.endsWith(":"));
+  const errors = Array.isArray(priceBook.errors) ? priceBook.errors : [];
+
+  if (!missing.length && !errors.length) {
+    els.priceAlert.hidden = true;
+    els.priceAlert.textContent = "";
+    return;
+  }
+
+  const parts = [];
+  if (missing.length) parts.push(`가격 대기 종목: ${missing.join(", ")}. tickers.json에 추가하세요.`);
+  if (errors.length) {
+    const errorText = errors
+      .slice(0, 3)
+      .map((error) => `${error.type || "?"}:${error.ticker || "?"}`)
+      .join(", ");
+    parts.push(`가격 수집 실패: ${errorText}${errors.length > 3 ? ` 외 ${errors.length - 3}건` : ""}.`);
+  }
+
+  els.priceAlert.hidden = false;
+  els.priceAlert.textContent = parts.join(" ");
+}
+
 function assetValueDetail(asset) {
   if (!isMarketType(assetType(asset))) return "";
   if (marketPriceMissing(asset)) {
@@ -667,6 +707,7 @@ function renderBreakdown() {
 
 function renderHistory() {
   els.historyRows.textContent = "";
+  renderHistorySummary();
   if (!state.snapshots.length) {
     els.historyRows.append(els.emptyHistoryTemplate.content.cloneNode(true));
   } else {
@@ -685,6 +726,39 @@ function renderHistory() {
     });
   }
   drawChart();
+}
+
+function renderHistorySummary() {
+  if (!els.historySummary) return;
+  els.historySummary.textContent = "";
+
+  if (!state.snapshots.length) {
+    const item = document.createElement("div");
+    item.className = "history-summary-item";
+    item.innerHTML = `<span>기록 상태</span><strong>대기</strong><small>첫 조회 기록을 저장하세요.</small>`;
+    els.historySummary.append(item);
+    return;
+  }
+
+  const totals = state.snapshots.map((snapshot) => Number(snapshot.total || 0));
+  const first = totals[0];
+  const latest = totals.at(-1);
+  const high = Math.max(...totals);
+  const low = Math.min(...totals);
+  const change = latest - first;
+  const items = [
+    ["기록 수", `${state.snapshots.length}회`, "저장된 조회 시점"],
+    ["최고 총자산", money(high), "조회 기록 기준"],
+    ["최저 총자산", money(low), "조회 기록 기준"],
+    ["누적 변화", `${change > 0 ? "+" : ""}${money(change)}`, percent(deltaRate(latest, first))]
+  ];
+
+  items.forEach(([label, value, detail]) => {
+    const item = document.createElement("div");
+    item.className = "history-summary-item";
+    item.innerHTML = `<span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small>`;
+    els.historySummary.append(item);
+  });
 }
 
 function drawChart() {
@@ -783,6 +857,20 @@ function renderRetirement() {
 
   els.retireGap.textContent = result.error ? "₩0" : money(Math.max(0, result.gap));
   els.retireGapLabel.textContent = result.error ? "계산 대기" : `${result.yearsToRetire}년 남음`;
+  renderRetirementProgress(result);
+}
+
+function renderRetirementProgress(result) {
+  if (!els.retirementProgressBar || !els.retirementProgressLabel) return;
+  if (result.error || !Number.isFinite(result.nestEgg) || result.nestEgg <= 0) {
+    els.retirementProgressBar.style.width = "0%";
+    els.retirementProgressLabel.textContent = "0%";
+    return;
+  }
+
+  const progress = Math.max(0, Math.min(1, Number(state.retirement.currentInvestable || 0) / result.nestEgg));
+  els.retirementProgressBar.style.width = `${Math.max(2, progress * 100)}%`;
+  els.retirementProgressLabel.textContent = `${Math.round(progress * 100)}%`;
 }
 
 function calculateRetirement(input) {
@@ -1089,6 +1177,22 @@ els.retirementForm.addEventListener("input", render);
 els.syncAssetsBtn.addEventListener("click", () => {
   els.currentInvestable.value = totalAssets();
   render();
+});
+
+document.querySelectorAll("[data-retirement-preset]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const presets = {
+      conservative: { inflationRate: 2.5, monthlyInvest: 700000, postReturnRate: 2.5 },
+      balanced: { inflationRate: 2, monthlyInvest: 1000000, postReturnRate: 3.5 },
+      growth: { inflationRate: 2, monthlyInvest: 1500000, postReturnRate: 4.5 }
+    };
+    const preset = presets[button.dataset.retirementPreset];
+    if (!preset) return;
+    Object.entries(preset).forEach(([key, value]) => {
+      if (els[key]) els[key].value = value;
+    });
+    render();
+  });
 });
 
 els.exportBtn.addEventListener("click", () => {

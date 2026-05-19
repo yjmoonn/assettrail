@@ -109,6 +109,16 @@ assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "1
 assert.match(window.document.querySelector("#assetRows").textContent, /현금/);
 setValue("#assetTypeFilter", "ALL");
 
+assert.match(window.document.querySelector("#historySummary").textContent, /기록 상태/);
+window.document.querySelector("#snapshotBtn").click();
+assert.match(window.document.querySelector("#historySummary").textContent, /기록 수/);
+assert.match(window.document.querySelector("#historySummary").textContent, /1회/);
+
+window.document.querySelector('[data-retirement-preset="growth"]').click();
+assert.equal(window.document.querySelector("#monthlyInvest").value, "1500000");
+assert.equal(window.document.querySelector("#postReturnRate").value, "4.5");
+assert.match(window.document.querySelector("#retirementProgressLabel").textContent, /%/);
+
 assert.equal(window.document.querySelector("#priceStatus").textContent, "Prices: 5월 19일");
 assert.equal(window.document.querySelector("#totalAsset").textContent, "₩1,740,380");
 assert.match(rows.join("\n"), /삼성전자 005930 KRX 국내 10 ₩740,000종가 74,000 · 5월 18일 \+₩40,000/);

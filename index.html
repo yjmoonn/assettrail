@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>자산 히스토리 & 은퇴 플래너</title>
-    <link rel="stylesheet" href="styles.css?v=20260519-dashboard-ui">
+    <link rel="stylesheet" href="styles.css?v=20260519-usage-polish">
   </head>
   <body>
     <div class="app">
@@ -132,6 +132,7 @@
               </label>
               <span class="toolbar-count" id="visibleAssetCount">전체 0개</span>
             </div>
+            <div class="notice" id="priceAlert" hidden></div>
 
             <div class="table-wrap">
               <table>
@@ -168,6 +169,7 @@
             </div>
             <button class="ghost-button" id="clearHistoryBtn" type="button">히스토리 비우기</button>
           </div>
+          <div class="history-summary" id="historySummary"></div>
           <canvas id="historyChart" width="1100" height="320" aria-label="자산 히스토리 차트"></canvas>
           <div class="table-wrap history-table">
             <table>
@@ -191,6 +193,20 @@
               <p>은퇴 나이와 은퇴 후 월 지출을 기준으로 필요한 자산과 요구 수익률을 계산합니다.</p>
             </div>
             <button class="primary-button" id="syncAssetsBtn" type="button">현재 총자산 반영</button>
+          </div>
+
+          <div class="retirement-progress" aria-label="은퇴 목표 진행률">
+            <div>
+              <span>목표 진행률</span>
+              <strong id="retirementProgressLabel">0%</strong>
+            </div>
+            <div class="progress-track"><span id="retirementProgressBar"></span></div>
+          </div>
+
+          <div class="preset-row" aria-label="은퇴 시나리오">
+            <button class="ghost-button" type="button" data-retirement-preset="conservative">보수적</button>
+            <button class="ghost-button" type="button" data-retirement-preset="balanced">기본</button>
+            <button class="ghost-button" type="button" data-retirement-preset="growth">성장형</button>
           </div>
 
           <form id="retirementForm" class="retirement-grid">
@@ -256,17 +272,19 @@
 
     <template id="emptyAssetTemplate">
       <tr>
-        <td colspan="8" class="empty">등록된 자산이 없습니다.</td>
+        <td colspan="8" class="empty">
+          등록된 자산이 없습니다. 상단의 자산 추가 버튼으로 첫 자산을 등록하세요.
+        </td>
       </tr>
     </template>
 
     <template id="emptyHistoryTemplate">
       <tr>
-        <td colspan="4" class="empty">저장된 조회 기록이 없습니다.</td>
+        <td colspan="4" class="empty">조회 기록 저장을 누르면 총자산 흐름이 쌓입니다.</td>
       </tr>
     </template>
 
-    <script src="firebase-config.js?v=20260519-dashboard-ui"></script>
-    <script type="module" src="app.js?v=20260519-dashboard-ui"></script>
+    <script src="firebase-config.js?v=20260519-usage-polish"></script>
+    <script type="module" src="app.js?v=20260519-usage-polish"></script>
   </body>
 </html>
