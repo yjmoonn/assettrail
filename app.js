@@ -388,7 +388,7 @@ function normalizeTicker(type, ticker) {
 }
 
 function tickerHelpForType(type) {
-  if (type === "KRX") return "KRX 가격 수집 대상은 tickers.json의 KRX 목록에 6자리 코드로 추가합니다.";
+  if (type === "KRX") return "KRX 가격 수집 대상은 tickers.json의 KRX 목록에 6자리 영문/숫자 코드로 추가합니다.";
   if (type === "US") return "US 가격 수집 대상은 tickers.json의 US 목록에 영문 티커로 추가합니다.";
   return "CASH/MANUAL은 티커 없이 수동평가금액으로 계산합니다.";
 }
@@ -397,7 +397,7 @@ function validateTicker(type, ticker) {
   if (!isMarketType(type)) return "";
   const normalized = normalizeTicker(type, ticker);
   if (!normalized) return "KRX/US 자산은 티커를 입력하세요.";
-  if (type === "KRX" && !/^\d{6}$/.test(normalized)) return "KRX 종목코드는 숫자 6자리로 입력하세요.";
+  if (type === "KRX" && !/^[0-9A-Z]{6}$/.test(normalized)) return "KRX 종목코드는 영문/숫자 6자리로 입력하세요.";
   if (type === "US" && !/^[A-Z][A-Z0-9.-]{0,9}$/.test(normalized)) return "US 티커는 영문, 숫자, 점, 하이픈만 입력하세요.";
   return "";
 }
@@ -1030,7 +1030,7 @@ function updateAssetFormForType() {
   els.assetAmount.disabled = !manualValued;
   els.assetAmount.placeholder = manualValued ? "현금/수동 자산 평가금액" : "prices.json에서 자동 계산";
   els.assetTicker.disabled = !marketValued;
-  els.assetTicker.placeholder = type === "KRX" ? "예: 005930" : type === "US" ? "예: AAPL, QQQ" : "티커 불필요";
+  els.assetTicker.placeholder = type === "KRX" ? "예: 005930, 0092B0" : type === "US" ? "예: AAPL, QQQ" : "티커 불필요";
   if (!marketValued) els.assetTicker.value = "";
   if (els.assetTickerHelp) els.assetTickerHelp.textContent = tickerHelpForType(type);
 }

@@ -10,7 +10,7 @@ from pykrx import stock
 
 
 def normalize_krx_ticker(ticker):
-    value = str(ticker or "").strip()
+    value = str(ticker or "").strip().upper()
     return value.zfill(6) if value.isdigit() else value
 
 

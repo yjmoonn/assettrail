@@ -81,6 +81,13 @@ setValue("#assetQuantity", "10");
 setValue("#assetAveragePrice", "70000");
 submitAsset();
 
+setValue("#assetCategory", "KRX");
+setValue("#assetName", "SOL한국원자력SMR");
+setValue("#assetTicker", "0092b0");
+setValue("#assetQuantity", "1");
+setValue("#assetAveragePrice", "10000");
+submitAsset();
+
 setValue("#assetCategory", "US");
 setValue("#assetName", "Apple");
 setValue("#assetTicker", "AAPL");
@@ -99,13 +106,13 @@ const rows = [...window.document.querySelectorAll("#assetRows tr")].map((row) =>
 const saved = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
 
 assert.equal(window.document.querySelector("#assetFormPanel").hidden, true);
-assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "전체 3개");
+assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "전체 4개");
 setValue("#assetSearch", "Apple");
-assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "1 / 3개");
+assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "1 / 4개");
 assert.match(window.document.querySelector("#assetRows").textContent, /Apple/);
 setValue("#assetSearch", "");
 setValue("#assetTypeFilter", "CASH");
-assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "1 / 3개");
+assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "1 / 4개");
 assert.match(window.document.querySelector("#assetRows").textContent, /현금/);
 setValue("#assetTypeFilter", "ALL");
 
@@ -122,6 +129,7 @@ assert.match(window.document.querySelector("#retirementProgressLabel").textConte
 assert.equal(window.document.querySelector("#priceStatus").textContent, "Prices: 5월 19일");
 assert.equal(window.document.querySelector("#totalAsset").textContent, "₩1,740,380");
 assert.match(rows.join("\n"), /삼성전자 005930 KRX 국내 10 ₩740,000종가 74,000 · 5월 18일 \+₩40,000/);
+assert.match(rows.join("\n"), /SOL한국원자력SMR 0092B0 KRX 국내 1 ₩0가격 대기 · tickers\.json에 KRX:0092B0 추가/);
 assert.match(rows.join("\n"), /Apple AAPL US 미국 2 ₩380종가 190 · 5월 18일 \+₩20/);
 assert.match(rows.join("\n"), /현금 CASH 현금 - ₩1,000,000/);
 assert.deepEqual(
@@ -133,6 +141,7 @@ assert.deepEqual(
   })),
   [
     { amount: 0, currentPrice: undefined, name: "삼성전자", type: "KRX" },
+    { amount: 0, currentPrice: undefined, name: "SOL한국원자력SMR", type: "KRX" },
     { amount: 0, currentPrice: undefined, name: "Apple", type: "US" },
     { amount: 1000000, currentPrice: undefined, name: "현금", type: "CASH" }
   ]
