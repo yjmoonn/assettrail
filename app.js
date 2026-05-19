@@ -45,6 +45,7 @@ const els = {
   assetTicker: document.querySelector("#assetTicker"),
   assetTickerHelp: document.querySelector("#assetTickerHelp"),
   assetCategory: document.querySelector("#assetCategory"),
+  assetAccount: document.querySelector("#assetAccount"),
   assetAmount: document.querySelector("#assetAmount"),
   assetAmountField: document.querySelector("#assetAmountField"),
   assetQuantity: document.querySelector("#assetQuantity"),
@@ -330,6 +331,7 @@ function normalizeAsset(asset) {
   return {
     ...rest,
     type,
+    account: String(rest.account || "").trim(),
     ticker: String(rest.ticker || "").trim().toUpperCase(),
     amount: isManualValuedType(type) ? Number(rest.amount || 0) : 0,
     currentPrice: isMarketType(type) && Number.isFinite(currentPrice) ? currentPrice : 0,
@@ -380,8 +382,9 @@ function marketPriceMissing(asset) {
 function assetIdentity(asset) {
   const type = assetType(asset);
   const ticker = normalizeAssetKey(asset.ticker);
-  if (isMarketType(type) && ticker) return `${type}:${ticker}`;
-  return `${type}:${normalizeAssetKey(asset.name)}`;
+  const account = normalizeAssetKey(asset.account);
+  if (isMarketType(type) && ticker) return `${type}:${ticker}:${account}`;
+  return `${type}:${normalizeAssetKey(asset.name)}:${account}`;
 }
 
 function normalizeTicker(type, ticker) {
@@ -598,7 +601,7 @@ function renderAssets() {
 
   if (!filtered.length) {
     const row = document.createElement("tr");
-    row.innerHTML = `<td colspan="8" class="empty">조건에 맞는 자산이 없습니다.</td>`;
+    row.innerHTML = `<td colspan="9" class="empty">조건에 맞는 자산이 없습니다.</td>`;
     els.assetRows.append(row);
     return;
   }
@@ -610,6 +613,7 @@ function renderAssets() {
     const row = document.createElement("tr");
     row.innerHTML = `
       <td><strong>${escapeHtml(asset.name)}</strong></td>
+      <td>${escapeHtml(asset.account || "")}</td>
       <td>${asset.ticker ? `<span class="ticker">${escapeHtml(asset.ticker)}</span>` : ""}</td>
       <td><span class="badge">${escapeHtml(assetTypeLabel(asset))}</span></td>
       <td class="number">${asset.quantity ? formatPlainNumber(asset.quantity) : "-"}</td>
@@ -636,6 +640,7 @@ function assetMatchesFilters(asset) {
 
   const haystack = [
     asset.name,
+    asset.account,
     asset.ticker,
     asset.note,
     type,
@@ -1085,6 +1090,7 @@ els.assetForm.addEventListener("submit", (event) => {
     name: els.assetName.value.trim() || priceNameForTicker(type, ticker),
     ticker,
     type,
+    account: els.assetAccount.value.trim(),
     amount: isManualValuedType(type) ? numberValue(els.assetAmount) : 0,
     quantity: decimalValue(els.assetQuantity),
     averagePrice: decimalValue(els.assetAveragePrice),
@@ -1120,6 +1126,7 @@ els.assetRows.addEventListener("click", (event) => {
     showAssetForm("edit");
     els.assetId.value = asset.id;
     els.assetName.value = asset.name;
+    els.assetAccount.value = asset.account || "";
     els.assetTicker.value = asset.ticker || "";
     els.assetCategory.value = assetType(asset);
     els.assetAmount.value = isManualValuedType(assetType(asset)) ? formatPlainNumber(asset.amount || 0) : "";

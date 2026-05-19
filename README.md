@@ -11,6 +11,7 @@ Live app: https://yjmoonn.github.io/assettrail/
    - Before sign-in: the status shows `Cloud ready`.
    - After sign-in: the status shows `Cloud: your-email`, and `Logout`/`Sync` are shown.
 3. Add assets with one of four types: `KRX`, `US`, `CASH`, `MANUAL`.
+   - Assets with the same market ticker can be tracked separately by account.
 4. Press "조회 기록 저장" when you want to record a portfolio snapshot.
 5. Use the retirement simulator presets or edit the assumptions directly.
 

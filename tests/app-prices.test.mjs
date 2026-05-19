@@ -84,6 +84,7 @@ assert.equal(window.document.querySelector("#toggleAssetFormBtn").textContent, "
 
 setValue("#assetCategory", "KRX");
 assert.equal(window.document.querySelector("#assetAmountField").hidden, true);
+setValue("#assetAccount", "삼성증권");
 setValue("#assetTicker", "005930");
 window.document.querySelector("#assetTicker").dispatchEvent(new window.Event("blur", { bubbles: true }));
 assert.equal(window.document.querySelector("#assetName").value, "삼성전자");
@@ -92,6 +93,15 @@ setValue("#assetAveragePrice", "70000");
 submitAsset();
 
 setValue("#assetCategory", "KRX");
+setValue("#assetAccount", "미래에셋");
+setValue("#assetTicker", "005930");
+assert.equal(window.document.querySelector("#assetName").value, "삼성전자");
+setValue("#assetQuantity", "5");
+setValue("#assetAveragePrice", "72000");
+submitAsset();
+
+setValue("#assetCategory", "KRX");
+setValue("#assetAccount", "연금저축");
 setValue("#assetTicker", "0092b0");
 assert.equal(window.document.querySelector("#assetName").value, "SOL 한국원자력SMR");
 setValue("#assetQuantity", "1");
@@ -117,13 +127,13 @@ const rows = [...window.document.querySelectorAll("#assetRows tr")].map((row) =>
 const saved = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
 
 assert.equal(window.document.querySelector("#assetFormPanel").hidden, true);
-assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "전체 4개");
+assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "전체 5개");
 setValue("#assetSearch", "Apple");
-assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "1 / 4개");
+assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "1 / 5개");
 assert.match(window.document.querySelector("#assetRows").textContent, /Apple/);
 setValue("#assetSearch", "");
 setValue("#assetTypeFilter", "CASH");
-assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "1 / 4개");
+assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "1 / 5개");
 assert.match(window.document.querySelector("#assetRows").textContent, /현금/);
 setValue("#assetTypeFilter", "ALL");
 
@@ -138,22 +148,25 @@ assert.equal(window.document.querySelector("#postReturnRate").value, "4.5");
 assert.match(window.document.querySelector("#retirementProgressLabel").textContent, /%/);
 
 assert.equal(window.document.querySelector("#priceStatus").textContent, "Prices: 5월 19일");
-assert.equal(window.document.querySelector("#totalAsset").textContent, "₩1,760,025");
-assert.match(rows.join("\n"), /삼성전자 005930 KRX 국내 10 ₩740,000종가 74,000 · 5월 18일 \+₩40,000/);
-assert.match(rows.join("\n"), /SOL 한국원자력SMR 0092B0 KRX 국내 1 ₩19,645종가 19,645 · 5월 19일 \+₩9,645/);
+assert.equal(window.document.querySelector("#totalAsset").textContent, "₩2,130,025");
+assert.match(rows.join("\n"), /삼성전자 삼성증권 005930 KRX 국내 10 ₩740,000종가 74,000 · 5월 18일 \+₩40,000/);
+assert.match(rows.join("\n"), /삼성전자 미래에셋 005930 KRX 국내 5 ₩370,000종가 74,000 · 5월 18일 \+₩10,000/);
+assert.match(rows.join("\n"), /SOL 한국원자력SMR 연금저축 0092B0 KRX 국내 1 ₩19,645종가 19,645 · 5월 19일 \+₩9,645/);
 assert.match(rows.join("\n"), /Apple AAPL US 미국 2 ₩380종가 190 · 5월 18일 \+₩20/);
 assert.match(rows.join("\n"), /현금 CASH 현금 - ₩1,000,000/);
 assert.deepEqual(
   saved.assets.map((asset) => ({
     amount: asset.amount,
+    account: asset.account,
     currentPrice: asset.currentPrice,
     name: asset.name,
     type: asset.type
   })),
   [
-    { amount: 0, currentPrice: undefined, name: "삼성전자", type: "KRX" },
-    { amount: 0, currentPrice: undefined, name: "SOL 한국원자력SMR", type: "KRX" },
-    { amount: 0, currentPrice: undefined, name: "Apple", type: "US" },
-    { amount: 1000000, currentPrice: undefined, name: "현금", type: "CASH" }
+    { amount: 0, account: "삼성증권", currentPrice: undefined, name: "삼성전자", type: "KRX" },
+    { amount: 0, account: "미래에셋", currentPrice: undefined, name: "삼성전자", type: "KRX" },
+    { amount: 0, account: "연금저축", currentPrice: undefined, name: "SOL 한국원자력SMR", type: "KRX" },
+    { amount: 0, account: "", currentPrice: undefined, name: "Apple", type: "US" },
+    { amount: 1000000, account: "", currentPrice: undefined, name: "현금", type: "CASH" }
   ]
 );

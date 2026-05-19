@@ -92,6 +92,10 @@
                     <option value="MANUAL">MANUAL 수동평가</option>
                   </select>
                 </label>
+                <label>
+                  계좌
+                  <input id="assetAccount" type="text" placeholder="예: 삼성증권 ISA">
+                </label>
                 <label id="assetAmountField">
                   평가금액
                   <input id="assetAmount" type="text" inputmode="numeric" placeholder="금액 입력">
@@ -106,7 +110,7 @@
                 </label>
                 <label>
                   메모
-                  <input id="assetNote" type="text" placeholder="계좌, 종목, 비고">
+                  <input id="assetNote" type="text" placeholder="비고">
                 </label>
                 <div class="form-actions">
                   <button class="primary-button" id="saveAssetBtn" type="submit">자산 저장</button>
@@ -118,7 +122,7 @@
             <div class="ledger-toolbar" aria-label="자산 목록 도구">
               <label class="toolbar-field search-field">
                 검색
-                <input id="assetSearch" type="search" placeholder="자산명, 티커, 메모">
+                <input id="assetSearch" type="search" placeholder="자산명, 티커, 계좌, 메모">
               </label>
               <label class="toolbar-field type-filter-field">
                 유형
@@ -139,6 +143,7 @@
                 <thead>
                   <tr>
                     <th>자산</th>
+                    <th>계좌</th>
                     <th>티커</th>
                     <th>유형</th>
                     <th class="number">보유수량</th>
@@ -272,7 +277,7 @@
 
     <template id="emptyAssetTemplate">
       <tr>
-        <td colspan="8" class="empty">
+        <td colspan="9" class="empty">
           등록된 자산이 없습니다. 상단의 자산 추가 버튼으로 첫 자산을 등록하세요.
         </td>
       </tr>

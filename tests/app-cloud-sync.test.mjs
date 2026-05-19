@@ -105,6 +105,7 @@ assert.equal(writes.at(-1).path, "users/alice/financeData/primary");
 
 setValue("#assetCategory", "KRX");
 setValue("#assetName", "삼성전자");
+setValue("#assetAccount", "삼성증권");
 setValue("#assetTicker", "5930");
 setValue("#assetQuantity", "3");
 setValue("#assetAveragePrice", "70000");
@@ -123,6 +124,7 @@ assert.equal(lastWrite.path, "users/alice/financeData/primary");
 assert.equal(lastWrite.data.assets.length, 1);
 assert.equal(lastWrite.data.assets[0].ticker, "005930");
 assert.equal(lastWrite.data.assets[0].type, "KRX");
+assert.equal(lastWrite.data.assets[0].account, "삼성증권");
 assert.equal(lastWrite.data.assets[0].currentPrice, undefined);
 assert.equal(lastWrite.data.snapshots.length, 1);
 assert.equal(lastWrite.data.snapshots[0].total, 222000);
