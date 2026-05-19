@@ -390,7 +390,7 @@ function normalizeTicker(type, ticker) {
 }
 
 function tickerHelpForType(type) {
-  if (type === "KRX") return "KRX 가격 수집 대상은 tickers.json의 KRX 목록에 6자리 영문/숫자 코드로 추가합니다.";
+  if (type === "KRX") return "KRX 가격은 매일 전체 자동 수집됩니다. 6자리 영문/숫자 코드를 입력하세요.";
   if (type === "US") return "US 가격 수집 대상은 tickers.json의 US 목록에 영문 티커로 추가합니다.";
   return "CASH/MANUAL은 티커 없이 수동평가금액으로 계산합니다.";
 }
@@ -668,7 +668,12 @@ function renderPriceNotice() {
   }
 
   const parts = [];
-  if (missing.length) parts.push(`가격 대기 종목: ${missing.join(", ")}. tickers.json에 추가하세요.`);
+  if (missing.length) {
+    const krxMissing = missing.filter((item) => item.startsWith("KRX:"));
+    const usMissing = missing.filter((item) => item.startsWith("US:"));
+    if (krxMissing.length) parts.push(`KRX 가격 대기: ${krxMissing.join(", ")}. 다음 가격표 업데이트 후 다시 확인하세요.`);
+    if (usMissing.length) parts.push(`US 가격 대기: ${usMissing.join(", ")}. tickers.json에 추가하세요.`);
+  }
   if (errors.length) {
     const errorText = errors
       .slice(0, 3)
@@ -687,7 +692,8 @@ function assetValueDetail(asset) {
     const type = assetType(asset);
     const ticker = normalizeTicker(type, asset.ticker);
     const code = ticker ? `${type}:${ticker}` : type;
-    return `<small class="sub-value warning">가격 대기 · tickers.json에 ${escapeHtml(code)} 추가</small>`;
+    const help = type === "KRX" ? "다음 가격표 업데이트 후 확인" : `tickers.json에 ${code} 추가`;
+    return `<small class="sub-value warning">가격 대기 · ${escapeHtml(help)}</small>`;
   }
 
   const price = formatPlainNumber(asset.currentPrice);

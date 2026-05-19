@@ -41,6 +41,12 @@ window.fetch = async () => ({
           date: "2026-05-18",
           name: "삼성전자",
           source: "KRX"
+        },
+        "0092B0": {
+          close: 19645,
+          date: "2026-05-19",
+          name: "SOL 한국원자력SMR",
+          source: "KRX ETF"
         }
       },
       US: {
@@ -85,8 +91,8 @@ setValue("#assetAveragePrice", "70000");
 submitAsset();
 
 setValue("#assetCategory", "KRX");
-setValue("#assetName", "SOL한국원자력SMR");
 setValue("#assetTicker", "0092b0");
+assert.equal(window.document.querySelector("#assetName").value, "SOL 한국원자력SMR");
 setValue("#assetQuantity", "1");
 setValue("#assetAveragePrice", "10000");
 submitAsset();
@@ -130,9 +136,9 @@ assert.equal(window.document.querySelector("#postReturnRate").value, "4.5");
 assert.match(window.document.querySelector("#retirementProgressLabel").textContent, /%/);
 
 assert.equal(window.document.querySelector("#priceStatus").textContent, "Prices: 5월 19일");
-assert.equal(window.document.querySelector("#totalAsset").textContent, "₩1,740,380");
+assert.equal(window.document.querySelector("#totalAsset").textContent, "₩1,760,025");
 assert.match(rows.join("\n"), /삼성전자 005930 KRX 국내 10 ₩740,000종가 74,000 · 5월 18일 \+₩40,000/);
-assert.match(rows.join("\n"), /SOL한국원자력SMR 0092B0 KRX 국내 1 ₩0가격 대기 · tickers\.json에 KRX:0092B0 추가/);
+assert.match(rows.join("\n"), /SOL 한국원자력SMR 0092B0 KRX 국내 1 ₩19,645종가 19,645 · 5월 19일 \+₩9,645/);
 assert.match(rows.join("\n"), /Apple AAPL US 미국 2 ₩380종가 190 · 5월 18일 \+₩20/);
 assert.match(rows.join("\n"), /현금 CASH 현금 - ₩1,000,000/);
 assert.deepEqual(
@@ -144,7 +150,7 @@ assert.deepEqual(
   })),
   [
     { amount: 0, currentPrice: undefined, name: "삼성전자", type: "KRX" },
-    { amount: 0, currentPrice: undefined, name: "SOL한국원자력SMR", type: "KRX" },
+    { amount: 0, currentPrice: undefined, name: "SOL 한국원자력SMR", type: "KRX" },
     { amount: 0, currentPrice: undefined, name: "Apple", type: "US" },
     { amount: 1000000, currentPrice: undefined, name: "현금", type: "CASH" }
   ]

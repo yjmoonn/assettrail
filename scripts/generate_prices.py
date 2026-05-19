@@ -6,10 +6,16 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 import yfinance as yf
 from pykrx import stock
+
+KST = ZoneInfo("Asia/Seoul")
+NAVER_STOCK_CATEGORIES = ("KOSPI", "KOSDAQ")
+NAVER_ETX_CATEGORIES = ("etf", "etn")
+NAVER_PAGE_SIZE = 100
 
 
 def normalize_krx_ticker(ticker):
@@ -27,6 +33,24 @@ def read_tickers(path):
         "KRX": [normalize_krx_ticker(ticker) for ticker in data.get("KRX", []) if str(ticker).strip()],
         "US": [normalize_us_ticker(ticker) for ticker in data.get("US", []) if str(ticker).strip()]
     }
+
+
+def parse_price(value):
+    text = str(value or "").strip().replace(",", "")
+    if not text or text.upper() == "N/A" or text == "-":
+        return None
+    try:
+        price = float(text)
+    except ValueError:
+        return None
+    return price if price > 0 else None
+
+
+def parse_trade_date(value):
+    text = str(value or "").strip()
+    if len(text) >= 10 and re.match(r"^\d{4}-\d{2}-\d{2}", text):
+        return text[:10]
+    return datetime.now(KST).date().strftime("%Y-%m-%d")
 
 
 def clean_name(value):
@@ -58,6 +82,65 @@ def fetch_naver_krx_name(ticker):
     return name or None
 
 
+def build_krx_price_entry(item, source):
+    ticker = normalize_krx_ticker(item.get("itemCode") or item.get("itemcode") or item.get("reutersCode"))
+    close = parse_price(item.get("closePrice") or item.get("nowVal"))
+    name = clean_name(item.get("stockName") or item.get("itemname"))
+
+    if not ticker or not close:
+        return None
+
+    return ticker, {
+        "close": close,
+        "date": parse_trade_date(item.get("localTradedAt")),
+        "name": name,
+        "source": source
+    }
+
+
+def fetch_naver_category_prices(path, source):
+    prices = {}
+    page = 1
+    total_count = None
+
+    while total_count is None or len(prices) < total_count:
+        response = requests.get(
+            f"https://m.stock.naver.com/api/stocks/{path}",
+            params={"page": page, "pageSize": NAVER_PAGE_SIZE},
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://m.stock.naver.com/"},
+            timeout=20
+        )
+        response.raise_for_status()
+        data = response.json()
+        stocks = data.get("stocks") or []
+        total_count = int(data.get("totalCount") or len(stocks))
+
+        if not stocks:
+            break
+
+        for item in stocks:
+            entry = build_krx_price_entry(item, source)
+            if entry:
+                ticker, price = entry
+                prices[ticker] = price
+
+        page += 1
+
+    return prices
+
+
+def fetch_all_krx_prices():
+    prices = {}
+
+    for category in NAVER_STOCK_CATEGORIES:
+        prices.update(fetch_naver_category_prices(f"marketValue/{category}", f"KRX {category}"))
+
+    for category in NAVER_ETX_CATEGORIES:
+        prices.update(fetch_naver_category_prices(category, f"KRX {category.upper()}"))
+
+    return prices
+
+
 def fetch_krx_name(ticker):
     for fetcher in (stock.get_market_ticker_name, stock.get_etf_ticker_name, stock.get_etn_ticker_name):
         try:
@@ -74,7 +157,7 @@ def fetch_krx_name(ticker):
 
 
 def fetch_krx_close(ticker, lookback_days):
-    end = datetime.now(timezone.utc).date()
+    end = datetime.now(KST).date()
     start = end.fromordinal(end.toordinal() - lookback_days)
     frame = stock.get_market_ohlcv_by_date(start.strftime("%Y%m%d"), end.strftime("%Y%m%d"), ticker)
 
@@ -138,7 +221,14 @@ def build_prices(tickers, lookback_days):
     prices = {"KRX": {}, "US": {}}
     errors = []
 
+    try:
+        prices["KRX"] = fetch_all_krx_prices()
+    except Exception as error:
+        errors.append({"type": "KRX", "ticker": "ALL", "error": str(error)})
+
     for ticker in tickers["KRX"]:
+        if ticker in prices["KRX"]:
+            continue
         try:
             price = fetch_krx_close(ticker, lookback_days)
             if price:
