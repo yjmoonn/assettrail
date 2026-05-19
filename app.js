@@ -40,6 +40,7 @@ const els = {
   assetId: document.querySelector("#assetId"),
   assetName: document.querySelector("#assetName"),
   assetTicker: document.querySelector("#assetTicker"),
+  assetTickerHelp: document.querySelector("#assetTickerHelp"),
   assetCategory: document.querySelector("#assetCategory"),
   assetAmount: document.querySelector("#assetAmount"),
   assetQuantity: document.querySelector("#assetQuantity"),
@@ -186,9 +187,10 @@ async function initFirebase() {
   }
 
   try {
-    const appModule = await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js");
-    const authModule = await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js");
-    const firestoreModule = await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js");
+    const modules = window.assetTrailFirebaseModules || {};
+    const appModule = modules.app || await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js");
+    const authModule = modules.auth || await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js");
+    const firestoreModule = modules.firestore || await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js");
 
     const app = appModule.initializeApp(firebaseConfig);
     cloud.auth = authModule.getAuth(app);
@@ -353,6 +355,21 @@ function normalizeTicker(type, ticker) {
   const normalized = String(ticker || "").trim().toUpperCase();
   if (type === "KRX" && /^\d+$/.test(normalized)) return normalized.padStart(6, "0");
   return normalized;
+}
+
+function tickerHelpForType(type) {
+  if (type === "KRX") return "KRX 가격 수집 대상은 tickers.json의 KRX 목록에 6자리 코드로 추가합니다.";
+  if (type === "US") return "US 가격 수집 대상은 tickers.json의 US 목록에 영문 티커로 추가합니다.";
+  return "CASH/MANUAL은 티커 없이 수동평가금액으로 계산합니다.";
+}
+
+function validateTicker(type, ticker) {
+  if (!isMarketType(type)) return "";
+  const normalized = normalizeTicker(type, ticker);
+  if (!normalized) return "KRX/US 자산은 티커를 입력하세요.";
+  if (type === "KRX" && !/^\d{6}$/.test(normalized)) return "KRX 종목코드는 숫자 6자리로 입력하세요.";
+  if (type === "US" && !/^[A-Z][A-Z0-9.-]{0,9}$/.test(normalized)) return "US 티커는 영문, 숫자, 점, 하이픈만 입력하세요.";
+  return "";
 }
 
 function normalizePriceBook(data) {
@@ -559,7 +576,12 @@ function renderAssets() {
 
 function assetValueDetail(asset) {
   if (!isMarketType(assetType(asset))) return "";
-  if (marketPriceMissing(asset)) return `<small class="sub-value">가격 대기</small>`;
+  if (marketPriceMissing(asset)) {
+    const type = assetType(asset);
+    const ticker = normalizeTicker(type, asset.ticker);
+    const code = ticker ? `${type}:${ticker}` : type;
+    return `<small class="sub-value warning">가격 대기 · tickers.json에 ${escapeHtml(code)} 추가</small>`;
+  }
 
   const price = formatPlainNumber(asset.currentPrice);
   const date = asset.priceDate ? ` · ${escapeHtml(shortDate(asset.priceDate))}` : "";
@@ -839,8 +861,13 @@ function normalizeAssetKey(value) {
 function updateAssetFormForType() {
   const type = normalizeAssetType(els.assetCategory.value);
   const manualValued = isManualValuedType(type);
+  const marketValued = isMarketType(type);
   els.assetAmount.disabled = !manualValued;
   els.assetAmount.placeholder = manualValued ? "현금/수동 자산 평가금액" : "prices.json에서 자동 계산";
+  els.assetTicker.disabled = !marketValued;
+  els.assetTicker.placeholder = type === "KRX" ? "예: 005930" : type === "US" ? "예: AAPL, QQQ" : "티커 불필요";
+  if (!marketValued) els.assetTicker.value = "";
+  if (els.assetTickerHelp) els.assetTickerHelp.textContent = tickerHelpForType(type);
 }
 
 function parseAmount(value) {
@@ -857,7 +884,7 @@ els.assetForm.addEventListener("submit", (event) => {
   const asset = {
     id: els.assetId.value || uid(),
     name: els.assetName.value.trim(),
-    ticker: els.assetTicker.value.trim().toUpperCase(),
+    ticker: normalizeTicker(type, els.assetTicker.value),
     type,
     amount: isManualValuedType(type) ? numberValue(els.assetAmount) : 0,
     quantity: decimalValue(els.assetQuantity),
@@ -867,8 +894,9 @@ els.assetForm.addEventListener("submit", (event) => {
   };
 
   if (!asset.name) return;
-  if (isMarketType(type) && !asset.ticker) {
-    alert("KRX/US 자산은 티커를 입력하세요.");
+  const tickerError = validateTicker(type, asset.ticker);
+  if (tickerError) {
+    alert(tickerError);
     return;
   }
 

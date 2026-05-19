@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>자산 히스토리 & 은퇴 플래너</title>
-    <link rel="stylesheet" href="styles.css?v=20260519-prices-json">
+    <link rel="stylesheet" href="styles.css?v=20260519-sync-check">
   </head>
   <body>
     <div class="app">
@@ -70,6 +70,7 @@
               <label>
                 티커
                 <input id="assetTicker" type="text" placeholder="예: AAPL, QQQ">
+                <small id="assetTickerHelp" class="field-help">KRX는 6자리 종목코드, US는 영문 티커를 입력합니다.</small>
               </label>
               <label>
                 유형
@@ -235,7 +236,7 @@
       </tr>
     </template>
 
-    <script src="firebase-config.js?v=20260519-prices-json"></script>
-    <script type="module" src="app.js?v=20260519-prices-json"></script>
+    <script src="firebase-config.js?v=20260519-sync-check"></script>
+    <script type="module" src="app.js?v=20260519-sync-check"></script>
   </body>
 </html>
