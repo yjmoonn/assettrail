@@ -16,6 +16,10 @@ KST = ZoneInfo("Asia/Seoul")
 NAVER_STOCK_CATEGORIES = ("KOSPI", "KOSDAQ")
 NAVER_ETX_CATEGORIES = ("etf", "etn")
 NAVER_PAGE_SIZE = 100
+NASDAQ_SYMBOL_URLS = (
+    "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt",
+    "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"
+)
 
 
 def normalize_krx_ticker(ticker):
@@ -24,7 +28,7 @@ def normalize_krx_ticker(ticker):
 
 
 def normalize_us_ticker(ticker):
-    return str(ticker or "").strip().upper()
+    return str(ticker or "").strip().upper().replace("/", "-")
 
 
 def read_tickers(path):
@@ -186,6 +190,59 @@ def fetch_us_name(ticker):
     return clean_name(info.get("shortName") or info.get("longName"))
 
 
+def clean_us_symbol_name(name):
+    value = clean_name(name)
+    if not value:
+        return None
+    value = re.sub(r"\s+-\s+", " ", value).strip()
+    value = re.sub(r"\s+", " ", value).strip()
+    return value or None
+
+
+def us_symbol_from_row(row):
+    return normalize_us_ticker(row.get("Symbol") or row.get("ACT Symbol") or row.get("NASDAQ Symbol"))
+
+
+def us_symbol_kind(row):
+    return "ETF" if str(row.get("ETF") or "").strip().upper() == "Y" else "STOCK"
+
+
+def parse_symbol_rows(text):
+    lines = [line for line in text.splitlines() if line and not line.startswith("File Creation Time")]
+    if not lines:
+        return []
+
+    headers = lines[0].split("|")
+    rows = []
+    for line in lines[1:]:
+        values = line.split("|")
+        if len(values) != len(headers):
+            continue
+        row = dict(zip(headers, values))
+        if str(row.get("Test Issue") or "").strip().upper() == "Y":
+            continue
+        rows.append(row)
+    return rows
+
+
+def fetch_us_symbols():
+    symbols = {}
+    for url in NASDAQ_SYMBOL_URLS:
+        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+        response.raise_for_status()
+        for row in parse_symbol_rows(response.text):
+            ticker = us_symbol_from_row(row)
+            name = clean_us_symbol_name(row.get("Security Name"))
+            if not ticker or not name:
+                continue
+            symbols[ticker] = {
+                "kind": us_symbol_kind(row),
+                "name": name,
+                "source": "Nasdaq Trader"
+            }
+    return symbols
+
+
 def fetch_us_close(ticker, lookback_days):
     frame = yf.download(
         ticker,
@@ -219,12 +276,27 @@ def fetch_us_close(ticker, lookback_days):
 
 def build_prices(tickers, lookback_days):
     prices = {"KRX": {}, "US": {}}
+    symbols = {"KRX": {}, "US": {}}
     errors = []
 
     try:
         prices["KRX"] = fetch_all_krx_prices()
+        symbols["KRX"] = {
+            ticker: {
+                "kind": "ETF" if "ETF" in str(price.get("source") or "") else "STOCK",
+                "name": price.get("name"),
+                "source": price.get("source")
+            }
+            for ticker, price in prices["KRX"].items()
+            if price.get("name")
+        }
     except Exception as error:
         errors.append({"type": "KRX", "ticker": "ALL", "error": str(error)})
+
+    try:
+        symbols["US"] = fetch_us_symbols()
+    except Exception as error:
+        errors.append({"type": "US", "ticker": "SYMBOLS", "error": str(error)})
 
     for ticker in tickers["KRX"]:
         if ticker in prices["KRX"]:
@@ -251,6 +323,7 @@ def build_prices(tickers, lookback_days):
     return {
         "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "prices": prices,
+        "symbols": symbols,
         "errors": errors
     }
 

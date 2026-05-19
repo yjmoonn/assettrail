@@ -25,6 +25,10 @@ let priceBook = {
   prices: {
     KRX: {},
     US: {}
+  },
+  symbols: {
+    KRX: {},
+    US: {}
   }
 };
 
@@ -416,11 +420,17 @@ function normalizePriceBook(data) {
     prices: {
       KRX: {},
       US: {}
+    },
+    symbols: {
+      KRX: {},
+      US: {}
     }
   };
 
   addPriceGroup(nextBook, "KRX", data?.prices?.KRX || data?.KRX);
   addPriceGroup(nextBook, "US", data?.prices?.US || data?.US);
+  addSymbolGroup(nextBook, "KRX", data?.symbols?.KRX);
+  addSymbolGroup(nextBook, "US", data?.symbols?.US);
 
   if (data?.prices && !data.prices.KRX && !data.prices.US) {
     Object.entries(data.prices).forEach(([key, entry]) => {
@@ -430,6 +440,34 @@ function normalizePriceBook(data) {
   }
 
   return nextBook;
+}
+
+function addSymbolGroup(book, type, group) {
+  if (!group || typeof group !== "object") return;
+  Object.entries(group).forEach(([ticker, entry]) => addSymbolEntry(book, type, ticker, entry));
+}
+
+function addSymbolEntry(book, type, ticker, entry) {
+  if (!isMarketType(type)) return;
+  const key = normalizeTicker(type, ticker);
+  const symbol = parseSymbolEntry(entry);
+  if (!key || !symbol) return;
+  book.symbols[type][key] = symbol;
+}
+
+function parseSymbolEntry(entry) {
+  if (typeof entry === "string") {
+    const name = entry.trim();
+    return name ? { name } : null;
+  }
+  if (!entry || typeof entry !== "object") return null;
+  const name = String(entry.name || entry.shortName || entry.longName || "").trim();
+  if (!name) return null;
+  return {
+    kind: entry.kind || null,
+    name,
+    source: entry.source || null
+  };
 }
 
 function addPriceGroup(book, type, group) {
@@ -470,8 +508,10 @@ function priceForAsset(asset) {
 
 function priceNameForTicker(type, ticker) {
   if (!isMarketType(type)) return "";
-  const price = priceBook.prices[type][normalizeTicker(type, ticker)];
-  return String(price?.name || "").trim();
+  const key = normalizeTicker(type, ticker);
+  const price = priceBook.prices[type][key];
+  const symbol = priceBook.symbols[type][key];
+  return String(price?.name || symbol?.name || "").trim();
 }
 
 function applyPricesToAssets() {

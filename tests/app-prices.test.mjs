@@ -57,6 +57,15 @@ window.fetch = async () => ({
           source: "yfinance"
         }
       }
+    },
+    symbols: {
+      US: {
+        MSFT: {
+          kind: "STOCK",
+          name: "Microsoft Corporation Common Stock",
+          source: "Nasdaq Trader"
+        }
+      }
     }
   })
 });
@@ -109,8 +118,10 @@ setValue("#assetAveragePrice", "10000");
 submitAsset();
 
 setValue("#assetCategory", "US");
-setValue("#assetName", "Apple");
+setValue("#assetTicker", "MSFT");
+assert.equal(window.document.querySelector("#assetName").value, "Microsoft Corporation Common Stock");
 setValue("#assetTicker", "AAPL");
+assert.equal(window.document.querySelector("#assetName").value, "Apple Inc.");
 setValue("#assetQuantity", "2");
 setValue("#assetAveragePrice", "180");
 submitAsset();
@@ -152,7 +163,7 @@ assert.equal(window.document.querySelector("#totalAsset").textContent, "₩2,130
 assert.match(rows.join("\n"), /삼성전자 삼성증권 005930 KRX 국내 10 ₩740,000종가 74,000 · 5월 18일 \+₩40,000/);
 assert.match(rows.join("\n"), /삼성전자 미래에셋 005930 KRX 국내 5 ₩370,000종가 74,000 · 5월 18일 \+₩10,000/);
 assert.match(rows.join("\n"), /SOL 한국원자력SMR 연금저축 0092B0 KRX 국내 1 ₩19,645종가 19,645 · 5월 19일 \+₩9,645/);
-assert.match(rows.join("\n"), /Apple AAPL US 미국 2 ₩380종가 190 · 5월 18일 \+₩20/);
+assert.match(rows.join("\n"), /Apple Inc\. AAPL US 미국 2 ₩380종가 190 · 5월 18일 \+₩20/);
 assert.match(rows.join("\n"), /현금 CASH 현금 - ₩1,000,000/);
 assert.deepEqual(
   saved.assets.map((asset) => ({
@@ -166,7 +177,7 @@ assert.deepEqual(
     { amount: 0, account: "삼성증권", currentPrice: undefined, name: "삼성전자", type: "KRX" },
     { amount: 0, account: "미래에셋", currentPrice: undefined, name: "삼성전자", type: "KRX" },
     { amount: 0, account: "연금저축", currentPrice: undefined, name: "SOL 한국원자력SMR", type: "KRX" },
-    { amount: 0, account: "", currentPrice: undefined, name: "Apple", type: "US" },
+    { amount: 0, account: "", currentPrice: undefined, name: "Apple Inc.", type: "US" },
     { amount: 1000000, account: "", currentPrice: undefined, name: "현금", type: "CASH" }
   ]
 );
