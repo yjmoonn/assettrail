@@ -685,6 +685,7 @@ function regionLabel(asset) {
 
 function accountClassLabel(asset) {
   const text = `${asset.account || ""} ${asset.name || ""} ${asset.note || ""}`.toLowerCase();
+  if (/적금/i.test(text)) return "적금";
   if (/(연금|irp|퇴직)/i.test(text)) return "연금계좌";
   if (asset.account) return "일반계좌";
   return "계좌 미지정";
