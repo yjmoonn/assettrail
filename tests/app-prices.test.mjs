@@ -149,19 +149,31 @@ setValue("#assetAccount", "적금 계좌");
 setValue("#assetAmount", "2000000");
 submitAsset();
 
+setValue("#assetCategory", "MANUAL");
+setValue("#assetName", "주택청약저축");
+setValue("#assetAccount", "청약 계좌");
+setValue("#assetAmount", "300000");
+submitAsset();
+
+setValue("#assetCategory", "MANUAL");
+setValue("#assetName", "IRP 대기자산");
+setValue("#assetAccount", "IRP");
+setValue("#assetAmount", "500000");
+submitAsset();
+
 const rows = [...window.document.querySelectorAll("#assetRows tr")].map((row) =>
   row.textContent.replace(/\s+/g, " ").trim()
 );
 const saved = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
 
 assert.equal(window.document.querySelector("#assetFormPanel").hidden, true);
-assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "전체 6개");
+assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "전체 8개");
 setValue("#assetSearch", "Apple");
-assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "1 / 6개");
+assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "1 / 8개");
 assert.match(window.document.querySelector("#assetRows").textContent, /Apple/);
 setValue("#assetSearch", "");
 setValue("#assetTypeFilter", "CASH");
-assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "1 / 6개");
+assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "1 / 8개");
 assert.match(window.document.querySelector("#assetRows").textContent, /현금/);
 setValue("#assetTypeFilter", "ALL");
 
@@ -176,13 +188,15 @@ assert.equal(window.document.querySelector("#postReturnRate").value, "4.5");
 assert.match(window.document.querySelector("#retirementProgressLabel").textContent, /%/);
 
 assert.equal(window.document.querySelector("#priceStatus").textContent, "Prices: 5월 19일");
-assert.equal(window.document.querySelector("#totalAsset").textContent, "₩4,623,645");
+assert.equal(window.document.querySelector("#totalAsset").textContent, "₩5,423,645");
 assert.match(rows.join("\n"), /삼성전자 삼성증권 005930 KRX 국내 10 ₩740,000종가 74,000 · 5월 18일 \+₩40,000/);
 assert.match(rows.join("\n"), /삼성전자 미래에셋 005930 KRX 국내 5 ₩370,000종가 74,000 · 5월 18일 \+₩10,000/);
 assert.match(rows.join("\n"), /SOL 한국원자력SMR 연금저축 0092B0 KRX 국내 1 ₩19,645종가 19,645 · 5월 19일 \+₩9,645/);
 assert.match(rows.join("\n"), /Apple Inc\. AAPL US 미국 2 ₩494,000종가 \$190\.00 · 환율 1,300원 · 5월 18일 \+₩26,000/);
 assert.match(rows.join("\n"), /현금 CASH 현금 - ₩1,000,000/);
 assert.match(rows.join("\n"), /청년 적금 적금 계좌 MANUAL 수동 - ₩2,000,000/);
+assert.match(rows.join("\n"), /주택청약저축 청약 계좌 MANUAL 수동 - ₩300,000/);
+assert.match(rows.join("\n"), /IRP 대기자산 IRP MANUAL 수동 - ₩500,000/);
 assert.match(window.document.querySelector("#categoryBreakdown").textContent, /계좌 분석/);
 assert.match(window.document.querySelector("#categoryBreakdown").textContent, /연금계좌/);
 assert.match(window.document.querySelector("#categoryBreakdown").textContent, /적금/);
@@ -208,6 +222,8 @@ assert.deepEqual(
     { amount: 0, account: "연금저축", currentPrice: undefined, name: "SOL 한국원자력SMR", type: "KRX" },
     { amount: 0, account: "", currentPrice: undefined, name: "Apple Inc.", type: "US" },
     { amount: 1000000, account: "", currentPrice: undefined, name: "현금", type: "CASH" },
-    { amount: 2000000, account: "적금 계좌", currentPrice: undefined, name: "청년 적금", type: "MANUAL" }
+    { amount: 2000000, account: "적금 계좌", currentPrice: undefined, name: "청년 적금", type: "MANUAL" },
+    { amount: 300000, account: "청약 계좌", currentPrice: undefined, name: "주택청약저축", type: "MANUAL" },
+    { amount: 500000, account: "IRP", currentPrice: undefined, name: "IRP 대기자산", type: "MANUAL" }
   ]
 );
