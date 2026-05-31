@@ -230,7 +230,7 @@ h3 {
   align-items: start;
   display: grid;
   gap: 14px;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr);
   margin-bottom: 14px;
 }
 
@@ -508,22 +508,31 @@ tbody tr:last-child td {
   margin-top: 4px;
 }
 
+.portfolio-panel {
+  margin-bottom: 14px;
+}
+
+.portfolio-layout {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+}
+
 .breakdown {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .breakdown-section {
-  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
   display: grid;
   gap: 10px;
-  padding-top: 12px;
-}
-
-.breakdown-section:first-child {
-  border-top: 0;
-  padding-top: 0;
+  min-width: 0;
+  padding: 14px;
 }
 
 .breakdown-section h3 {
@@ -535,7 +544,7 @@ tbody tr:last-child td {
   align-items: center;
   display: grid;
   gap: 12px;
-  grid-template-columns: 92px minmax(0, 1fr);
+  grid-template-columns: 86px minmax(0, 1fr);
 }
 
 .pie-chart {
@@ -544,7 +553,7 @@ tbody tr:last-child td {
   border: 1px solid var(--line);
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.65);
-  width: 92px;
+  width: 86px;
 }
 
 .pie-legend {
@@ -711,11 +720,12 @@ tbody tr:last-child td {
 }
 
 .target-panel {
-  border-top: 1px solid var(--line);
+  background: #fbfcfd;
+  border: 1px solid var(--line);
+  border-radius: 8px;
   display: grid;
   gap: 10px;
-  margin-top: 14px;
-  padding-top: 14px;
+  padding: 14px;
 }
 
 .target-grid {
@@ -812,8 +822,13 @@ tbody tr:last-child td {
     grid-template-columns: 1fr;
   }
 
+  .portfolio-layout {
+    grid-template-columns: 1fr;
+  }
+
   .asset-form,
   .ledger-toolbar,
+  .breakdown,
   .retirement-grid,
   .scenario-toolbar,
   .sensitivity-grid {
@@ -846,6 +861,7 @@ tbody tr:last-child td {
 
   .metric-grid,
   .asset-form,
+  .breakdown,
   .history-summary,
   .history-toolbar,
   .ledger-toolbar,
