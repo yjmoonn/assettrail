@@ -2,7 +2,13 @@ const STORAGE_KEY = "finance-ledger-retirement-v1";
 const CLOUD_DOC_ID = "primary";
 const PRICE_FILE_PATH = "prices.json";
 const PUBLIC_PRICE_FILE_URL = "https://yjmoonn.github.io/assettrail/prices.json";
-const PIE_COLORS = ["#1f7a4d", "#2f6fbb", "#d58a1f", "#8b5cf6", "#0f766e", "#be123c", "#64748b"];
+const PIE_COLORS = ["#315f72", "#5d8aa8", "#8fb996", "#d2a24c", "#9b8bbd"];
+const BREAKDOWN_ICONS = {
+  "계좌 분석": "wallet",
+  "계좌별": "layers",
+  "상품 유형 분석": "chart",
+  "국내/해외 비중": "globe"
+};
 const RETIREMENT_MONEY_FIELDS = new Set(["currentInvestable", "monthlyInvest", "monthlySpend"]);
 const PRICE_STALE_DAYS = 3;
 const firebaseConfig = window.firebaseConfig || {};
@@ -1153,19 +1159,32 @@ function addBreakdownValue(map, key, value) {
 function renderBreakdownSection(title, entries, total, limit = Infinity) {
   const section = document.createElement("section");
   section.className = "breakdown-section";
-  section.innerHTML = `<h3>${escapeHtml(title)}</h3>`;
+  section.innerHTML = `
+    <h3>
+      <span class="breakdown-icon" aria-hidden="true">${breakdownIcon(title)}</span>
+      <span>${escapeHtml(title)}</span>
+    </h3>
+  `;
 
   const displayEntries = limitedBreakdownEntries(entries, limit);
+  const sectionTotal = displayEntries.reduce((sum, [, value]) => sum + Math.max(0, value), 0);
   const body = document.createElement("div");
   body.className = "pie-breakdown";
   body.innerHTML = `
-    <div class="pie-chart" role="img" aria-label="${escapeHtml(title)} 파이차트"></div>
+    <div class="pie-chart" role="img" aria-label="${escapeHtml(title)} 도넛 차트">
+      <span class="donut-center">
+        <span>총액</span>
+        <strong>${escapeHtml(compactMoney(sectionTotal))}</strong>
+      </span>
+    </div>
     <div class="pie-legend"></div>
   `;
 
   const chart = body.querySelector(".pie-chart");
   const legend = body.querySelector(".pie-legend");
-  chart.style.background = pieGradient(displayEntries);
+  const gradient = pieGradient(displayEntries);
+  chart.style.background = gradient;
+  chart.style.setProperty("--donut-fill", gradient);
 
   displayEntries.forEach(([category, value], index) => {
     const ratio = total ? value / total : 0;
@@ -1174,13 +1193,26 @@ function renderBreakdownSection(title, entries, total, limit = Infinity) {
     item.innerHTML = `
       <span class="pie-swatch" style="background: ${PIE_COLORS[index % PIE_COLORS.length]}"></span>
       <span class="breakdown-name">${escapeHtml(category)}</span>
-      <span class="breakdown-value">${money(value)} · ${(ratio * 100).toFixed(1)}%</span>
+      <span class="breakdown-value">${money(value)}</span>
+      <span class="breakdown-percent">${(ratio * 100).toFixed(1)}%</span>
     `;
     legend.append(item);
   });
 
   section.append(body);
   els.categoryBreakdown.append(section);
+}
+
+function breakdownIcon(title) {
+  const icon = BREAKDOWN_ICONS[title] || "chart";
+  const paths = {
+    wallet: '<path d="M4.5 7.5h15v9.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2h12"/><path d="M16.5 12h3v3h-3a1.5 1.5 0 0 1 0-3Z"/>',
+    layers: '<path d="m12 3 8 4-8 4-8-4 8-4Z"/><path d="m4 12 8 4 8-4"/><path d="m4 17 8 4 8-4"/>',
+    chart: '<path d="M5 19V9"/><path d="M12 19V5"/><path d="M19 19v-7"/><path d="M3 19h18"/>',
+    globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><path d="M12 3.5c2.2 2.3 3.3 5.1 3.3 8.5s-1.1 6.2-3.3 8.5"/><path d="M12 3.5C9.8 5.8 8.7 8.6 8.7 12s1.1 6.2 3.3 8.5"/>'
+  };
+
+  return `<svg viewBox="0 0 24 24" focusable="false">${paths[icon]}</svg>`;
 }
 
 function limitedBreakdownEntries(entries, limit = Infinity) {
