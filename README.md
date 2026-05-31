@@ -75,3 +75,10 @@ Run all local checks with:
 ```sh
 npm test
 ```
+
+## Project Notes
+
+- [AssetTrail 핵심 정리](docs/PROJECT_CORE.md)
+- [데이터와 가격표 구조](docs/DATA_AND_PRICES.md)
+- [운영 메모](docs/OPERATIONS.md)
+- [TODO](docs/TODO.md)

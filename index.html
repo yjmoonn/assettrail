@@ -17,6 +17,7 @@
         <div class="top-actions">
           <span class="sync-status" id="priceStatus">Prices pending</span>
           <span class="sync-status" id="syncStatus">Local only</span>
+          <span class="sync-status" id="syncDetail" hidden>저장 대기</span>
           <button class="ghost-button" id="loginBtn" type="button">Login</button>
           <button class="ghost-button" id="logoutBtn" type="button" hidden>Logout</button>
           <button class="ghost-button" id="cloudSyncBtn" type="button" hidden>Sync</button>
@@ -27,6 +28,7 @@
           </label>
         </div>
       </header>
+      <div class="notice app-notice" id="appNotice" hidden></div>
 
       <main>
         <section class="metric-grid" aria-label="요약 지표">
@@ -96,6 +98,27 @@
                   계좌
                   <input id="assetAccount" type="text" placeholder="예: 삼성증권 ISA">
                 </label>
+                <label>
+                  계좌 분류
+                  <select id="assetAccountClass">
+                    <option value="AUTO">자동 분류</option>
+                    <option value="GENERAL">일반계좌</option>
+                    <option value="PENSION">연금계좌</option>
+                    <option value="SAVINGS">적금</option>
+                    <option value="UNASSIGNED">계좌 미지정</option>
+                  </select>
+                </label>
+                <label id="manualSubtypeField">
+                  수동 세부유형
+                  <select id="assetManualSubtype">
+                    <option value="AUTO">자동 추정</option>
+                    <option value="SAVINGS">적금</option>
+                    <option value="DEPOSIT">예금</option>
+                    <option value="FUND">펀드</option>
+                    <option value="INSURANCE">보험</option>
+                    <option value="OTHER">기타</option>
+                  </select>
+                </label>
                 <label id="assetAmountField">
                   평가금액
                   <input id="assetAmount" type="text" inputmode="numeric" placeholder="금액 입력">
@@ -134,9 +157,44 @@
                   <option value="MANUAL">MANUAL</option>
                 </select>
               </label>
+              <label class="toolbar-field">
+                계좌
+                <select id="assetAccountFilter">
+                  <option value="ALL">전체 계좌</option>
+                </select>
+              </label>
+              <label class="toolbar-field">
+                상태
+                <select id="assetStatusFilter">
+                  <option value="ALL">전체 상태</option>
+                  <option value="PRICE_WAIT">가격 대기</option>
+                  <option value="READY">평가 가능</option>
+                </select>
+              </label>
+              <label class="toolbar-field">
+                손익
+                <select id="assetGainFilter">
+                  <option value="ALL">전체 손익</option>
+                  <option value="GAIN">수익</option>
+                  <option value="LOSS">손실</option>
+                  <option value="NONE">손익 없음</option>
+                </select>
+              </label>
+              <label class="toolbar-field">
+                정렬
+                <select id="assetSort">
+                  <option value="VALUE_DESC">평가금액 높은순</option>
+                  <option value="VALUE_ASC">평가금액 낮은순</option>
+                  <option value="GAIN_DESC">수익 큰순</option>
+                  <option value="GAIN_ASC">손실 큰순</option>
+                  <option value="NAME_ASC">자산명순</option>
+                  <option value="ACCOUNT_ASC">계좌명순</option>
+                </select>
+              </label>
               <span class="toolbar-count" id="visibleAssetCount">전체 0개</span>
             </div>
             <div class="notice" id="priceAlert" hidden></div>
+            <div class="notice ops-status" id="opsStatus" hidden></div>
 
             <div class="table-wrap asset-table-wrap" id="assetTableWrap">
               <table>
@@ -163,6 +221,28 @@
               <h2>포트 분석</h2>
             </div>
             <div id="categoryBreakdown" class="breakdown"></div>
+            <section class="target-panel">
+              <h3>목표 비중</h3>
+              <div class="target-grid">
+                <label>
+                  국내
+                  <input id="targetDomestic" type="text" inputmode="decimal" value="50">
+                </label>
+                <label>
+                  해외
+                  <input id="targetOverseas" type="text" inputmode="decimal" value="30">
+                </label>
+                <label>
+                  현금
+                  <input id="targetCash" type="text" inputmode="decimal" value="10">
+                </label>
+                <label>
+                  수동
+                  <input id="targetManual" type="text" inputmode="decimal" value="10">
+                </label>
+              </div>
+              <div id="rebalanceSummary" class="rebalance-summary"></div>
+            </section>
           </aside>
         </section>
 
@@ -174,7 +254,23 @@
             </div>
             <button class="ghost-button" id="clearHistoryBtn" type="button">히스토리 비우기</button>
           </div>
+          <div class="history-toolbar">
+            <label>
+              조회 기간
+              <select id="historyRange">
+                <option value="ALL">전체</option>
+                <option value="30D">최근 30일</option>
+                <option value="90D">최근 90일</option>
+                <option value="YTD">올해</option>
+              </select>
+            </label>
+            <label>
+              조회 메모
+              <input id="snapshotNote" type="text" placeholder="예: 월말 점검">
+            </label>
+          </div>
           <div class="history-summary" id="historySummary"></div>
+          <p class="sr-only" id="historyChartDescription">조회 히스토리 차트 설명이 여기에 표시됩니다.</p>
           <canvas id="historyChart" width="1100" height="320" aria-label="자산 히스토리 차트"></canvas>
           <div class="table-wrap history-table">
             <table>
@@ -184,6 +280,8 @@
                   <th class="number">총자산</th>
                   <th class="number">직전 대비</th>
                   <th class="number">변동률</th>
+                  <th>메모</th>
+                  <th class="actions-col">관리</th>
                 </tr>
               </thead>
               <tbody id="historyRows"></tbody>
@@ -212,6 +310,21 @@
             <button class="ghost-button" type="button" data-retirement-preset="conservative">보수적</button>
             <button class="ghost-button" type="button" data-retirement-preset="balanced">기본</button>
             <button class="ghost-button" type="button" data-retirement-preset="growth">성장형</button>
+          </div>
+          <div class="scenario-toolbar">
+            <label>
+              시나리오명
+              <input id="retirementScenarioName" type="text" placeholder="예: 55세 은퇴 기본안">
+            </label>
+            <label>
+              저장된 시나리오
+              <select id="retirementScenarioSelect">
+                <option value="">시나리오 선택</option>
+              </select>
+            </label>
+            <button class="ghost-button" id="saveScenarioBtn" type="button">시나리오 저장</button>
+            <button class="ghost-button" id="loadScenarioBtn" type="button">불러오기</button>
+            <button class="ghost-button" id="deleteScenarioBtn" type="button">삭제</button>
           </div>
 
           <form id="retirementForm" class="retirement-grid">
@@ -271,6 +384,7 @@
               <small id="targetStatusDetail">입력값을 조정해보세요.</small>
             </article>
           </div>
+          <div id="retirementSensitivity" class="sensitivity-grid"></div>
         </section>
       </main>
     </div>
@@ -285,7 +399,7 @@
 
     <template id="emptyHistoryTemplate">
       <tr>
-        <td colspan="4" class="empty">조회 기록 저장을 누르면 총자산 흐름이 쌓입니다.</td>
+        <td colspan="6" class="empty">조회 기록 저장을 누르면 총자산 흐름이 쌓입니다.</td>
       </tr>
     </template>
 
