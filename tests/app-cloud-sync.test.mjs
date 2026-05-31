@@ -18,12 +18,17 @@ window.HTMLCanvasElement.prototype.getContext = () => ({
   arc() {},
   beginPath() {},
   clearRect() {},
+  closePath() {},
+  createLinearGradient: () => ({ addColorStop() {} }),
   fill() {},
   fillRect() {},
   fillText() {},
   lineTo() {},
+  measureText: (text) => ({ width: String(text).length * 7 }),
   moveTo() {},
-  stroke() {}
+  setLineDash() {},
+  stroke() {},
+  strokeRect() {}
 });
 
 window.alert = (message) => {

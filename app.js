@@ -1026,15 +1026,16 @@ function renderHistorySummary() {
   const low = Math.min(...totals);
   const change = latest - first;
   const items = [
-    ["기록 수", `${state.snapshots.length}회`, "저장된 조회 시점"],
-    ["최고 총자산", money(high), "조회 기록 기준"],
-    ["최저 총자산", money(low), "조회 기록 기준"],
-    ["누적 변화", `${change > 0 ? "+" : ""}${money(change)}`, percent(deltaRate(latest, first))]
+    ["기록 수", `${state.snapshots.length}회`, "저장된 조회 시점", ""],
+    ["최고 총자산", money(high), "조회 기록 기준", ""],
+    ["최저 총자산", money(low), "조회 기록 기준", ""],
+    ["누적 변화", `${change > 0 ? "+" : ""}${money(change)}`, percent(deltaRate(latest, first)), change > 0 ? "positive" : change < 0 ? "negative" : ""]
   ];
 
-  items.forEach(([label, value, detail]) => {
+  items.forEach(([label, value, detail, tone]) => {
     const item = document.createElement("div");
     item.className = "history-summary-item";
+    if (tone) item.classList.add(tone);
     item.innerHTML = `<span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small>`;
     els.historySummary.append(item);
   });
@@ -1049,11 +1050,15 @@ function drawChart() {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
 
-  const pad = 42;
+  const pad = 50;
   const points = state.snapshots.map((snapshot) => snapshot.total);
   const values = points.length ? points : [totalAssets()];
-  const min = Math.min(...values, 0);
-  const max = Math.max(...values, 1);
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const rawRange = rawMax - rawMin;
+  const padding = rawRange ? rawRange * 0.18 : Math.max(rawMax * 0.04, 1);
+  const min = Math.max(0, rawMin - padding);
+  const max = rawMax + padding;
   const range = max - min || 1;
 
   ctx.strokeStyle = "#dbe2dc";
@@ -1084,6 +1089,15 @@ function drawChart() {
     return pad + ((width - pad * 2) / (points.length - 1)) * index;
   };
   const yFor = (value) => height - pad - ((value - min) / range) * (height - pad * 2);
+  const first = points[0];
+  const latest = points.at(-1);
+  const change = latest - first;
+  const lineColor = change < 0 ? "#c7503f" : "#1f7a4d";
+  const fillColor = change < 0 ? "rgba(199, 80, 63, 0.18)" : "rgba(31, 122, 77, 0.18)";
+  const accentColor = change < 0 ? "#8f2f25" : "#0f5f38";
+  const fill = ctx.createLinearGradient(0, pad, 0, height - pad);
+  fill.addColorStop(0, fillColor);
+  fill.addColorStop(1, "rgba(255, 255, 255, 0)");
 
   ctx.beginPath();
   points.forEach((value, index) => {
@@ -1092,21 +1106,79 @@ function drawChart() {
     if (index === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
-  ctx.strokeStyle = "#1f7a4d";
-  ctx.lineWidth = 4;
+  ctx.lineTo(xFor(points.length - 1), height - pad);
+  ctx.lineTo(xFor(0), height - pad);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+
+  ctx.beginPath();
+  points.forEach((value, index) => {
+    const x = xFor(index);
+    const y = yFor(value);
+    if (index === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = lineColor;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 5;
+  ctx.shadowBlur = 12;
+  ctx.shadowColor = fillColor;
   ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.setLineDash([6, 7]);
+  [0, points.length - 1].forEach((index) => {
+    const x = xFor(index);
+    ctx.beginPath();
+    ctx.moveTo(x, pad);
+    ctx.lineTo(x, height - pad);
+    ctx.strokeStyle = "rgba(101, 113, 106, 0.28)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
 
   points.forEach((value, index) => {
     const x = xFor(index);
     const y = yFor(value);
+    const isEdge = index === 0 || index === points.length - 1;
     ctx.beginPath();
-    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.arc(x, y, isEdge ? 7 : 4.5, 0, Math.PI * 2);
     ctx.fillStyle = "#ffffff";
     ctx.fill();
-    ctx.strokeStyle = "#1f7a4d";
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = isEdge ? accentColor : lineColor;
+    ctx.lineWidth = isEdge ? 4 : 3;
     ctx.stroke();
   });
+
+  drawChartBadge(ctx, xFor(0), yFor(first), "시작", money(first), "#44524a", width, height);
+  drawChartBadge(ctx, xFor(points.length - 1), yFor(latest), "최근", money(latest), accentColor, width, height);
+  if (points.length > 1) {
+    const changeText = `${change > 0 ? "+" : ""}${money(change)} (${percent(deltaRate(latest, first))})`;
+    drawChartBadge(ctx, width / 2, pad + 10, "조회 기간 변화", changeText, accentColor, width, height);
+  }
+}
+
+function drawChartBadge(ctx, x, y, label, value, color, width, height) {
+  const text = `${label} ${value}`;
+  ctx.font = "700 13px Segoe UI, Arial";
+  const textWidth = ctx.measureText(text).width;
+  const boxWidth = Math.min(textWidth + 22, width - 20);
+  const boxHeight = 28;
+  const boxX = Math.min(Math.max(10, x - boxWidth / 2), width - boxWidth - 10);
+  const boxY = Math.min(Math.max(10, y - 42), height - boxHeight - 10);
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+  ctx.strokeStyle = "rgba(101, 113, 106, 0.24)";
+  ctx.lineWidth = 1;
+  ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+  ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+  ctx.fillStyle = color;
+  ctx.textAlign = "center";
+  ctx.fillText(text, boxX + boxWidth / 2, boxY + 18);
+  ctx.textAlign = "left";
 }
 
 function renderRetirement() {

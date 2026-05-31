@@ -622,6 +622,14 @@ tbody tr:last-child td {
   overflow-wrap: anywhere;
 }
 
+.history-summary-item.positive strong {
+  color: var(--green);
+}
+
+.history-summary-item.negative strong {
+  color: var(--red);
+}
+
 .history-summary-item small {
   color: var(--muted);
   display: block;
