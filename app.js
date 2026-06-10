@@ -1375,7 +1375,13 @@ function drawChart(snapshots = state.snapshots) {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
 
-  const pad = 50;
+  const topPad = 50;
+  const leftPad = 58;
+  const rightPad = 44;
+  const bottomPad = 66;
+  const plotBottom = height - bottomPad;
+  const plotWidth = width - leftPad - rightPad;
+  const plotHeight = height - topPad - bottomPad;
   const points = snapshots.map((snapshot) => snapshot.total);
   const values = points.length ? points : [totalAssets()];
   const rawMin = Math.min(...values);
@@ -1392,10 +1398,10 @@ function drawChart(snapshots = state.snapshots) {
   ctx.font = "13px Segoe UI, Arial";
 
   for (let i = 0; i <= 4; i += 1) {
-    const y = pad + ((height - pad * 2) / 4) * i;
+    const y = topPad + (plotHeight / 4) * i;
     ctx.beginPath();
-    ctx.moveTo(pad, y);
-    ctx.lineTo(width - pad, y);
+    ctx.moveTo(leftPad, y);
+    ctx.lineTo(width - rightPad, y);
     ctx.stroke();
     const value = max - (range / 4) * i;
     ctx.fillText(compactMoney(value), 8, y + 4);
@@ -1411,18 +1417,20 @@ function drawChart(snapshots = state.snapshots) {
 
   const xFor = (index) => {
     if (points.length === 1) return width / 2;
-    return pad + ((width - pad * 2) / (points.length - 1)) * index;
+    return leftPad + (plotWidth / (points.length - 1)) * index;
   };
-  const yFor = (value) => height - pad - ((value - min) / range) * (height - pad * 2);
+  const yFor = (value) => plotBottom - ((value - min) / range) * plotHeight;
   const first = points[0];
   const latest = points.at(-1);
   const change = latest - first;
   const lineColor = change < 0 ? "#c7503f" : "#1f7a4d";
   const fillColor = change < 0 ? "rgba(199, 80, 63, 0.18)" : "rgba(31, 122, 77, 0.18)";
   const accentColor = change < 0 ? "#8f2f25" : "#0f5f38";
-  const fill = ctx.createLinearGradient(0, pad, 0, height - pad);
+  const fill = ctx.createLinearGradient(0, topPad, 0, plotBottom);
   fill.addColorStop(0, fillColor);
   fill.addColorStop(1, "rgba(255, 255, 255, 0)");
+
+  drawXAxisLabels(ctx, snapshots, xFor, leftPad, width - rightPad, plotBottom, height);
 
   ctx.beginPath();
   points.forEach((value, index) => {
@@ -1431,8 +1439,8 @@ function drawChart(snapshots = state.snapshots) {
     if (index === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
-  ctx.lineTo(xFor(points.length - 1), height - pad);
-  ctx.lineTo(xFor(0), height - pad);
+  ctx.lineTo(xFor(points.length - 1), plotBottom);
+  ctx.lineTo(xFor(0), plotBottom);
   ctx.closePath();
   ctx.fillStyle = fill;
   ctx.fill();
@@ -1457,8 +1465,8 @@ function drawChart(snapshots = state.snapshots) {
   [0, points.length - 1].forEach((index) => {
     const x = xFor(index);
     ctx.beginPath();
-    ctx.moveTo(x, pad);
-    ctx.lineTo(x, height - pad);
+    ctx.moveTo(x, topPad);
+    ctx.lineTo(x, plotBottom);
     ctx.strokeStyle = "rgba(101, 113, 106, 0.28)";
     ctx.lineWidth = 1;
     ctx.stroke();
@@ -1482,11 +1490,47 @@ function drawChart(snapshots = state.snapshots) {
   drawChartBadge(ctx, xFor(points.length - 1), yFor(latest), "최근", money(latest), accentColor, width, height);
   if (points.length > 1) {
     const changeText = `${change > 0 ? "+" : ""}${money(change)} (${percent(deltaRate(latest, first))})`;
-    drawChartBadge(ctx, width / 2, pad + 10, "조회 기간 변화", changeText, accentColor, width, height);
+    drawChartBadge(ctx, width / 2, topPad + 10, "조회 기간 변화", changeText, accentColor, width, height);
   }
   if (els.historyChartDescription) {
     els.historyChartDescription.textContent = `선택 기간 첫 기록 ${money(first)}, 최근 기록 ${money(latest)}, 변화 ${change > 0 ? "+" : ""}${money(change)}입니다.`;
   }
+}
+
+function drawXAxisLabels(ctx, snapshots, xFor, left, right, plotBottom, height) {
+  const lastIndex = snapshots.length - 1;
+  const axisY = plotBottom + 8;
+  const labelY = Math.min(height - 18, plotBottom + 30);
+  const availableWidth = Math.max(1, right - left);
+  const maxLabels = Math.max(2, Math.floor(availableWidth / 110) + 1);
+  const step = lastIndex <= 0 ? 1 : Math.ceil(lastIndex / (maxLabels - 1));
+  const indexes = new Set([0, lastIndex]);
+
+  for (let index = 0; index <= lastIndex; index += step) {
+    indexes.add(index);
+  }
+
+  ctx.strokeStyle = "rgba(101, 113, 106, 0.26)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(left, plotBottom);
+  ctx.lineTo(right, plotBottom);
+  ctx.stroke();
+
+  ctx.fillStyle = "#657386";
+  ctx.font = "800 12px Segoe UI, Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  [...indexes].sort((a, b) => a - b).forEach((index) => {
+    const x = xFor(index);
+    ctx.beginPath();
+    ctx.moveTo(x, plotBottom);
+    ctx.lineTo(x, axisY);
+    ctx.stroke();
+    ctx.fillText(chartDateLabel(snapshots[index]?.createdAt), x, labelY);
+  });
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
 }
 
 function drawChartBadge(ctx, x, y, label, value, color, width, height) {
@@ -1673,6 +1717,16 @@ function shortDate(value) {
   if (Number.isNaN(date.getTime())) return String(value);
   return new Intl.DateTimeFormat("ko-KR", {
     month: "short",
+    day: "numeric"
+  }).format(date);
+}
+
+function chartDateLabel(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "numeric",
     day: "numeric"
   }).format(date);
 }
