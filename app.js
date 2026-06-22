@@ -42,6 +42,7 @@ let cloud = {
   ready: false,
   user: null
 };
+let activeStorageKey = STORAGE_KEY;
 
 let priceBook = {
   errors: [],
@@ -161,25 +162,25 @@ const uiState = {
   autofilledAssetName: ""
 };
 
-function loadState() {
-	  const fallback = {
-	    assets: [],
-	    snapshots: [],
-	    meta: {
-	      cloudUpdatedAt: null,
-	      lastSavedAt: null,
-	      lastSyncDirection: "local"
-	    },
-	    portfolioTargets: {
-	      domestic: 50,
-	      overseas: 30,
-	      cash: 10,
-	      manual: 10
-	    },
-	    retirementScenarios: [],
-	    retirement: {
-	      currentAge: 35,
-	      retireAge: 55,
+function defaultState() {
+  return {
+    assets: [],
+    snapshots: [],
+    meta: {
+      cloudUpdatedAt: null,
+      lastSavedAt: null,
+      lastSyncDirection: "local"
+    },
+    portfolioTargets: {
+      domestic: 50,
+      overseas: 30,
+      cash: 10,
+      manual: 10
+    },
+    retirementScenarios: [],
+    retirement: {
+      currentAge: 35,
+      retireAge: 55,
       lifeAge: 90,
       currentInvestable: 0,
       monthlyInvest: 1000000,
@@ -188,27 +189,35 @@ function loadState() {
       postReturnRate: 3.5
     }
   };
+}
+
+function storageKeyForUser(user) {
+  return user?.uid ? `${STORAGE_KEY}:user:${user.uid}` : STORAGE_KEY;
+}
+
+function loadState(storageKey = activeStorageKey) {
+  const fallback = defaultState();
 
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    const saved = JSON.parse(localStorage.getItem(storageKey));
     if (!saved || typeof saved !== "object") return fallback;
     return {
       ...fallback,
-	      ...saved,
-	      assets: Array.isArray(saved.assets) ? saved.assets.map(normalizeAsset) : [],
-	      snapshots: Array.isArray(saved.snapshots) ? saved.snapshots : [],
-	      meta: { ...fallback.meta, ...(saved.meta || {}) },
-	      portfolioTargets: { ...fallback.portfolioTargets, ...(saved.portfolioTargets || {}) },
-	      retirementScenarios: Array.isArray(saved.retirementScenarios) ? saved.retirementScenarios : [],
-	      retirement: { ...fallback.retirement, ...(saved.retirement || {}) }
-	    };
+      ...saved,
+      assets: Array.isArray(saved.assets) ? saved.assets.map(normalizeAsset) : [],
+      snapshots: Array.isArray(saved.snapshots) ? saved.snapshots : [],
+      meta: { ...fallback.meta, ...(saved.meta || {}) },
+      portfolioTargets: { ...fallback.portfolioTargets, ...(saved.portfolioTargets || {}) },
+      retirementScenarios: Array.isArray(saved.retirementScenarios) ? saved.retirementScenarios : [],
+      retirement: { ...fallback.retirement, ...(saved.retirement || {}) }
+    };
   } catch {
     return fallback;
   }
 }
 
 function persist() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(storageSafeState()));
+  localStorage.setItem(activeStorageKey, JSON.stringify(storageSafeState()));
 }
 
 function hasFirebaseConfig() {
@@ -236,17 +245,22 @@ function storageSafeState() {
 	}
 
 function replaceState(nextState) {
-	  state.assets = Array.isArray(nextState.assets) ? nextState.assets.map(normalizeAsset) : [];
-	  state.snapshots = Array.isArray(nextState.snapshots) ? nextState.snapshots : [];
-	  state.meta = { ...state.meta, ...(nextState.meta || {}), cloudUpdatedAt: nextState.updatedAt || nextState.meta?.cloudUpdatedAt || null };
-	  state.portfolioTargets = { ...state.portfolioTargets, ...(nextState.portfolioTargets || {}) };
-	  state.retirementScenarios = Array.isArray(nextState.retirementScenarios) ? nextState.retirementScenarios : [];
-	  state.retirement = { ...state.retirement, ...(nextState.retirement || {}) };
-	  applyPricesToAssets();
-	  hydrateRetirementInputs();
-	  hydratePortfolioTargetInputs();
-	  renderRetirementScenarioOptions();
-	}
+  const fallback = defaultState();
+  state.assets = Array.isArray(nextState.assets) ? nextState.assets.map(normalizeAsset) : [];
+  state.snapshots = Array.isArray(nextState.snapshots) ? nextState.snapshots : [];
+  state.meta = {
+    ...fallback.meta,
+    ...(nextState.meta || {}),
+    cloudUpdatedAt: nextState.updatedAt || nextState.meta?.cloudUpdatedAt || null
+  };
+  state.portfolioTargets = { ...fallback.portfolioTargets, ...(nextState.portfolioTargets || {}) };
+  state.retirementScenarios = Array.isArray(nextState.retirementScenarios) ? nextState.retirementScenarios : [];
+  state.retirement = { ...fallback.retirement, ...(nextState.retirement || {}) };
+  applyPricesToAssets();
+  hydrateRetirementInputs();
+  hydratePortfolioTargetInputs();
+  renderRetirementScenarioOptions();
+}
 
 function setSyncStatus(text, online = false) {
   if (!els.syncStatus) return;
@@ -385,10 +399,19 @@ async function initFirebase() {
 }
 
 async function completeCloudSignIn(user) {
+  if (cloud.user?.uid === user?.uid && cloud.docRef) return;
+
+  persist();
   cloud.user = user;
   cloud.docRef = null;
+  activeStorageKey = storageKeyForUser(user);
+  replaceState(loadState(activeStorageKey));
+  render(false);
   updateAuthUi();
-  if (!user) return;
+  if (!user) {
+    setSyncStatus(cloud.enabled ? "Cloud ready" : "Local only", false);
+    return;
+  }
 
   cloud.docRef = cloud.doc(cloud.db, "users", user.uid, "financeData", CLOUD_DOC_ID);
   await pullCloudData();
@@ -431,7 +454,10 @@ async function pullCloudData() {
     render(false);
     await syncPriceRequests();
   } else {
-    await pushCloudData("upload");
+    replaceState(loadState(activeStorageKey));
+    state.meta.cloudUpdatedAt = null;
+    state.meta.lastSyncDirection = "local";
+    render(false);
   }
   updateAuthUi();
 }
@@ -1952,8 +1978,7 @@ els.loginBtn.addEventListener("click", async () => {
 els.logoutBtn.addEventListener("click", async () => {
   if (!cloud.enabled) return;
   await cloud.signOut(cloud.auth);
-  cloud.docRef = null;
-  updateAuthUi();
+  await completeCloudSignIn(null);
 });
 
 els.cloudSyncBtn.addEventListener("click", async () => {

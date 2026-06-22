@@ -89,6 +89,25 @@ window.assetTrailFirebaseModules = {
   }
 };
 
+window.localStorage.setItem(
+  "finance-ledger-retirement-v1",
+  JSON.stringify({
+    assets: [
+      {
+        id: "guest-asset",
+        name: "게스트 로컬 자산",
+        ticker: "005930",
+        type: "KRX",
+        account: "공용 브라우저",
+        quantity: 1,
+        averagePrice: 70000
+      }
+    ],
+    snapshots: [],
+    retirement: {}
+  })
+);
+
 window.eval(appCode);
 await new Promise((resolve) => window.setTimeout(resolve, 20));
 
@@ -106,8 +125,8 @@ function submitAsset() {
 }
 
 assert.equal(window.document.querySelector("#syncStatus").textContent, "Cloud: alice@example.com");
-assert.ok(writes.length >= 1);
-assert.equal(writes.at(-1).path, "users/alice/financeData/primary");
+assert.equal(writes.filter((write) => write.path === "users/alice/financeData/primary").length, 0);
+assert.doesNotMatch(window.document.querySelector("#assetRows").textContent, /게스트 로컬 자산/);
 
 setValue("#assetCategory", "KRX");
 setValue("#assetName", "삼성전자");
@@ -146,6 +165,9 @@ assert.equal(lastWrite.data.snapshots.length, 1);
 assert.equal(lastWrite.data.snapshots[0].total, 222000);
 assert.equal(lastWrite.data.retirement.monthlySpend, 4200000);
 assert.match(lastWrite.data.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
+const userLocalState = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1:user:alice"));
+assert.equal(userLocalState.assets.length, 2);
+assert.equal(userLocalState.assets[0].ticker, "005930");
 
 const priceRequestWrite = writes.filter((write) => write.path === "priceRequests/us").at(-1);
 assert.deepEqual(priceRequestWrite.data.tickers.__arrayUnion, ["TSLA"]);
