@@ -454,9 +454,10 @@ async function pullCloudData() {
     render(false);
     await syncPriceRequests();
   } else {
-    replaceState(loadState(activeStorageKey));
+    replaceState(defaultState());
     state.meta.cloudUpdatedAt = null;
     state.meta.lastSyncDirection = "local";
+    persist();
     render(false);
   }
   updateAuthUi();

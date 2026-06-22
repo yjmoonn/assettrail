@@ -107,6 +107,24 @@ window.localStorage.setItem(
     retirement: {}
   })
 );
+window.localStorage.setItem(
+  "finance-ledger-retirement-v1:user:alice",
+  JSON.stringify({
+    assets: [
+      {
+        id: "stale-user-asset",
+        name: "이전 계정 캐시",
+        ticker: "TSLA",
+        type: "US",
+        account: "오래된 캐시",
+        quantity: 1,
+        averagePrice: 200
+      }
+    ],
+    snapshots: [],
+    retirement: {}
+  })
+);
 
 window.eval(appCode);
 await new Promise((resolve) => window.setTimeout(resolve, 20));
@@ -127,6 +145,7 @@ function submitAsset() {
 assert.equal(window.document.querySelector("#syncStatus").textContent, "Cloud: alice@example.com");
 assert.equal(writes.filter((write) => write.path === "users/alice/financeData/primary").length, 0);
 assert.doesNotMatch(window.document.querySelector("#assetRows").textContent, /게스트 로컬 자산/);
+assert.doesNotMatch(window.document.querySelector("#assetRows").textContent, /이전 계정 캐시/);
 
 setValue("#assetCategory", "KRX");
 setValue("#assetName", "삼성전자");
