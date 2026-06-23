@@ -83,6 +83,20 @@ const els = {
   assetQuantity: document.querySelector("#assetQuantity"),
   assetAveragePrice: document.querySelector("#assetAveragePrice"),
   assetNote: document.querySelector("#assetNote"),
+  sellFormPanel: document.querySelector("#sellFormPanel"),
+  sellAssetSummary: document.querySelector("#sellAssetSummary"),
+  sellForm: document.querySelector("#sellForm"),
+  sellAssetId: document.querySelector("#sellAssetId"),
+  sellDate: document.querySelector("#sellDate"),
+  sellQuantity: document.querySelector("#sellQuantity"),
+  sellPrice: document.querySelector("#sellPrice"),
+  sellFxRateField: document.querySelector("#sellFxRateField"),
+  sellFxRate: document.querySelector("#sellFxRate"),
+  sellFees: document.querySelector("#sellFees"),
+  sellTax: document.querySelector("#sellTax"),
+  sellMemo: document.querySelector("#sellMemo"),
+  sellPreview: document.querySelector("#sellPreview"),
+  cancelSellBtn: document.querySelector("#cancelSellBtn"),
   saveAssetBtn: document.querySelector("#saveAssetBtn"),
   cancelEditBtn: document.querySelector("#cancelEditBtn"),
   snapshotBtn: document.querySelector("#snapshotBtn"),
@@ -92,6 +106,10 @@ const els = {
   priceAlert: document.querySelector("#priceAlert"),
   visibleAssetCount: document.querySelector("#visibleAssetCount"),
   categoryBreakdown: document.querySelector("#categoryBreakdown"),
+  realizedSummary: document.querySelector("#realizedSummary"),
+  realizedChart: document.querySelector("#realizedChart"),
+  realizedRows: document.querySelector("#realizedRows"),
+  realizedYearFilter: document.querySelector("#realizedYearFilter"),
   historyChart: document.querySelector("#historyChart"),
   historyRows: document.querySelector("#historyRows"),
   historySummary: document.querySelector("#historySummary"),
@@ -147,6 +165,7 @@ const els = {
   deleteScenarioBtn: document.querySelector("#deleteScenarioBtn"),
   retirementSensitivity: document.querySelector("#retirementSensitivity"),
   emptyAssetTemplate: document.querySelector("#emptyAssetTemplate"),
+  emptyRealizedTemplate: document.querySelector("#emptyRealizedTemplate"),
   emptyHistoryTemplate: document.querySelector("#emptyHistoryTemplate")
 };
 
@@ -159,12 +178,14 @@ const uiState = {
   gainFilter: "ALL",
   assetSort: "VALUE_DESC",
   historyRange: "ALL",
+  realizedYear: "ALL",
   autofilledAssetName: ""
 };
 
 function defaultState() {
   return {
     assets: [],
+    realizedTrades: [],
     snapshots: [],
     meta: {
       cloudUpdatedAt: null,
@@ -205,6 +226,7 @@ function loadState(storageKey = activeStorageKey) {
       ...fallback,
       ...saved,
       assets: Array.isArray(saved.assets) ? saved.assets.map(normalizeAsset) : [],
+      realizedTrades: Array.isArray(saved.realizedTrades) ? saved.realizedTrades.map(normalizeRealizedTrade) : [],
       snapshots: Array.isArray(saved.snapshots) ? saved.snapshots : [],
       meta: { ...fallback.meta, ...(saved.meta || {}) },
       portfolioTargets: { ...fallback.portfolioTargets, ...(saved.portfolioTargets || {}) },
@@ -236,6 +258,7 @@ function cloudSafeState() {
 function storageSafeState() {
 	  return {
 	    assets: state.assets.map(serializeAsset),
+	    realizedTrades: state.realizedTrades.map(serializeRealizedTrade),
 	    snapshots: state.snapshots,
 	    meta: state.meta,
 	    portfolioTargets: state.portfolioTargets,
@@ -247,6 +270,7 @@ function storageSafeState() {
 function replaceState(nextState) {
   const fallback = defaultState();
   state.assets = Array.isArray(nextState.assets) ? nextState.assets.map(normalizeAsset) : [];
+  state.realizedTrades = Array.isArray(nextState.realizedTrades) ? nextState.realizedTrades.map(normalizeRealizedTrade) : [];
   state.snapshots = Array.isArray(nextState.snapshots) ? nextState.snapshots : [];
   state.meta = {
     ...fallback.meta,
@@ -482,12 +506,13 @@ function shouldWarnCloudConflict(cloudData) {
 }
 
 function localHasUserData() {
-  return Boolean(state.assets.length || state.snapshots.length);
+  return Boolean(state.assets.length || state.realizedTrades.length || state.snapshots.length);
 }
 
 function dataFingerprint(data) {
   return JSON.stringify({
     assets: (data.assets || []).map(normalizeAsset).map(serializeAsset),
+    realizedTrades: (data.realizedTrades || []).map(normalizeRealizedTrade).map(serializeRealizedTrade),
     snapshots: data.snapshots || [],
     portfolioTargets: data.portfolioTargets || {},
     retirement: data.retirement || {},
@@ -592,6 +617,52 @@ function serializeAsset(asset) {
   const normalized = normalizeAsset(asset);
   const { currentPrice, priceDate, priceSource, priceUpdatedAt, ...saved } = normalized;
   return saved;
+}
+
+function normalizeRealizedTrade(trade) {
+  const soldAt = trade?.soldAt || trade?.date || new Date().toISOString().slice(0, 10);
+  const quantity = Number(trade?.quantity || 0);
+  const averagePrice = Number(trade?.averagePrice || 0);
+  const sellPrice = Number(trade?.sellPrice || 0);
+  const fxRate = Number(trade?.fxRate || 1) || 1;
+  const fees = Number(trade?.fees || 0);
+  const tax = Number(trade?.tax || 0);
+  const grossAmount = Number.isFinite(Number(trade?.grossAmount))
+    ? Number(trade.grossAmount)
+    : quantity * sellPrice * fxRate;
+  const costAmount = Number.isFinite(Number(trade?.costAmount))
+    ? Number(trade.costAmount)
+    : quantity * averagePrice * fxRate;
+  const realizedGain = Number.isFinite(Number(trade?.realizedGain))
+    ? Number(trade.realizedGain)
+    : grossAmount - costAmount - fees - tax;
+  const realizedGainRate = costAmount > 0 ? realizedGain / costAmount : null;
+
+  return {
+    id: trade?.id || uid(),
+    assetId: trade?.assetId || "",
+    soldAt,
+    name: String(trade?.name || "").trim(),
+    ticker: String(trade?.ticker || "").trim().toUpperCase(),
+    type: normalizeAssetType(trade?.type),
+    account: String(trade?.account || "").trim(),
+    quantity,
+    averagePrice,
+    sellPrice,
+    fxRate,
+    grossAmount,
+    costAmount,
+    fees,
+    tax,
+    realizedGain,
+    realizedGainRate,
+    memo: String(trade?.memo || "").trim(),
+    createdAt: trade?.createdAt || new Date().toISOString()
+  };
+}
+
+function serializeRealizedTrade(trade) {
+  return normalizeRealizedTrade(trade);
 }
 
 function inferLegacyAssetType(asset) {
@@ -898,6 +969,11 @@ function assetGain(asset) {
   return assetValue(asset) - cost;
 }
 
+function canSellAsset(asset) {
+  const type = assetType(asset);
+  return isMarketType(type) && Number(asset.quantity || 0) > 0;
+}
+
 function decimalValue(input) {
   return parseAmount(input.value);
 }
@@ -941,6 +1017,7 @@ function formatRetirementMoneyInput(input) {
 function render(syncCloud = true) {
   renderAssets();
   renderBreakdown();
+  renderRealized();
   renderPriceNotice();
   renderHistory();
   renderRetirement();
@@ -986,7 +1063,7 @@ function renderAssets() {
 
   if (!filtered.length) {
     const row = document.createElement("tr");
-    row.innerHTML = `<td colspan="9" class="empty">조건에 맞는 자산이 없습니다.</td>`;
+    row.innerHTML = `<td colspan="10" class="empty">조건에 맞는 자산이 없습니다.</td>`;
     els.assetRows.append(row);
     return;
   }
@@ -995,6 +1072,9 @@ function renderAssets() {
     const gain = assetGain(asset);
     const gainRate = gain === null ? null : gain / assetCost(asset);
     const valueDetail = assetValueDetail(asset);
+    const sellButton = canSellAsset(asset)
+      ? `<button class="text-icon-button" type="button" title="매도 기록" aria-label="${escapeHtml(asset.name)} 매도 기록" data-action="sell" data-id="${asset.id}">매도</button>`
+      : "";
     const row = document.createElement("tr");
     row.innerHTML = `
       <td><strong>${escapeHtml(asset.name)}</strong></td>
@@ -1005,6 +1085,7 @@ function renderAssets() {
       <td class="number">${money(assetValue(asset))}${valueDetail}</td>
       <td class="number ${gain > 0 ? "positive" : gain < 0 ? "negative" : ""}">${gain === null ? "-" : `${gain > 0 ? "+" : ""}${money(gain)}${gainRate ? ` (${gainRate > 0 ? "+" : ""}${percent(gainRate)})` : ""}`}</td>
       <td>${escapeHtml(asset.note || "")}</td>
+      <td class="sell-cell">${sellButton || `<span class="muted-dash">-</span>`}</td>
       <td>
         <div class="row-actions">
           <button class="icon-button" type="button" title="수정" aria-label="${escapeHtml(asset.name)} 수정" data-action="edit" data-id="${asset.id}">✎</button>
@@ -1319,6 +1400,127 @@ function renderRebalanceSummary() {
       <small>목표 ${(targetRate * 100).toFixed(1)}% · 현재 ${((current[key] / total) * 100).toFixed(1)}%</small>
     </div>`;
   }).join("");
+}
+
+function renderRealized() {
+  if (!els.realizedSummary || !els.realizedChart || !els.realizedRows) return;
+  state.realizedTrades = (state.realizedTrades || []).map(normalizeRealizedTrade);
+  renderRealizedYearOptions();
+
+  const trades = [...state.realizedTrades].sort((a, b) => new Date(b.soldAt) - new Date(a.soldAt));
+  const now = new Date();
+  const currentYear = String(now.getFullYear());
+  const currentMonth = `${currentYear}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const selectedYear = uiState.realizedYear === "ALL" ? currentYear : uiState.realizedYear;
+  const filtered = uiState.realizedYear === "ALL"
+    ? trades
+    : trades.filter((trade) => tradeYear(trade) === uiState.realizedYear);
+
+  const yearGain = trades
+    .filter((trade) => tradeYear(trade) === currentYear)
+    .reduce((sum, trade) => sum + trade.realizedGain, 0);
+  const monthGain = trades
+    .filter((trade) => tradeMonth(trade) === currentMonth)
+    .reduce((sum, trade) => sum + trade.realizedGain, 0);
+  const totalGain = trades.reduce((sum, trade) => sum + trade.realizedGain, 0);
+  const totalGross = trades.reduce((sum, trade) => sum + trade.grossAmount, 0);
+
+  const summaryItems = [
+    ["올해 실현손익", yearGain, `${currentYear}년 매도 기준`],
+    ["이번 달 실현손익", monthGain, `${Number(currentMonth.slice(5))}월 매도 기준`],
+    ["누적 실현손익", totalGain, `${trades.length}건 기록`],
+    ["총 매도금액", totalGross, "수수료/세금 차감 전"]
+  ];
+  els.realizedSummary.innerHTML = summaryItems.map(([label, value, detail], index) => {
+    const tone = index === 3 ? "" : value > 0 ? "positive" : value < 0 ? "negative" : "";
+    return `<div class="history-summary-item realized-summary-item ${tone}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${money(value)}</strong>
+      <small>${escapeHtml(detail)}</small>
+    </div>`;
+  }).join("");
+
+  renderRealizedChart(selectedYear);
+  renderRealizedRows(filtered);
+}
+
+function renderRealizedYearOptions() {
+  if (!els.realizedYearFilter) return;
+  const years = [...new Set((state.realizedTrades || []).map(tradeYear).filter(Boolean))]
+    .sort((a, b) => Number(b) - Number(a));
+  const current = years.includes(uiState.realizedYear) ? uiState.realizedYear : "ALL";
+  els.realizedYearFilter.innerHTML = `<option value="ALL">전체 기간</option>${years.map((year) => `<option value="${year}">${year}년</option>`).join("")}`;
+  els.realizedYearFilter.value = current;
+  uiState.realizedYear = current;
+}
+
+function renderRealizedChart(year) {
+  const monthly = Array.from({ length: 12 }, () => 0);
+  (state.realizedTrades || [])
+    .filter((trade) => tradeYear(trade) === year)
+    .forEach((trade) => {
+      const month = Number(String(trade.soldAt || "").slice(5, 7));
+      if (month >= 1 && month <= 12) monthly[month - 1] += Number(trade.realizedGain || 0);
+    });
+
+  const max = Math.max(1, ...monthly.map((value) => Math.abs(value)));
+  const hasData = monthly.some((value) => value !== 0);
+  els.realizedChart.innerHTML = `
+    <div class="realized-chart-title">
+      <strong>${escapeHtml(year)}년 월별 실현손익</strong>
+      <span>${hasData ? "매도일 기준" : "기록 없음"}</span>
+    </div>
+    <div class="realized-bars">
+      ${monthly.map((value, index) => {
+        const height = hasData ? Math.max(6, Math.abs(value) / max * 100) : 0;
+        const tone = value > 0 ? "positive" : value < 0 ? "negative" : "neutral";
+        return `<div class="realized-bar-wrap" title="${index + 1}월 ${money(value)}">
+          <div class="realized-bar-space">
+            <span class="realized-bar ${tone}" style="height: ${height}%"></span>
+          </div>
+          <small>${index + 1}월</small>
+        </div>`;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderRealizedRows(trades) {
+  els.realizedRows.textContent = "";
+  if (!trades.length) {
+    els.realizedRows.append(els.emptyRealizedTemplate.content.cloneNode(true));
+    return;
+  }
+
+  trades.forEach((trade) => {
+    const rate = Number.isFinite(trade.realizedGainRate) ? trade.realizedGainRate : null;
+    const tone = trade.realizedGain > 0 ? "positive" : trade.realizedGain < 0 ? "negative" : "";
+    const price = trade.type === "US" ? usd(trade.sellPrice) : formatPlainNumber(trade.sellPrice);
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>${escapeHtml(formatTradeDate(trade.soldAt))}</td>
+      <td><strong>${escapeHtml(trade.name || trade.ticker)}</strong><small class="sub-value">${escapeHtml(trade.type)}:${escapeHtml(trade.ticker)}</small></td>
+      <td>${escapeHtml(trade.account || "계좌 미지정")}</td>
+      <td class="number">${formatPlainNumber(trade.quantity)}</td>
+      <td class="number">${price}${trade.type === "US" ? `<small class="sub-value">환율 ${formatPlainNumber(trade.fxRate)}원</small>` : ""}</td>
+      <td class="number">${money(trade.grossAmount)}</td>
+      <td class="number">${money(trade.costAmount)}</td>
+      <td class="number">${money(trade.fees + trade.tax)}</td>
+      <td class="number ${tone}">${trade.realizedGain > 0 ? "+" : ""}${money(trade.realizedGain)}${rate === null ? "" : `<small class="sub-value">${rate > 0 ? "+" : ""}${percent(rate)}</small>`}</td>
+      <td>${escapeHtml(trade.memo || "")}</td>
+    `;
+    els.realizedRows.append(row);
+  });
+}
+
+function tradeYear(trade) {
+  const year = String(trade?.soldAt || "").slice(0, 4);
+  return /^\d{4}$/.test(year) ? year : "";
+}
+
+function tradeMonth(trade) {
+  const month = String(trade?.soldAt || "").slice(0, 7);
+  return /^\d{4}-\d{2}$/.test(month) ? month : "";
 }
 
 function renderHistory() {
@@ -1728,6 +1930,22 @@ function renderRetirementSensitivity() {
   }).join("");
 }
 
+function localDateInputValue(date = new Date()) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60 * 1000);
+  return local.toISOString().slice(0, 10);
+}
+
+function formatTradeDate(value) {
+  if (!value) return "";
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "short",
+    day: "numeric"
+  }).format(date);
+}
+
 function formatDate(value) {
   if (!value) return "없음";
   const date = new Date(value);
@@ -1819,6 +2037,108 @@ function hideAssetForm() {
   }
 }
 
+function resetSellForm() {
+  if (!els.sellForm) return;
+  els.sellForm.reset();
+  if (els.sellAssetId) els.sellAssetId.value = "";
+  if (els.sellPreview) els.sellPreview.textContent = "";
+  hideSellForm();
+}
+
+function hideSellForm() {
+  if (els.sellFormPanel) els.sellFormPanel.hidden = true;
+}
+
+function showSellForm(asset) {
+  if (!els.sellFormPanel || !els.sellForm) return;
+  resetAssetForm();
+  els.sellFormPanel.hidden = false;
+  els.sellAssetId.value = asset.id;
+  els.sellDate.value = localDateInputValue();
+  els.sellQuantity.value = formatPlainNumber(asset.quantity || 0);
+  els.sellPrice.value = asset.currentPrice ? formatPlainNumber(asset.currentPrice) : "";
+  els.sellFees.value = "";
+  els.sellTax.value = "";
+  els.sellMemo.value = "";
+  const type = assetType(asset);
+  if (els.sellFxRateField) els.sellFxRateField.hidden = type !== "US";
+  els.sellFxRate.value = type === "US" ? formatPlainNumber(usdKrwRate()) : "1";
+  els.sellAssetSummary.textContent = `${asset.name} · ${asset.account || "계좌 미지정"} · 보유 ${formatPlainNumber(asset.quantity)}주 · 평단 ${type === "US" ? usd(asset.averagePrice) : formatPlainNumber(asset.averagePrice)}`;
+  renderSellPreview();
+  els.sellQuantity.focus();
+}
+
+function renderSellPreview() {
+  if (!els.sellPreview) return;
+  const preview = parseSellForm(false);
+  if (!preview.ok) {
+    els.sellPreview.textContent = preview.message || "매도 정보를 입력하면 예상 실현손익이 표시됩니다.";
+    els.sellPreview.className = "sell-preview";
+    return;
+  }
+  const gain = preview.trade.realizedGain;
+  const rate = preview.trade.realizedGainRate;
+  els.sellPreview.className = `sell-preview ${gain > 0 ? "positive" : gain < 0 ? "negative" : ""}`;
+  els.sellPreview.textContent = [
+    `매도금액 ${money(preview.trade.grossAmount)}`,
+    `원가 ${money(preview.trade.costAmount)}`,
+    `비용 ${money(preview.trade.fees + preview.trade.tax)}`,
+    `실현손익 ${gain > 0 ? "+" : ""}${money(gain)}${rate === null ? "" : ` (${rate > 0 ? "+" : ""}${percent(rate)})`}`
+  ].join(" · ");
+}
+
+function parseSellForm(strict = true) {
+  const asset = state.assets.find((item) => item.id === els.sellAssetId?.value);
+  if (!asset) return { ok: false, message: "매도할 자산을 찾을 수 없습니다." };
+  const type = assetType(asset);
+  if (!isMarketType(type)) return { ok: false, message: "KRX/US 자산만 매도 기록을 남길 수 있습니다." };
+
+  const quantity = parseAmount(els.sellQuantity?.value || 0);
+  const holdingQuantity = Number(asset.quantity || 0);
+  const sellPrice = parseAmount(els.sellPrice?.value || 0);
+  const fxRate = type === "US" ? parseAmount(els.sellFxRate?.value || 0) : 1;
+  const fees = Math.max(0, parseAmount(els.sellFees?.value || 0));
+  const tax = Math.max(0, parseAmount(els.sellTax?.value || 0));
+  const soldAt = els.sellDate?.value || localDateInputValue();
+
+  if (quantity <= 0) return { ok: false, message: strict ? "매도 수량은 0보다 커야 합니다." : "" };
+  if (quantity > holdingQuantity + 0.0000001) return { ok: false, message: `보유 수량 ${formatPlainNumber(holdingQuantity)}주보다 많이 매도할 수 없습니다.` };
+  if (sellPrice <= 0) return { ok: false, message: strict ? "매도가를 입력하세요." : "" };
+  if (type === "US" && fxRate <= 0) return { ok: false, message: strict ? "달러 환율을 입력하세요." : "" };
+
+  const effectiveFx = type === "US" ? fxRate : 1;
+  const costAmount = quantity * Number(asset.averagePrice || 0) * effectiveFx;
+  const grossAmount = quantity * sellPrice * effectiveFx;
+  const realizedGain = grossAmount - costAmount - fees - tax;
+  const trade = normalizeRealizedTrade({
+    id: uid(),
+    assetId: asset.id,
+    soldAt,
+    name: asset.name,
+    ticker: normalizeTicker(type, asset.ticker),
+    type,
+    account: asset.account || "",
+    quantity,
+    averagePrice: Number(asset.averagePrice || 0),
+    sellPrice,
+    fxRate: effectiveFx,
+    grossAmount,
+    costAmount,
+    fees,
+    tax,
+    realizedGain,
+    memo: els.sellMemo?.value.trim() || "",
+    createdAt: new Date().toISOString()
+  });
+
+  return {
+    ok: true,
+    asset,
+    remainingQuantity: Math.max(0, holdingQuantity - quantity),
+    trade
+  };
+}
+
 function normalizeAssetKey(value) {
   return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
@@ -1857,7 +2177,7 @@ function fillAssetNameFromTicker() {
 function parseAmount(value) {
   const raw = String(value || "").trim();
   const negative = /^\(.*\)$/.test(raw);
-  const normalized = raw.replace(/[₩원,\s()]/g, "");
+  const normalized = raw.replace(/[₩$원,\s()]/g, "");
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed * (negative ? -1 : 1) : 0;
 }
@@ -1899,13 +2219,54 @@ els.assetForm.addEventListener("submit", (event) => {
   render();
 });
 
+els.sellForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const result = parseSellForm(true);
+  if (!result.ok) {
+    alert(result.message);
+    return;
+  }
+
+  const { asset, remainingQuantity, trade } = result;
+  const previousAssets = state.assets.map((item) => ({ ...item }));
+  const previousTrades = state.realizedTrades.map((item) => ({ ...item }));
+  const index = state.assets.findIndex((item) => item.id === asset.id);
+  if (index < 0) return;
+
+  state.realizedTrades.push(trade);
+  if (remainingQuantity <= 0.0000001) {
+    state.assets.splice(index, 1);
+  } else {
+    state.assets[index] = normalizeAsset({
+      ...state.assets[index],
+      quantity: remainingQuantity,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  applyPricesToAssets();
+  resetSellForm();
+  render();
+  showUndoNotice(`${asset.name} 매도를 기록했습니다.`, () => {
+    state.assets = previousAssets.map(normalizeAsset);
+    state.realizedTrades = previousTrades.map(normalizeRealizedTrade);
+    applyPricesToAssets();
+    render();
+  });
+});
+
 els.assetRows.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-action]");
   if (!button) return;
   const asset = state.assets.find((item) => item.id === button.dataset.id);
   if (!asset) return;
 
+  if (button.dataset.action === "sell") {
+    showSellForm(asset);
+  }
+
   if (button.dataset.action === "edit") {
+    resetSellForm();
     showAssetForm("edit");
     els.assetId.value = asset.id;
     els.assetName.value = asset.name;
@@ -1929,6 +2290,7 @@ els.assetRows.addEventListener("click", (event) => {
     const deleted = { ...asset };
     state.assets = state.assets.filter((item) => item.id !== asset.id);
     resetAssetForm();
+    resetSellForm();
     render();
     showUndoNotice(`${asset.name} 자산을 삭제했습니다.`, () => {
       state.assets.splice(Math.max(0, index), 0, deleted);
@@ -1938,8 +2300,22 @@ els.assetRows.addEventListener("click", (event) => {
   }
 });
 
+[
+  els.sellDate,
+  els.sellQuantity,
+  els.sellPrice,
+  els.sellFxRate,
+  els.sellFees,
+  els.sellTax
+].forEach((input) => {
+  input?.addEventListener("input", renderSellPreview);
+});
+
+els.cancelSellBtn?.addEventListener("click", resetSellForm);
+
 els.toggleAssetFormBtn.addEventListener("click", () => {
   if (els.assetFormPanel.hidden) {
+    resetSellForm();
     showAssetForm("create");
     els.assetName.focus();
   } else {
@@ -2044,6 +2420,11 @@ els.assetSort.addEventListener("change", () => {
 
 els.historyRange.addEventListener("change", () => {
   uiState.historyRange = els.historyRange.value;
+  render(false);
+});
+
+els.realizedYearFilter?.addEventListener("change", () => {
+  uiState.realizedYear = els.realizedYearFilter.value;
   render(false);
 });
 

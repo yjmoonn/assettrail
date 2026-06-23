@@ -240,3 +240,27 @@ assert.deepEqual(
     { amount: 700000, account: "DC", currentPrice: undefined, name: "DC 대기자산", type: "MANUAL" }
   ]
 );
+
+const appleRow = [...window.document.querySelectorAll("#assetRows tr")].find((row) =>
+  row.textContent.includes("Apple Inc.")
+);
+appleRow.querySelector('[data-action="sell"]').click();
+assert.equal(window.document.querySelector("#sellFormPanel").hidden, false);
+setValue("#sellDate", "2026-06-20");
+setValue("#sellQuantity", "1");
+setValue("#sellPrice", "200");
+setValue("#sellFxRate", "1300");
+setValue("#sellFees", "1000");
+setValue("#sellTax", "500");
+assert.match(window.document.querySelector("#sellPreview").textContent, /실현손익 \+₩24,500/);
+window.document
+  .querySelector("#sellForm")
+  .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+
+const savedAfterSell = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
+assert.equal(savedAfterSell.realizedTrades.length, 1);
+assert.equal(savedAfterSell.realizedTrades[0].realizedGain, 24500);
+assert.equal(savedAfterSell.assets.find((asset) => asset.ticker === "AAPL").quantity, 1);
+assert.match(window.document.querySelector("#realizedSummary").textContent, /누적 실현손익\s+₩24,500/);
+assert.match(window.document.querySelector("#realizedRows").textContent, /Apple Inc\./);
+assert.match(window.document.querySelector("#realizedRows").textContent, /\+₩24,500/);

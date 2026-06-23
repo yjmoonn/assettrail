@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>자산 히스토리 & 은퇴 플래너</title>
-    <link rel="stylesheet" href="styles.css?v=20260531-portfolio-donut">
+    <link rel="stylesheet" href="styles.css?v=20260623-realized-gain">
   </head>
   <body>
     <div class="app">
@@ -142,6 +142,51 @@
               </form>
             </div>
 
+            <div class="sell-form-panel" id="sellFormPanel" hidden>
+              <div class="form-panel-header">
+                <div>
+                  <h3>매도 처리</h3>
+                  <p id="sellAssetSummary">매도할 자산을 선택하세요.</p>
+                </div>
+              </div>
+              <form id="sellForm" class="sell-form">
+                <input type="hidden" id="sellAssetId">
+                <label>
+                  매도일
+                  <input id="sellDate" type="date" required>
+                </label>
+                <label>
+                  매도수량
+                  <input id="sellQuantity" type="text" inputmode="decimal" required>
+                </label>
+                <label>
+                  매도가
+                  <input id="sellPrice" type="text" inputmode="decimal" required>
+                </label>
+                <label id="sellFxRateField">
+                  적용 환율
+                  <input id="sellFxRate" type="text" inputmode="decimal">
+                </label>
+                <label>
+                  수수료
+                  <input id="sellFees" type="text" inputmode="numeric" placeholder="0">
+                </label>
+                <label>
+                  세금
+                  <input id="sellTax" type="text" inputmode="numeric" placeholder="0">
+                </label>
+                <label class="wide-field">
+                  메모
+                  <input id="sellMemo" type="text" placeholder="예: 일부 매도">
+                </label>
+                <div class="sell-preview" id="sellPreview" aria-live="polite"></div>
+                <div class="form-actions">
+                  <button class="primary-button" type="submit">매도 기록 저장</button>
+                  <button class="ghost-button" id="cancelSellBtn" type="button">취소</button>
+                </div>
+              </form>
+            </div>
+
             <div class="ledger-toolbar" aria-label="자산 목록 도구">
               <label class="toolbar-field search-field">
                 검색
@@ -208,6 +253,7 @@
                     <th class="number">평가금액</th>
                     <th class="number">평가손익</th>
                     <th>메모</th>
+                    <th class="sell-col">매도</th>
                     <th class="actions-col">관리</th>
                   </tr>
                 </thead>
@@ -249,6 +295,42 @@
               </div>
               <div id="rebalanceSummary" class="rebalance-summary"></div>
             </section>
+          </div>
+        </section>
+
+        <section class="panel realized-panel">
+          <div class="panel-header">
+            <div>
+              <h2>실현손익</h2>
+              <p>매도 처리한 기록을 기준으로 월별/연별 실현손익을 관리합니다.</p>
+            </div>
+            <label class="toolbar-field compact-filter">
+              연도
+              <select id="realizedYearFilter">
+                <option value="ALL">전체</option>
+              </select>
+            </label>
+          </div>
+          <div class="realized-summary" id="realizedSummary"></div>
+          <div class="realized-chart" id="realizedChart" aria-label="월별 실현손익 차트"></div>
+          <div class="table-wrap realized-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>매도일</th>
+                  <th>자산</th>
+                  <th>계좌</th>
+                  <th class="number">수량</th>
+                  <th class="number">매도가</th>
+                  <th class="number">매도금액</th>
+                  <th class="number">취득원가</th>
+                  <th class="number">비용</th>
+                  <th class="number">실현손익</th>
+                  <th>메모</th>
+                </tr>
+              </thead>
+              <tbody id="realizedRows"></tbody>
+            </table>
           </div>
         </section>
 
@@ -397,7 +479,7 @@
 
     <template id="emptyAssetTemplate">
       <tr>
-        <td colspan="9" class="empty">
+        <td colspan="10" class="empty">
           등록된 자산이 없습니다. 상단의 자산 추가 버튼으로 첫 자산을 등록하세요.
         </td>
       </tr>
@@ -409,7 +491,13 @@
       </tr>
     </template>
 
+    <template id="emptyRealizedTemplate">
+      <tr>
+        <td colspan="10" class="empty">매도 처리한 기록이 없습니다.</td>
+      </tr>
+    </template>
+
     <script src="firebase-config.js?v=20260519-auth-result"></script>
-    <script type="module" src="app.js?v=20260519-auth-result"></script>
+    <script type="module" src="app.js?v=20260623-realized-gain"></script>
   </body>
 </html>
