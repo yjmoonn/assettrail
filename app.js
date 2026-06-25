@@ -133,6 +133,7 @@ const els = {
   retirementProgressBar: document.querySelector("#retirementProgressBar"),
   retirementProgressLabel: document.querySelector("#retirementProgressLabel"),
   priceStatus: document.querySelector("#priceStatus"),
+  priceRefreshBtn: document.querySelector("#priceRefreshBtn"),
   syncStatus: document.querySelector("#syncStatus"),
   toggleAssetFormBtn: document.querySelector("#toggleAssetFormBtn"),
   loginBtn: document.querySelector("#loginBtn"),
@@ -319,19 +320,22 @@ function showUndoNotice(message, undo) {
 
 async function initPrices() {
   setPriceStatus("Prices loading...");
+  if (els.priceRefreshBtn) els.priceRefreshBtn.disabled = true;
 
   try {
     const loaded = await loadPriceBook();
     priceBook = normalizePriceBook(loaded.data);
     activePriceFileUrl = loaded.url;
     applyPricesToAssets();
-    setPriceStatus(priceBook.generatedAt ? `Prices: ${shortDate(priceBook.generatedAt)}` : "Prices loaded", true);
+    setPriceStatus(priceBook.generatedAt ? `Prices: ${shortDateTime(priceBook.generatedAt)}` : "Prices loaded", true);
     render(false);
   } catch (error) {
     console.error(error);
     applyPricesToAssets();
     setPriceStatus("Prices unavailable");
     render(false);
+  } finally {
+    if (els.priceRefreshBtn) els.priceRefreshBtn.disabled = false;
   }
 }
 
@@ -340,7 +344,7 @@ async function loadPriceBook() {
 
   for (const url of priceFileCandidates()) {
     try {
-      const response = await fetch(cacheBustedUrl(url), { cache: "no-store" });
+      const response = await fetch(cacheBustedUrl(url), priceFetchOptions(url));
       if (!response.ok) {
         lastError = new Error(response.status === 404 ? "Prices not found" : `Prices unavailable: ${response.status}`);
         continue;
@@ -365,7 +369,26 @@ function priceFileCandidates() {
 
 function cacheBustedUrl(url) {
   const separator = String(url).includes("?") ? "&" : "?";
-  return `${url}${separator}v=${Date.now()}`;
+  return `${url}${separator}v=${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function priceFetchOptions(url) {
+  const options = { cache: "no-store" };
+  if (isSameOriginUrl(url)) {
+    options.headers = {
+      "Cache-Control": "no-cache",
+      "Pragma": "no-cache"
+    };
+  }
+  return options;
+}
+
+function isSameOriginUrl(url) {
+  try {
+    return new URL(url, window.location.href).origin === window.location.origin;
+  } catch {
+    return false;
+  }
 }
 
 async function initFirebase() {
@@ -2412,6 +2435,10 @@ els.assetGainFilter.addEventListener("change", () => {
 els.assetSort.addEventListener("change", () => {
   uiState.assetSort = els.assetSort.value;
   render(false);
+});
+
+els.priceRefreshBtn?.addEventListener("click", () => {
+  initPrices();
 });
 
 [els.targetDomestic, els.targetOverseas, els.targetCash, els.targetManual].forEach((input) => {

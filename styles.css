@@ -49,6 +49,11 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
 .app {
   width: min(1440px, 100%);
   margin: 0 auto;
@@ -149,6 +154,12 @@ h3 {
   justify-content: center;
   min-height: 40px;
   padding: 0 14px;
+}
+
+.compact-button {
+  font-size: 12px;
+  min-height: 32px;
+  padding: 0 12px;
 }
 
 .primary-button {

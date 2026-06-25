@@ -198,7 +198,7 @@ assert.equal(window.document.querySelector("#monthlyInvest").value, "1,500,000")
 assert.equal(window.document.querySelector("#postReturnRate").value, "4.5");
 assert.match(window.document.querySelector("#retirementProgressLabel").textContent, /%/);
 
-assert.equal(window.document.querySelector("#priceStatus").textContent, "Prices: 5월 19일");
+assert.equal(window.document.querySelector("#priceStatus").textContent, "Prices: 5월 19일 오전 09:00");
 assert.equal(window.document.querySelector("#totalAsset").textContent, "₩6,123,645");
 assert.match(rows.join("\n"), /삼성전자 삼성증권 005930 KRX 국내 10 ₩740,000종가 74,000 · 5월 18일 \+₩40,000/);
 assert.match(rows.join("\n"), /삼성전자 미래에셋 005930 KRX 국내 5 ₩370,000종가 74,000 · 5월 18일 \+₩10,000/);
