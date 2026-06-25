@@ -1190,7 +1190,7 @@ function renderAssets() {
   updateVisibleAssetCount(state.assets.length, state.assets.length);
   if (!state.assets.length) {
     els.assetRows.append(els.emptyAssetTemplate.content.cloneNode(true));
-    renderAssetCardEmpty("등록된 자산이 없습니다. 자산 추가로 첫 자산을 등록하세요.");
+    renderAssetCardEmpty("✨ 등록된 자산이 없습니다. 자산 추가로 첫 자산을 등록하세요.");
     return;
   }
 
@@ -1211,9 +1211,9 @@ function renderAssets() {
     const gainRate = gain === null ? null : gain / assetCost(asset);
     const valueDetail = assetValueDetail(asset);
     const sellButton = canSellAsset(asset)
-      ? `<button class="text-icon-button" type="button" title="매도 기록" aria-label="${escapeHtml(asset.name)} 매도 기록" data-action="sell" data-id="${asset.id}">매도</button>`
+      ? `<button class="text-icon-button" type="button" title="매도 기록" aria-label="${escapeHtml(asset.name)} 매도 기록" data-action="sell" data-id="${asset.id}">💸 매도</button>`
       : "";
-    const journalButton = `<button class="table-action quiet-action" type="button" title="일지 작성" aria-label="${escapeHtml(asset.name)} 일지 작성" data-action="journal" data-id="${asset.id}">일지</button>`;
+    const journalButton = `<button class="table-action quiet-action" type="button" title="일지 작성" aria-label="${escapeHtml(asset.name)} 일지 작성" data-action="journal" data-id="${asset.id}">✍️ 일지</button>`;
     const row = document.createElement("tr");
     row.innerHTML = `
       <td><strong>${escapeHtml(asset.name)}</strong></td>
@@ -1228,8 +1228,8 @@ function renderAssets() {
       <td>
         <div class="row-actions">
           ${journalButton}
-          <button class="table-action quiet-action" type="button" title="수정" aria-label="${escapeHtml(asset.name)} 수정" data-action="edit" data-id="${asset.id}">수정</button>
-          <button class="table-action danger-action" type="button" title="삭제" aria-label="${escapeHtml(asset.name)} 삭제" data-action="delete" data-id="${asset.id}">삭제</button>
+          <button class="table-action quiet-action" type="button" title="수정" aria-label="${escapeHtml(asset.name)} 수정" data-action="edit" data-id="${asset.id}">🛠 수정</button>
+          <button class="table-action danger-action" type="button" title="삭제" aria-label="${escapeHtml(asset.name)} 삭제" data-action="delete" data-id="${asset.id}">🗑 삭제</button>
         </div>
       </td>
     `;
@@ -1264,10 +1264,10 @@ function renderAssetCard(asset, gain, gainRate, valueDetail, sellButton, journal
     </div>
     ${asset.note ? `<p class="asset-card-note">${escapeHtml(asset.note)}</p>` : ""}
     <div class="asset-card-actions">
-      ${isMarketType(type) ? sellButton || `<button class="text-icon-button disabled-action" type="button" disabled>매도</button>` : `<button class="text-icon-button disabled-action" type="button" disabled>매도 불가</button>`}
+      ${isMarketType(type) ? sellButton || `<button class="text-icon-button disabled-action" type="button" disabled>💸 매도</button>` : `<button class="text-icon-button disabled-action" type="button" disabled>잠금</button>`}
       ${journalButton}
-      <button class="table-action quiet-action" type="button" data-action="edit" data-id="${asset.id}">수정</button>
-      <button class="table-action danger-action" type="button" data-action="delete" data-id="${asset.id}">삭제</button>
+      <button class="table-action quiet-action" type="button" data-action="edit" data-id="${asset.id}">🛠 수정</button>
+      <button class="table-action danger-action" type="button" data-action="delete" data-id="${asset.id}">🗑 삭제</button>
     </div>
   `;
   els.assetCards.append(card);
@@ -1626,7 +1626,7 @@ function renderJournal() {
   if (!entries.length) {
     const empty = document.createElement("div");
     empty.className = "empty journal-empty";
-    empty.textContent = total ? "조건에 맞는 매매일지가 없습니다." : "자산원장의 일지 버튼이나 일지 작성 버튼으로 첫 기록을 남겨보세요.";
+    empty.textContent = total ? "🔎 조건에 맞는 매매일지가 없습니다." : "✍️ 자산원장의 일지 버튼이나 일지 작성 버튼으로 첫 기록을 남겨보세요.";
     els.journalList.append(empty);
     return;
   }
@@ -1655,9 +1655,9 @@ function renderJournal() {
         ${entry.tags ? `<div class="journal-tags">${entry.tags.split(",").map((tag) => `<span>${escapeHtml(tag.trim())}</span>`).join("")}</div>` : ""}
       </div>
       <div class="journal-actions">
-        <button class="table-action quiet-action" type="button" data-journal-action="copy-ai" data-id="${entry.id}">AI 질문 복사</button>
-        <button class="table-action quiet-action" type="button" data-journal-action="edit" data-id="${entry.id}">수정</button>
-        <button class="table-action danger-action" type="button" data-journal-action="delete" data-id="${entry.id}">삭제</button>
+        <button class="table-action quiet-action" type="button" data-journal-action="copy-ai" data-id="${entry.id}">🤖 AI 질문 복사</button>
+        <button class="table-action quiet-action" type="button" data-journal-action="edit" data-id="${entry.id}">🛠 수정</button>
+        <button class="table-action danger-action" type="button" data-journal-action="delete" data-id="${entry.id}">🗑 삭제</button>
       </div>
     `;
     els.journalList.append(card);
@@ -1694,7 +1694,7 @@ function resetJournalForm() {
   els.journalRegion.value = "DOMESTIC";
   els.journalAction.value = "BUY";
   els.journalStatus.value = "OPEN";
-  els.saveJournalBtn.textContent = "일지 저장";
+  els.saveJournalBtn.textContent = "✍️ 일지 저장";
   if (els.journalFormTitle) els.journalFormTitle.textContent = "매매일지 작성";
   hideJournalForm();
 }
@@ -1705,14 +1705,14 @@ function showJournalForm(entry = null) {
   resetSellForm();
   els.journalFormPanel.hidden = false;
   if (els.toggleJournalFormBtn) {
-    els.toggleJournalFormBtn.textContent = "닫기";
+    els.toggleJournalFormBtn.textContent = "접기";
     els.toggleJournalFormBtn.setAttribute("aria-expanded", "true");
   }
   if (!entry) {
     resetJournalForm();
     els.journalFormPanel.hidden = false;
     if (els.toggleJournalFormBtn) {
-      els.toggleJournalFormBtn.textContent = "닫기";
+      els.toggleJournalFormBtn.textContent = "접기";
       els.toggleJournalFormBtn.setAttribute("aria-expanded", "true");
     }
     els.journalAssetName.focus();
@@ -1736,7 +1736,7 @@ function showJournalForm(entry = null) {
   els.journalRisk.value = normalized.risk;
   els.journalReview.value = normalized.review;
   els.journalTags.value = normalized.tags;
-  els.saveJournalBtn.textContent = "일지 수정 저장";
+  els.saveJournalBtn.textContent = "✨ 수정 저장";
   if (els.journalFormTitle) els.journalFormTitle.textContent = "매매일지 수정";
   els.journalAssetName.focus();
 }
@@ -1744,7 +1744,7 @@ function showJournalForm(entry = null) {
 function hideJournalForm() {
   if (els.journalFormPanel) els.journalFormPanel.hidden = true;
   if (els.toggleJournalFormBtn) {
-    els.toggleJournalFormBtn.textContent = "일지 작성";
+    els.toggleJournalFormBtn.textContent = "✍️ 일지 작성";
     els.toggleJournalFormBtn.setAttribute("aria-expanded", "false");
   }
 }
@@ -2447,7 +2447,7 @@ function resetAssetForm() {
   els.assetForm.reset();
   uiState.autofilledAssetName = "";
   if (els.assetFormTitle) els.assetFormTitle.textContent = "자산 추가";
-  els.saveAssetBtn.textContent = "자산 저장";
+  els.saveAssetBtn.textContent = "✨ 자산 저장";
   updateAssetFormForType();
   hideAssetForm();
 }
@@ -2456,7 +2456,7 @@ function showAssetForm(mode = "create") {
   if (els.assetFormPanel) els.assetFormPanel.hidden = false;
   if (els.assetFormTitle) els.assetFormTitle.textContent = mode === "edit" ? "자산 수정" : "자산 추가";
   if (els.toggleAssetFormBtn) {
-    els.toggleAssetFormBtn.textContent = "닫기";
+    els.toggleAssetFormBtn.textContent = "접기";
     els.toggleAssetFormBtn.setAttribute("aria-expanded", "true");
   }
 }
@@ -2464,7 +2464,7 @@ function showAssetForm(mode = "create") {
 function hideAssetForm() {
   if (els.assetFormPanel) els.assetFormPanel.hidden = true;
   if (els.toggleAssetFormBtn) {
-    els.toggleAssetFormBtn.textContent = "자산 추가";
+    els.toggleAssetFormBtn.textContent = "＋ 자산 추가";
     els.toggleAssetFormBtn.setAttribute("aria-expanded", "false");
   }
 }
@@ -2505,7 +2505,7 @@ function renderSellPreview() {
   if (!els.sellPreview) return;
   const preview = parseSellForm(false);
   if (!preview.ok) {
-    els.sellPreview.textContent = preview.message || "매도 정보를 입력하면 예상 실현손익이 표시됩니다.";
+    els.sellPreview.textContent = preview.message || "💡 매도 정보를 입력하면 예상 실현손익이 표시됩니다.";
     els.sellPreview.className = "sell-preview";
     return;
   }
@@ -2723,7 +2723,7 @@ function handleAssetAction(button) {
     els.assetAveragePrice.value = asset.averagePrice || "";
     els.assetNote.value = asset.note || "";
     uiState.autofilledAssetName = "";
-    els.saveAssetBtn.textContent = "수정 저장";
+    els.saveAssetBtn.textContent = "✨ 수정 저장";
     updateAssetFormForType();
     els.assetName.focus();
   }
@@ -2813,9 +2813,9 @@ els.journalList?.addEventListener("click", async (event) => {
     const prompt = aiPromptForJournal(entry);
     try {
       await navigator.clipboard.writeText(prompt);
-      button.textContent = "복사 완료";
+      button.textContent = "✅ 복사 완료";
       setTimeout(() => {
-        button.textContent = "AI 질문 복사";
+        button.textContent = "🤖 AI 질문 복사";
       }, 1400);
     } catch {
       window.prompt("AI에게 붙여넣을 질문입니다.", prompt);

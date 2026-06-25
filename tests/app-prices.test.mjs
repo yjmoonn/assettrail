@@ -104,7 +104,7 @@ function submitAsset() {
 assert.equal(window.document.querySelector("#assetFormPanel").hidden, true);
 window.document.querySelector("#toggleAssetFormBtn").click();
 assert.equal(window.document.querySelector("#assetFormPanel").hidden, false);
-assert.equal(window.document.querySelector("#toggleAssetFormBtn").textContent, "닫기");
+assert.equal(window.document.querySelector("#toggleAssetFormBtn").textContent, "접기");
 
 setValue("#assetCategory", "KRX");
 assert.equal(window.document.querySelector("#assetAmountField").hidden, true);
