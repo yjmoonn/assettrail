@@ -142,7 +142,7 @@ function submitAsset() {
     .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
 }
 
-assert.equal(window.document.querySelector("#syncStatus").textContent, "Cloud: alice@example.com");
+assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드: alice@example.com");
 assert.equal(writes.filter((write) => write.path === "users/alice/financeData/primary").length, 0);
 assert.doesNotMatch(window.document.querySelector("#assetRows").textContent, /게스트 로컬 자산/);
 assert.doesNotMatch(window.document.querySelector("#assetRows").textContent, /이전 계정 캐시/);

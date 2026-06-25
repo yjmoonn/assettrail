@@ -105,7 +105,7 @@ await new Promise((resolve) => window.setTimeout(resolve, 30));
 
 const rowText = window.document.querySelector("#assetRows").textContent.replace(/\s+/g, " ").trim();
 
-assert.equal(window.document.querySelector("#syncStatus").textContent, "Cloud: alice@example.com");
+assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드: alice@example.com");
 assert.equal(window.document.querySelector("#totalAsset").textContent, "₩39,290");
 assert.match(rowText, /SOL한국원자력SMR 0092B0 KRX 국내 2 ₩39,290종가 19,645 · 5월 19일 \+₩3,290/);
 assert.doesNotMatch(rowText, /가격 대기/);

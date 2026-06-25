@@ -2,7 +2,7 @@ const STORAGE_KEY = "finance-ledger-retirement-v1";
 const CLOUD_DOC_ID = "primary";
 const PRICE_FILE_PATH = "prices.json";
 const PUBLIC_PRICE_FILE_URL = "https://yjmoonn.github.io/assettrail/prices.json";
-const PIE_COLORS = ["#315f72", "#5d8aa8", "#8fb996", "#d2a24c", "#9b8bbd"];
+const PIE_COLORS = ["#2563eb", "#059669", "#d97706", "#64748b", "#8b5cf6"];
 const BREAKDOWN_ICONS = {
   "계좌 분석": "wallet",
   "계좌별": "layers",
@@ -369,7 +369,7 @@ function showUndoNotice(message, undo) {
 }
 
 async function initPrices() {
-  setPriceStatus("Prices loading...");
+  setPriceStatus("가격 확인중");
   if (els.priceRefreshBtn) els.priceRefreshBtn.disabled = true;
 
   try {
@@ -377,12 +377,12 @@ async function initPrices() {
     priceBook = normalizePriceBook(loaded.data);
     activePriceFileUrl = loaded.url;
     applyPricesToAssets();
-    setPriceStatus(priceBook.generatedAt ? `Prices: ${shortDateTime(priceBook.generatedAt)}` : "Prices loaded", true);
+    setPriceStatus(priceBook.generatedAt ? `가격 ${compactDateTime(priceBook.generatedAt)}` : "가격 완료", true);
     render(false);
   } catch (error) {
     console.error(error);
     applyPricesToAssets();
-    setPriceStatus("Prices unavailable");
+    setPriceStatus("가격 불가");
     render(false);
   } finally {
     if (els.priceRefreshBtn) els.priceRefreshBtn.disabled = false;
@@ -443,7 +443,7 @@ function isSameOriginUrl(url) {
 
 async function initFirebase() {
   if (!hasFirebaseConfig()) {
-    setSyncStatus("Local only");
+    setSyncStatus("로컬 저장");
     return;
   }
 
@@ -475,7 +475,7 @@ async function initFirebase() {
     authModule.onAuthStateChanged(cloud.auth, (user) => {
       completeCloudSignIn(user).catch((error) => {
         console.error(error);
-        setSyncStatus("Cloud load failed");
+        setSyncStatus("불러오기 실패");
       });
     });
 
@@ -487,11 +487,11 @@ async function initFirebase() {
       })
       .catch((error) => {
         console.error(error);
-        setSyncStatus(`Login failed: ${error.code || "unknown"}`);
+        setSyncStatus(`로그인 실패: ${error.code || "unknown"}`);
       });
   } catch (error) {
     console.error(error);
-    setSyncStatus("Firebase load failed");
+    setSyncStatus("클라우드 준비 실패");
   }
 }
 
@@ -506,7 +506,7 @@ async function completeCloudSignIn(user) {
   render(false);
   updateAuthUi();
   if (!user) {
-    setSyncStatus(cloud.enabled ? "Cloud ready" : "Local only", false);
+    setSyncStatus(cloud.enabled ? "클라우드 준비" : "로컬 저장", false);
     return;
   }
 
@@ -521,19 +521,19 @@ function updateAuthUi() {
   els.cloudSyncBtn.hidden = !signedIn;
 
   if (!cloud.enabled) {
-    setSyncStatus("Local only");
+    setSyncStatus("로컬 저장");
   } else if (signedIn) {
-    setSyncStatus(`Cloud: ${cloud.user.email || "signed in"}`, true);
+    setSyncStatus(`클라우드: ${cloud.user.email || "로그인됨"}`, true);
     setSyncDetail(syncDetailText(), true);
   } else {
-    setSyncStatus("Cloud ready");
+    setSyncStatus("클라우드 준비");
     setSyncDetail("");
   }
 }
 
 async function pullCloudData() {
   if (!cloud.docRef) return;
-  setSyncStatus("Cloud loading...", true);
+  setSyncStatus("클라우드 확인중", true);
   const snapshot = await cloud.getDoc(cloud.docRef);
   if (snapshot.exists()) {
     const cloudData = snapshot.data();
@@ -562,7 +562,7 @@ async function pullCloudData() {
 
 async function pushCloudData(direction = "save") {
   if (!cloud.docRef) return;
-  setSyncStatus("Cloud saving...", true);
+  setSyncStatus("클라우드 저장중", true);
   const payload = cloudSafeState();
   await cloud.setDoc(cloud.docRef, payload, { merge: true });
   state.meta.cloudUpdatedAt = payload.updatedAt;
@@ -602,7 +602,7 @@ function syncDetailText() {
     upload: "올림",
     save: "저장"
   }[state.meta.lastSyncDirection] || "저장";
-  return `${direction}: ${shortDateTime(saved)}`;
+  return `${direction}: ${compactDateTime(saved)}`;
 }
 
 async function syncPriceRequests() {
@@ -1160,7 +1160,7 @@ function render(syncCloud = true) {
   if (syncCloud && cloud.docRef) {
     pushCloudData().catch((error) => {
       console.error(error);
-      setSyncStatus("Cloud save failed");
+      setSyncStatus("저장 실패");
     });
   }
 }
@@ -1190,7 +1190,7 @@ function renderAssets() {
   updateVisibleAssetCount(state.assets.length, state.assets.length);
   if (!state.assets.length) {
     els.assetRows.append(els.emptyAssetTemplate.content.cloneNode(true));
-    renderAssetCardEmpty("✨ 등록된 자산이 없습니다. 자산 추가로 첫 자산을 등록하세요.");
+    renderAssetCardEmpty("등록된 자산이 없습니다. 자산 추가로 첫 자산을 등록하세요.");
     return;
   }
 
@@ -1211,9 +1211,9 @@ function renderAssets() {
     const gainRate = gain === null ? null : gain / assetCost(asset);
     const valueDetail = assetValueDetail(asset);
     const sellButton = canSellAsset(asset)
-      ? `<button class="text-icon-button" type="button" title="매도 기록" aria-label="${escapeHtml(asset.name)} 매도 기록" data-action="sell" data-id="${asset.id}">💸 매도</button>`
+      ? `<button class="text-icon-button" type="button" title="매도 기록" aria-label="${escapeHtml(asset.name)} 매도 기록" data-action="sell" data-id="${asset.id}">매도</button>`
       : "";
-    const journalButton = `<button class="table-action quiet-action" type="button" title="일지 작성" aria-label="${escapeHtml(asset.name)} 일지 작성" data-action="journal" data-id="${asset.id}">✍️ 일지</button>`;
+    const journalButton = `<button class="table-action quiet-action" type="button" title="일지 작성" aria-label="${escapeHtml(asset.name)} 일지 작성" data-action="journal" data-id="${asset.id}">일지</button>`;
     const row = document.createElement("tr");
     row.innerHTML = `
       <td><strong>${escapeHtml(asset.name)}</strong></td>
@@ -1228,8 +1228,8 @@ function renderAssets() {
       <td>
         <div class="row-actions">
           ${journalButton}
-          <button class="table-action quiet-action" type="button" title="수정" aria-label="${escapeHtml(asset.name)} 수정" data-action="edit" data-id="${asset.id}">🛠 수정</button>
-          <button class="table-action danger-action" type="button" title="삭제" aria-label="${escapeHtml(asset.name)} 삭제" data-action="delete" data-id="${asset.id}">🗑 삭제</button>
+          <button class="table-action quiet-action" type="button" title="수정" aria-label="${escapeHtml(asset.name)} 수정" data-action="edit" data-id="${asset.id}">수정</button>
+          <button class="table-action danger-action" type="button" title="삭제" aria-label="${escapeHtml(asset.name)} 삭제" data-action="delete" data-id="${asset.id}">삭제</button>
         </div>
       </td>
     `;
@@ -1264,10 +1264,10 @@ function renderAssetCard(asset, gain, gainRate, valueDetail, sellButton, journal
     </div>
     ${asset.note ? `<p class="asset-card-note">${escapeHtml(asset.note)}</p>` : ""}
     <div class="asset-card-actions">
-      ${isMarketType(type) ? sellButton || `<button class="text-icon-button disabled-action" type="button" disabled>💸 매도</button>` : `<button class="text-icon-button disabled-action" type="button" disabled>잠금</button>`}
+      ${isMarketType(type) ? sellButton || `<button class="text-icon-button disabled-action" type="button" disabled>매도</button>` : `<button class="text-icon-button disabled-action" type="button" disabled>잠금</button>`}
       ${journalButton}
-      <button class="table-action quiet-action" type="button" data-action="edit" data-id="${asset.id}">🛠 수정</button>
-      <button class="table-action danger-action" type="button" data-action="delete" data-id="${asset.id}">🗑 삭제</button>
+      <button class="table-action quiet-action" type="button" data-action="edit" data-id="${asset.id}">수정</button>
+      <button class="table-action danger-action" type="button" data-action="delete" data-id="${asset.id}">삭제</button>
     </div>
   `;
   els.assetCards.append(card);
@@ -1626,7 +1626,7 @@ function renderJournal() {
   if (!entries.length) {
     const empty = document.createElement("div");
     empty.className = "empty journal-empty";
-    empty.textContent = total ? "🔎 조건에 맞는 매매일지가 없습니다." : "✍️ 자산원장의 일지 버튼이나 일지 작성 버튼으로 첫 기록을 남겨보세요.";
+    empty.textContent = total ? "조건에 맞는 매매일지가 없습니다." : "자산원장의 일지 버튼이나 일지 작성 버튼으로 첫 기록을 남겨보세요.";
     els.journalList.append(empty);
     return;
   }
@@ -1655,9 +1655,9 @@ function renderJournal() {
         ${entry.tags ? `<div class="journal-tags">${entry.tags.split(",").map((tag) => `<span>${escapeHtml(tag.trim())}</span>`).join("")}</div>` : ""}
       </div>
       <div class="journal-actions">
-        <button class="table-action quiet-action" type="button" data-journal-action="copy-ai" data-id="${entry.id}">🤖 AI 질문 복사</button>
-        <button class="table-action quiet-action" type="button" data-journal-action="edit" data-id="${entry.id}">🛠 수정</button>
-        <button class="table-action danger-action" type="button" data-journal-action="delete" data-id="${entry.id}">🗑 삭제</button>
+        <button class="table-action quiet-action" type="button" data-journal-action="copy-ai" data-id="${entry.id}">AI 질문 복사</button>
+        <button class="table-action quiet-action" type="button" data-journal-action="edit" data-id="${entry.id}">수정</button>
+        <button class="table-action danger-action" type="button" data-journal-action="delete" data-id="${entry.id}">삭제</button>
       </div>
     `;
     els.journalList.append(card);
@@ -1694,7 +1694,7 @@ function resetJournalForm() {
   els.journalRegion.value = "DOMESTIC";
   els.journalAction.value = "BUY";
   els.journalStatus.value = "OPEN";
-  els.saveJournalBtn.textContent = "✍️ 일지 저장";
+  els.saveJournalBtn.textContent = "일지 저장";
   if (els.journalFormTitle) els.journalFormTitle.textContent = "매매일지 작성";
   hideJournalForm();
 }
@@ -1736,7 +1736,7 @@ function showJournalForm(entry = null) {
   els.journalRisk.value = normalized.risk;
   els.journalReview.value = normalized.review;
   els.journalTags.value = normalized.tags;
-  els.saveJournalBtn.textContent = "✨ 수정 저장";
+  els.saveJournalBtn.textContent = "수정 저장";
   if (els.journalFormTitle) els.journalFormTitle.textContent = "매매일지 수정";
   els.journalAssetName.focus();
 }
@@ -1744,7 +1744,7 @@ function showJournalForm(entry = null) {
 function hideJournalForm() {
   if (els.journalFormPanel) els.journalFormPanel.hidden = true;
   if (els.toggleJournalFormBtn) {
-    els.toggleJournalFormBtn.textContent = "✍️ 일지 작성";
+    els.toggleJournalFormBtn.textContent = "일지 작성";
     els.toggleJournalFormBtn.setAttribute("aria-expanded", "false");
   }
 }
@@ -2420,6 +2420,17 @@ function shortDateTime(value) {
   }).format(date);
 }
 
+function compactDateTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${month}/${day} ${hours}:${minutes}`;
+}
+
 function daysSince(value) {
   if (!value) return Number.POSITIVE_INFINITY;
   const date = new Date(value);
@@ -2447,7 +2458,7 @@ function resetAssetForm() {
   els.assetForm.reset();
   uiState.autofilledAssetName = "";
   if (els.assetFormTitle) els.assetFormTitle.textContent = "자산 추가";
-  els.saveAssetBtn.textContent = "✨ 자산 저장";
+  els.saveAssetBtn.textContent = "자산 저장";
   updateAssetFormForType();
   hideAssetForm();
 }
@@ -2464,7 +2475,7 @@ function showAssetForm(mode = "create") {
 function hideAssetForm() {
   if (els.assetFormPanel) els.assetFormPanel.hidden = true;
   if (els.toggleAssetFormBtn) {
-    els.toggleAssetFormBtn.textContent = "＋ 자산 추가";
+    els.toggleAssetFormBtn.textContent = "자산 추가";
     els.toggleAssetFormBtn.setAttribute("aria-expanded", "false");
   }
 }
@@ -2723,7 +2734,7 @@ function handleAssetAction(button) {
     els.assetAveragePrice.value = asset.averagePrice || "";
     els.assetNote.value = asset.note || "";
     uiState.autofilledAssetName = "";
-    els.saveAssetBtn.textContent = "✨ 수정 저장";
+    els.saveAssetBtn.textContent = "수정 저장";
     updateAssetFormForType();
     els.assetName.focus();
   }
@@ -2813,9 +2824,9 @@ els.journalList?.addEventListener("click", async (event) => {
     const prompt = aiPromptForJournal(entry);
     try {
       await navigator.clipboard.writeText(prompt);
-      button.textContent = "✅ 복사 완료";
+      button.textContent = "복사 완료";
       setTimeout(() => {
-        button.textContent = "🤖 AI 질문 복사";
+        button.textContent = "AI 질문 복사";
       }, 1400);
     } catch {
       window.prompt("AI에게 붙여넣을 질문입니다.", prompt);
@@ -2852,13 +2863,13 @@ els.loginBtn.addEventListener("click", async () => {
     return;
   }
   try {
-    setSyncStatus("Opening Google login...");
+    setSyncStatus("로그인 여는 중");
     if (cloud.signInWithPopup) {
       const result = await cloud.signInWithPopup(cloud.auth, cloud.provider);
       if (result?.user) {
         await completeCloudSignIn(result.user);
       } else {
-        setSyncStatus("Login completing...", true);
+        setSyncStatus("로그인 확인중", true);
       }
       return;
     }
@@ -2866,11 +2877,11 @@ els.loginBtn.addEventListener("click", async () => {
   } catch (error) {
     console.error(error);
     if (cloud.signInWithRedirect && ["auth/popup-blocked", "auth/operation-not-supported-in-this-environment"].includes(error.code)) {
-      setSyncStatus("Redirecting to Google login...");
+      setSyncStatus("구글 로그인 이동중");
       await cloud.signInWithRedirect(cloud.auth, cloud.provider);
       return;
     }
-    setSyncStatus(`Login failed: ${error.code || "unknown"}`);
+    setSyncStatus(`로그인 실패: ${error.code || "unknown"}`);
     alert(`로그인에 실패했습니다: ${error.code || "unknown"}`);
   }
 });
@@ -2885,10 +2896,10 @@ els.cloudSyncBtn.addEventListener("click", async () => {
   if (!cloud.docRef) return;
   try {
     await pullCloudData();
-    setSyncStatus("Cloud synced", true);
+    setSyncStatus("동기화 완료", true);
   } catch (error) {
     console.error(error);
-    setSyncStatus("Cloud sync failed");
+    setSyncStatus("동기화 실패");
   }
 });
 

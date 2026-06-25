@@ -6,30 +6,30 @@
     <meta http-equiv="Cache-Control" content="no-store">
     <meta http-equiv="Pragma" content="no-cache">
     <title>자산 히스토리 & 은퇴 플래너</title>
-    <link rel="stylesheet" href="styles.css?v=20260625-modern-ui">
+    <link rel="stylesheet" href="styles.css?v=20260626-figma-v1">
   </head>
   <body>
     <div class="app">
       <header class="topbar">
         <div class="brand-block">
-          <p class="eyebrow">✨ AssetTrail</p>
+          <p class="eyebrow">AssetTrail</p>
           <h1>나의 자산 대시보드</h1>
           <p class="topbar-copy">가격, 포트폴리오, 매매일지, 은퇴 목표를 가볍게 훑어보세요.</p>
         </div>
         <div class="top-actions" aria-label="앱 상태 및 작업">
           <div class="status-cluster">
-            <span class="sync-status" id="priceStatus">Prices pending</span>
-            <span class="sync-status" id="syncStatus">Local only</span>
+            <span class="sync-status" id="priceStatus">가격 대기</span>
+            <span class="sync-status" id="syncStatus">로컬 저장</span>
             <span class="sync-status" id="syncDetail" hidden>저장 대기</span>
           </div>
           <div class="action-cluster">
-            <button class="ghost-button compact-button" id="priceRefreshBtn" type="button" title="최신 가격표 다시 불러오기">↻ 가격 새로고침</button>
-            <button class="ghost-button" id="loginBtn" type="button">🔐 Login</button>
-            <button class="ghost-button" id="logoutBtn" type="button" hidden>👋 Logout</button>
-            <button class="ghost-button" id="cloudSyncBtn" type="button" hidden>☁️ Sync</button>
-            <button class="ghost-button" id="exportBtn" type="button" title="데이터 내보내기">⬇ Export</button>
+            <button class="ghost-button compact-button" id="priceRefreshBtn" type="button" title="최신 가격표 다시 불러오기">가격 갱신</button>
+            <button class="ghost-button" id="loginBtn" type="button">Login</button>
+            <button class="ghost-button" id="logoutBtn" type="button" hidden>Logout</button>
+            <button class="ghost-button" id="cloudSyncBtn" type="button" hidden>Sync</button>
+            <button class="ghost-button" id="exportBtn" type="button" title="데이터 내보내기">Export</button>
             <label class="ghost-button import-label" title="데이터 가져오기">
-              ⬆ Import
+              Import
               <input id="importInput" type="file" accept="application/json">
             </label>
           </div>
@@ -40,22 +40,22 @@
       <main>
         <section class="metric-grid" aria-label="요약 지표">
           <article class="metric primary-metric">
-            <span>💰 현재 총자산</span>
+            <span>현재 총자산</span>
             <strong id="totalAsset">₩0</strong>
             <small id="assetCount">0개 자산</small>
           </article>
           <article class="metric">
-            <span>⚡ 최근 조회 대비</span>
+            <span>최근 조회 대비</span>
             <strong id="lastDelta">₩0</strong>
             <small id="lastDeltaRate">0.00%</small>
           </article>
           <article class="metric">
-            <span>🚀 첫 조회 대비</span>
+            <span>첫 조회 대비</span>
             <strong id="firstDelta">₩0</strong>
             <small id="firstDeltaRate">0.00%</small>
           </article>
           <article class="metric">
-            <span>🏝️ 은퇴 목표까지</span>
+            <span>은퇴 목표까지</span>
             <strong id="retireGap">₩0</strong>
             <small id="retireGapLabel">계산 대기</small>
           </article>
@@ -69,8 +69,8 @@
                 <p>KRX/US 자산은 가격 파일 기준, CASH/MANUAL 자산은 수동평가금액 기준으로 계산합니다.</p>
               </div>
               <div class="panel-actions">
-                <button class="primary-button" id="toggleAssetFormBtn" type="button" aria-expanded="false">＋ 자산 추가</button>
-                <button class="ghost-button" id="snapshotBtn" type="button">📌 조회 기록 저장</button>
+                <button class="primary-button" id="toggleAssetFormBtn" type="button" aria-expanded="false">자산 추가</button>
+                <button class="ghost-button" id="snapshotBtn" type="button">조회 기록 저장</button>
               </div>
             </div>
 
@@ -143,7 +143,7 @@
                   <input id="assetNote" type="text" placeholder="비고">
                 </label>
                 <div class="form-actions">
-                  <button class="primary-button" id="saveAssetBtn" type="submit">✨ 자산 저장</button>
+                  <button class="primary-button" id="saveAssetBtn" type="submit">자산 저장</button>
                   <button class="ghost-button" id="cancelEditBtn" type="button">취소</button>
                 </div>
               </form>
@@ -192,7 +192,7 @@
                 </label>
                 <div class="sell-preview" id="sellPreview" aria-live="polite"></div>
                 <div class="form-actions">
-                  <button class="primary-button" type="submit">💸 매도 기록 저장</button>
+                  <button class="primary-button" type="submit">매도 기록 저장</button>
                   <button class="ghost-button" id="cancelSellBtn" type="button">취소</button>
                 </div>
               </form>
@@ -301,7 +301,7 @@
                   <option value="DONE">완료</option>
                 </select>
               </label>
-              <button class="primary-button" id="toggleJournalFormBtn" type="button" aria-expanded="false">✍️ 일지 작성</button>
+              <button class="primary-button" id="toggleJournalFormBtn" type="button" aria-expanded="false">일지 작성</button>
             </div>
           </div>
 
@@ -387,7 +387,7 @@
                 <input id="journalTags" type="text" placeholder="예: AI, 배당, 장기, 리밸런싱">
               </label>
               <div class="form-actions">
-                <button class="primary-button" id="saveJournalBtn" type="submit">✍️ 일지 저장</button>
+                <button class="primary-button" id="saveJournalBtn" type="submit">일지 저장</button>
                 <button class="ghost-button" id="cancelJournalBtn" type="button">취소</button>
               </div>
             </form>
@@ -473,7 +473,7 @@
               <h2>조회 히스토리</h2>
               <p>저장된 조회 시점 기준으로 총자산과 변동률을 비교합니다.</p>
             </div>
-            <button class="ghost-button" id="clearHistoryBtn" type="button">🧹 히스토리 비우기</button>
+            <button class="ghost-button" id="clearHistoryBtn" type="button">히스토리 비우기</button>
           </div>
           <div class="history-toolbar">
             <label>
@@ -516,7 +516,7 @@
               <h2>은퇴 시뮬레이터</h2>
               <p>은퇴 나이와 은퇴 후 월 지출을 기준으로 필요한 자산과 요구 수익률을 계산합니다.</p>
             </div>
-            <button class="primary-button" id="syncAssetsBtn" type="button">✨ 현재 총자산 반영</button>
+            <button class="primary-button" id="syncAssetsBtn" type="button">현재 총자산 반영</button>
           </div>
 
           <div class="retirement-progress" aria-label="은퇴 목표 진행률">
