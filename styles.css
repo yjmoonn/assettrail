@@ -678,7 +678,7 @@ tbody tr:last-child td {
 }
 
 .actions-col {
-  width: 210px;
+  width: 260px;
 }
 
 .sell-col {
@@ -687,9 +687,10 @@ tbody tr:last-child td {
 
 .row-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 7px;
   justify-content: flex-end;
+  min-width: max-content;
 }
 
 .sell-cell {
@@ -725,7 +726,7 @@ tbody tr:last-child td {
   font-size: 12px;
   height: 36px;
   min-height: 36px;
-  padding: 0 11px;
+  padding: 0 12px;
   white-space: nowrap;
 }
 
