@@ -101,6 +101,7 @@ const els = {
   cancelEditBtn: document.querySelector("#cancelEditBtn"),
   snapshotBtn: document.querySelector("#snapshotBtn"),
   assetRows: document.querySelector("#assetRows"),
+  assetCards: document.querySelector("#assetCards"),
   assetSearch: document.querySelector("#assetSearch"),
   assetTypeFilter: document.querySelector("#assetTypeFilter"),
   priceAlert: document.querySelector("#priceAlert"),
@@ -1073,10 +1074,12 @@ function renderSummary() {
 
 function renderAssets() {
   els.assetRows.textContent = "";
+  if (els.assetCards) els.assetCards.textContent = "";
   renderAccountFilterOptions();
   updateVisibleAssetCount(state.assets.length, state.assets.length);
   if (!state.assets.length) {
     els.assetRows.append(els.emptyAssetTemplate.content.cloneNode(true));
+    renderAssetCardEmpty("등록된 자산이 없습니다. 자산 추가로 첫 자산을 등록하세요.");
     return;
   }
 
@@ -1088,6 +1091,7 @@ function renderAssets() {
     const row = document.createElement("tr");
     row.innerHTML = `<td colspan="10" class="empty">조건에 맞는 자산이 없습니다.</td>`;
     els.assetRows.append(row);
+    renderAssetCardEmpty("조건에 맞는 자산이 없습니다.");
     return;
   }
 
@@ -1111,13 +1115,56 @@ function renderAssets() {
       <td class="sell-cell">${sellButton || `<span class="muted-dash">-</span>`}</td>
       <td>
         <div class="row-actions">
-          <button class="icon-button" type="button" title="수정" aria-label="${escapeHtml(asset.name)} 수정" data-action="edit" data-id="${asset.id}">✎</button>
-          <button class="icon-button" type="button" title="삭제" aria-label="${escapeHtml(asset.name)} 삭제" data-action="delete" data-id="${asset.id}">×</button>
+          <button class="table-action quiet-action" type="button" title="수정" aria-label="${escapeHtml(asset.name)} 수정" data-action="edit" data-id="${asset.id}">수정</button>
+          <button class="table-action danger-action" type="button" title="삭제" aria-label="${escapeHtml(asset.name)} 삭제" data-action="delete" data-id="${asset.id}">삭제</button>
         </div>
       </td>
     `;
     els.assetRows.append(row);
+    renderAssetCard(asset, gain, gainRate, valueDetail, sellButton);
   });
+}
+
+function renderAssetCard(asset, gain, gainRate, valueDetail, sellButton) {
+  if (!els.assetCards) return;
+  const type = assetType(asset);
+  const gainTone = gain > 0 ? "positive" : gain < 0 ? "negative" : "";
+  const card = document.createElement("article");
+  card.className = "asset-card";
+  card.innerHTML = `
+    <div class="asset-card-head">
+      <div>
+        <strong>${escapeHtml(asset.name)}</strong>
+        <span>${escapeHtml(asset.account || "계좌 미지정")}</span>
+      </div>
+      <span class="badge">${escapeHtml(assetTypeLabel(asset))}</span>
+    </div>
+    <div class="asset-card-value">
+      <span>평가금액</span>
+      <strong>${money(assetValue(asset))}</strong>
+      ${valueDetail}
+    </div>
+    <div class="asset-card-meta">
+      <span>${asset.ticker ? `<b>${escapeHtml(asset.ticker)}</b>` : "티커 없음"}</span>
+      <span>수량 ${asset.quantity ? formatPlainNumber(asset.quantity) : "-"}</span>
+      <span class="${gainTone}">손익 ${gain === null ? "-" : `${gain > 0 ? "+" : ""}${money(gain)}${gainRate ? ` (${gainRate > 0 ? "+" : ""}${percent(gainRate)})` : ""}`}</span>
+    </div>
+    ${asset.note ? `<p class="asset-card-note">${escapeHtml(asset.note)}</p>` : ""}
+    <div class="asset-card-actions">
+      ${isMarketType(type) ? sellButton || `<button class="text-icon-button disabled-action" type="button" disabled>매도</button>` : `<button class="text-icon-button disabled-action" type="button" disabled>매도 불가</button>`}
+      <button class="table-action quiet-action" type="button" data-action="edit" data-id="${asset.id}">수정</button>
+      <button class="table-action danger-action" type="button" data-action="delete" data-id="${asset.id}">삭제</button>
+    </div>
+  `;
+  els.assetCards.append(card);
+}
+
+function renderAssetCardEmpty(message) {
+  if (!els.assetCards) return;
+  const empty = document.createElement("div");
+  empty.className = "asset-card-empty";
+  empty.textContent = message;
+  els.assetCards.append(empty);
 }
 
 function assetMatchesFilters(asset) {
@@ -2278,9 +2325,7 @@ els.sellForm?.addEventListener("submit", (event) => {
   });
 });
 
-els.assetRows.addEventListener("click", (event) => {
-  const button = event.target.closest("button[data-action]");
-  if (!button) return;
+function handleAssetAction(button) {
   const asset = state.assets.find((item) => item.id === button.dataset.id);
   if (!asset) return;
 
@@ -2321,6 +2366,18 @@ els.assetRows.addEventListener("click", (event) => {
       render();
     });
   }
+}
+
+els.assetRows.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+  handleAssetAction(button);
+});
+
+els.assetCards?.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+  handleAssetAction(button);
 });
 
 [
