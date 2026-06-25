@@ -333,7 +333,8 @@ h3 {
 }
 
 .asset-form-panel,
-.sell-form-panel {
+.sell-form-panel,
+.journal-form-panel {
   background: var(--surface-2);
   border-bottom: 1px solid var(--line);
   border-top: 1px solid var(--line);
@@ -342,7 +343,8 @@ h3 {
 }
 
 .asset-form-panel[hidden],
-.sell-form-panel[hidden] {
+.sell-form-panel[hidden],
+.journal-form-panel[hidden] {
   display: none;
 }
 
@@ -361,13 +363,15 @@ h3 {
 
 .asset-form,
 .sell-form,
+.journal-form,
 .retirement-grid {
   display: grid;
   gap: 10px;
 }
 
 .asset-form,
-.sell-form {
+.sell-form,
+.journal-form {
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
 }
 
@@ -393,6 +397,25 @@ h3 {
 
 .sell-preview.negative {
   color: var(--red);
+}
+
+.checkbox-field {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--slate);
+  display: flex;
+  font-size: 13px;
+  gap: 10px;
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.checkbox-field input {
+  accent-color: var(--blue);
+  min-height: auto;
+  width: auto;
 }
 
 label {
@@ -452,6 +475,34 @@ textarea {
   gap: 9px;
   grid-template-columns: minmax(240px, 1.5fr) repeat(5, minmax(122px, 1fr)) auto;
   margin-bottom: 14px;
+}
+
+.region-segment {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 6px;
+}
+
+.segment-button {
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+  min-height: 34px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+.segment-button.active {
+  background: #fff;
+  box-shadow: var(--shadow-flat);
+  color: var(--ink);
 }
 
 .toolbar-field {
@@ -550,7 +601,7 @@ tbody tr:last-child td {
 }
 
 .actions-col {
-  width: 132px;
+  width: 210px;
 }
 
 .sell-col {
@@ -559,6 +610,7 @@ tbody tr:last-child td {
 
 .row-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 7px;
   justify-content: flex-end;
 }
@@ -718,7 +770,7 @@ tbody tr:last-child td {
 .asset-card-actions {
   display: grid;
   gap: 8px;
-  grid-template-columns: 1.2fr 1fr 1fr;
+  grid-template-columns: 1.15fr 1fr 1fr 1fr;
 }
 
 .asset-card-actions button {
@@ -760,9 +812,149 @@ tbody tr:last-child td {
   margin-top: 4px;
 }
 
+.journal-panel,
 .portfolio-panel,
 .realized-panel {
   margin-bottom: 18px;
+}
+
+.journal-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.journal-summary-item strong {
+  color: var(--ink);
+}
+
+.journal-list {
+  display: grid;
+  gap: 12px;
+}
+
+.journal-card {
+  align-items: start;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--blue);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-flat);
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 16px;
+}
+
+.journal-card.review {
+  border-left-color: var(--amber);
+}
+
+.journal-card.done {
+  border-left-color: var(--green);
+}
+
+.journal-card-main {
+  min-width: 0;
+}
+
+.journal-card-top,
+.journal-meta,
+.journal-tags,
+.journal-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.journal-card-top {
+  margin-bottom: 8px;
+}
+
+.journal-date {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.journal-badge {
+  background: var(--blue-2);
+  border-radius: 999px;
+  color: #284ba8;
+  font-size: 11px;
+  font-weight: 900;
+  padding: 4px 8px;
+}
+
+.journal-badge.muted {
+  background: var(--surface-3);
+  color: var(--slate);
+}
+
+.journal-badge.status {
+  background: var(--green-2);
+  color: var(--green);
+}
+
+.journal-card h3 {
+  font-size: 18px;
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+
+.journal-meta {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  margin-bottom: 10px;
+}
+
+.journal-meta span {
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 5px 9px;
+}
+
+.journal-card p {
+  color: var(--slate);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.55;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+
+.journal-card p strong {
+  color: var(--ink);
+  display: inline-block;
+  font-size: 12px;
+  margin-right: 8px;
+}
+
+.journal-tags {
+  margin-top: 10px;
+}
+
+.journal-tags span {
+  background: #f5f7fb;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  padding: 4px 8px;
+}
+
+.journal-actions {
+  justify-content: flex-end;
+}
+
+.journal-empty {
+  background: var(--surface-2);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
 }
 
 .portfolio-layout {
@@ -1236,6 +1428,7 @@ tbody tr:last-child td {
   .metric-grid,
   .history-summary,
   .realized-summary,
+  .journal-summary,
   .result-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1276,6 +1469,7 @@ tbody tr:last-child td {
 
   .asset-form,
   .sell-form,
+  .journal-form,
   .ledger-toolbar,
   .breakdown,
   .retirement-grid,
@@ -1330,9 +1524,11 @@ tbody tr:last-child td {
   .metric-grid,
   .asset-form,
   .sell-form,
+  .journal-form,
   .breakdown,
   .history-summary,
   .realized-summary,
+  .journal-summary,
   .history-toolbar,
   .ledger-toolbar,
   .retirement-grid,
@@ -1391,7 +1587,7 @@ tbody tr:last-child td {
   }
 
   .asset-card-actions {
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: 1fr 1fr;
   }
 
   .asset-card-actions button {
@@ -1399,10 +1595,30 @@ tbody tr:last-child td {
   }
 
   .asset-form-panel,
-  .sell-form-panel {
+  .sell-form-panel,
+  .journal-form-panel {
     margin-left: -15px;
     margin-right: -15px;
     padding: 15px;
+  }
+
+  .region-segment {
+    display: flex;
+    overflow-x: auto;
+    width: 100%;
+  }
+
+  .segment-button {
+    flex: 0 0 auto;
+  }
+
+  .journal-card {
+    grid-template-columns: 1fr;
+  }
+
+  .journal-actions {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .wide-field {

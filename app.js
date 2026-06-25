@@ -33,6 +33,22 @@ const MANUAL_SUBTYPE_LABELS = {
   INSURANCE: "보험",
   OTHER: "기타"
 };
+const REGION_LABELS = {
+  DOMESTIC: "국내",
+  OVERSEAS: "해외",
+  OTHER: "기타"
+};
+const JOURNAL_ACTION_LABELS = {
+  BUY: "매수",
+  SELL: "매도",
+  REBALANCE: "리밸런싱",
+  WATCH: "관찰"
+};
+const JOURNAL_STATUS_LABELS = {
+  OPEN: "진행중",
+  REVIEW: "복기필요",
+  DONE: "완료"
+};
 
 let cloud = {
   auth: null,
@@ -95,6 +111,7 @@ const els = {
   sellFees: document.querySelector("#sellFees"),
   sellTax: document.querySelector("#sellTax"),
   sellMemo: document.querySelector("#sellMemo"),
+  sellJournalEnabled: document.querySelector("#sellJournalEnabled"),
   sellPreview: document.querySelector("#sellPreview"),
   cancelSellBtn: document.querySelector("#cancelSellBtn"),
   saveAssetBtn: document.querySelector("#saveAssetBtn"),
@@ -151,6 +168,7 @@ const els = {
   assetStatusFilter: document.querySelector("#assetStatusFilter"),
   assetGainFilter: document.querySelector("#assetGainFilter"),
   assetSort: document.querySelector("#assetSort"),
+  assetRegionSegment: document.querySelector("#assetRegionSegment"),
   opsStatus: document.querySelector("#opsStatus"),
   targetDomestic: document.querySelector("#targetDomestic"),
   targetOverseas: document.querySelector("#targetOverseas"),
@@ -168,7 +186,32 @@ const els = {
   retirementSensitivity: document.querySelector("#retirementSensitivity"),
   emptyAssetTemplate: document.querySelector("#emptyAssetTemplate"),
   emptyRealizedTemplate: document.querySelector("#emptyRealizedTemplate"),
-  emptyHistoryTemplate: document.querySelector("#emptyHistoryTemplate")
+  emptyHistoryTemplate: document.querySelector("#emptyHistoryTemplate"),
+  journalFormPanel: document.querySelector("#journalFormPanel"),
+  journalForm: document.querySelector("#journalForm"),
+  journalFormTitle: document.querySelector("#journalFormTitle"),
+  toggleJournalFormBtn: document.querySelector("#toggleJournalFormBtn"),
+  journalId: document.querySelector("#journalId"),
+  journalRealizedTradeId: document.querySelector("#journalRealizedTradeId"),
+  journalDate: document.querySelector("#journalDate"),
+  journalAssetId: document.querySelector("#journalAssetId"),
+  journalAssetName: document.querySelector("#journalAssetName"),
+  journalTicker: document.querySelector("#journalTicker"),
+  journalRegion: document.querySelector("#journalRegion"),
+  journalAccount: document.querySelector("#journalAccount"),
+  journalAction: document.querySelector("#journalAction"),
+  journalStatus: document.querySelector("#journalStatus"),
+  journalQuantity: document.querySelector("#journalQuantity"),
+  journalPrice: document.querySelector("#journalPrice"),
+  journalReason: document.querySelector("#journalReason"),
+  journalRisk: document.querySelector("#journalRisk"),
+  journalReview: document.querySelector("#journalReview"),
+  journalTags: document.querySelector("#journalTags"),
+  journalFilter: document.querySelector("#journalFilter"),
+  journalSummary: document.querySelector("#journalSummary"),
+  journalList: document.querySelector("#journalList"),
+  cancelJournalBtn: document.querySelector("#cancelJournalBtn"),
+  saveJournalBtn: document.querySelector("#saveJournalBtn")
 };
 
 const state = loadState();
@@ -179,6 +222,8 @@ const uiState = {
   statusFilter: "ALL",
   gainFilter: "ALL",
   assetSort: "VALUE_DESC",
+  regionFilter: "ALL",
+  journalFilter: "ALL",
   historyRange: "ALL",
   realizedYear: "ALL",
   autofilledAssetName: ""
@@ -188,6 +233,7 @@ function defaultState() {
   return {
     assets: [],
     realizedTrades: [],
+    tradeJournalEntries: [],
     snapshots: [],
     meta: {
       cloudUpdatedAt: null,
@@ -229,6 +275,7 @@ function loadState(storageKey = activeStorageKey) {
       ...saved,
       assets: Array.isArray(saved.assets) ? saved.assets.map(normalizeAsset) : [],
       realizedTrades: Array.isArray(saved.realizedTrades) ? saved.realizedTrades.map(normalizeRealizedTrade) : [],
+      tradeJournalEntries: Array.isArray(saved.tradeJournalEntries) ? saved.tradeJournalEntries.map(normalizeTradeJournalEntry) : [],
       snapshots: Array.isArray(saved.snapshots) ? saved.snapshots : [],
       meta: { ...fallback.meta, ...(saved.meta || {}) },
       portfolioTargets: { ...fallback.portfolioTargets, ...(saved.portfolioTargets || {}) },
@@ -261,6 +308,7 @@ function storageSafeState() {
 	  return {
 	    assets: state.assets.map(serializeAsset),
 	    realizedTrades: state.realizedTrades.map(serializeRealizedTrade),
+	    tradeJournalEntries: state.tradeJournalEntries.map(serializeTradeJournalEntry),
 	    snapshots: state.snapshots,
 	    meta: state.meta,
 	    portfolioTargets: state.portfolioTargets,
@@ -273,6 +321,7 @@ function replaceState(nextState) {
   const fallback = defaultState();
   state.assets = Array.isArray(nextState.assets) ? nextState.assets.map(normalizeAsset) : [];
   state.realizedTrades = Array.isArray(nextState.realizedTrades) ? nextState.realizedTrades.map(normalizeRealizedTrade) : [];
+  state.tradeJournalEntries = Array.isArray(nextState.tradeJournalEntries) ? nextState.tradeJournalEntries.map(normalizeTradeJournalEntry) : [];
   state.snapshots = Array.isArray(nextState.snapshots) ? nextState.snapshots : [];
   state.meta = {
     ...fallback.meta,
@@ -530,13 +579,14 @@ function shouldWarnCloudConflict(cloudData) {
 }
 
 function localHasUserData() {
-  return Boolean(state.assets.length || state.realizedTrades.length || state.snapshots.length);
+  return Boolean(state.assets.length || state.realizedTrades.length || state.tradeJournalEntries.length || state.snapshots.length);
 }
 
 function dataFingerprint(data) {
   return JSON.stringify({
     assets: (data.assets || []).map(normalizeAsset).map(serializeAsset),
     realizedTrades: (data.realizedTrades || []).map(normalizeRealizedTrade).map(serializeRealizedTrade),
+    tradeJournalEntries: (data.tradeJournalEntries || []).map(normalizeTradeJournalEntry).map(serializeTradeJournalEntry),
     snapshots: data.snapshots || [],
     portfolioTargets: data.portfolioTargets || {},
     retirement: data.retirement || {},
@@ -687,6 +737,55 @@ function normalizeRealizedTrade(trade) {
 
 function serializeRealizedTrade(trade) {
   return normalizeRealizedTrade(trade);
+}
+
+function normalizeTradeJournalEntry(entry) {
+  const assetTypeValue = normalizeAssetType(entry?.type);
+  return {
+    id: entry?.id || uid(),
+    assetId: String(entry?.assetId || ""),
+    realizedTradeId: String(entry?.realizedTradeId || ""),
+    date: normalizeJournalDate(entry?.date || entry?.createdAt),
+    name: String(entry?.name || "").trim(),
+    ticker: String(entry?.ticker || "").trim().toUpperCase(),
+    type: assetTypeValue,
+    region: normalizeRegion(entry?.region || regionCodeForType(assetTypeValue)),
+    account: String(entry?.account || "").trim(),
+    action: normalizeJournalAction(entry?.action),
+    quantity: Number(entry?.quantity || 0),
+    price: Number(entry?.price || 0),
+    reason: String(entry?.reason || "").trim(),
+    risk: String(entry?.risk || "").trim(),
+    review: String(entry?.review || "").trim(),
+    tags: String(entry?.tags || "").trim(),
+    status: normalizeJournalStatus(entry?.status),
+    createdAt: entry?.createdAt || new Date().toISOString(),
+    updatedAt: entry?.updatedAt || entry?.createdAt || new Date().toISOString()
+  };
+}
+
+function serializeTradeJournalEntry(entry) {
+  return normalizeTradeJournalEntry(entry);
+}
+
+function normalizeJournalDate(value) {
+  const raw = String(value || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : localDateInputValue();
+}
+
+function normalizeRegion(value) {
+  const region = String(value || "").trim().toUpperCase();
+  return REGION_LABELS[region] ? region : "OTHER";
+}
+
+function normalizeJournalAction(value) {
+  const action = String(value || "").trim().toUpperCase();
+  return JOURNAL_ACTION_LABELS[action] ? action : "WATCH";
+}
+
+function normalizeJournalStatus(value) {
+  const status = String(value || "").trim().toUpperCase();
+  return JOURNAL_STATUS_LABELS[status] ? status : "OPEN";
 }
 
 function inferLegacyAssetType(asset) {
@@ -968,6 +1067,16 @@ function regionLabel(asset) {
   return "기타";
 }
 
+function regionCodeForType(type) {
+  if (type === "KRX") return "DOMESTIC";
+  if (type === "US") return "OVERSEAS";
+  return "OTHER";
+}
+
+function regionCodeForAsset(asset) {
+  return regionCodeForType(assetType(asset));
+}
+
 function accountClassLabel(asset) {
   const explicit = normalizeAccountClass(asset.accountClass);
   if (explicit !== "AUTO") return ACCOUNT_CLASS_LABELS[explicit];
@@ -1040,6 +1149,7 @@ function formatRetirementMoneyInput(input) {
 
 function render(syncCloud = true) {
   renderAssets();
+  renderJournal();
   renderBreakdown();
   renderRealized();
   renderPriceNotice();
@@ -1076,6 +1186,7 @@ function renderAssets() {
   els.assetRows.textContent = "";
   if (els.assetCards) els.assetCards.textContent = "";
   renderAccountFilterOptions();
+  renderRegionSegment();
   updateVisibleAssetCount(state.assets.length, state.assets.length);
   if (!state.assets.length) {
     els.assetRows.append(els.emptyAssetTemplate.content.cloneNode(true));
@@ -1102,6 +1213,7 @@ function renderAssets() {
     const sellButton = canSellAsset(asset)
       ? `<button class="text-icon-button" type="button" title="매도 기록" aria-label="${escapeHtml(asset.name)} 매도 기록" data-action="sell" data-id="${asset.id}">매도</button>`
       : "";
+    const journalButton = `<button class="table-action quiet-action" type="button" title="일지 작성" aria-label="${escapeHtml(asset.name)} 일지 작성" data-action="journal" data-id="${asset.id}">일지</button>`;
     const row = document.createElement("tr");
     row.innerHTML = `
       <td><strong>${escapeHtml(asset.name)}</strong></td>
@@ -1115,17 +1227,18 @@ function renderAssets() {
       <td class="sell-cell">${sellButton || `<span class="muted-dash">-</span>`}</td>
       <td>
         <div class="row-actions">
+          ${journalButton}
           <button class="table-action quiet-action" type="button" title="수정" aria-label="${escapeHtml(asset.name)} 수정" data-action="edit" data-id="${asset.id}">수정</button>
           <button class="table-action danger-action" type="button" title="삭제" aria-label="${escapeHtml(asset.name)} 삭제" data-action="delete" data-id="${asset.id}">삭제</button>
         </div>
       </td>
     `;
     els.assetRows.append(row);
-    renderAssetCard(asset, gain, gainRate, valueDetail, sellButton);
+    renderAssetCard(asset, gain, gainRate, valueDetail, sellButton, journalButton);
   });
 }
 
-function renderAssetCard(asset, gain, gainRate, valueDetail, sellButton) {
+function renderAssetCard(asset, gain, gainRate, valueDetail, sellButton, journalButton) {
   if (!els.assetCards) return;
   const type = assetType(asset);
   const gainTone = gain > 0 ? "positive" : gain < 0 ? "negative" : "";
@@ -1152,6 +1265,7 @@ function renderAssetCard(asset, gain, gainRate, valueDetail, sellButton) {
     ${asset.note ? `<p class="asset-card-note">${escapeHtml(asset.note)}</p>` : ""}
     <div class="asset-card-actions">
       ${isMarketType(type) ? sellButton || `<button class="text-icon-button disabled-action" type="button" disabled>매도</button>` : `<button class="text-icon-button disabled-action" type="button" disabled>매도 불가</button>`}
+      ${journalButton}
       <button class="table-action quiet-action" type="button" data-action="edit" data-id="${asset.id}">수정</button>
       <button class="table-action danger-action" type="button" data-action="delete" data-id="${asset.id}">삭제</button>
     </div>
@@ -1170,6 +1284,7 @@ function renderAssetCardEmpty(message) {
 function assetMatchesFilters(asset) {
   const type = assetType(asset);
   if (uiState.assetType !== "ALL" && type !== uiState.assetType) return false;
+  if (uiState.regionFilter !== "ALL" && regionCodeForAsset(asset) !== uiState.regionFilter) return false;
   if (uiState.accountFilter !== "ALL" && (asset.account || "계좌 미지정") !== uiState.accountFilter) return false;
   if (uiState.statusFilter === "PRICE_WAIT" && !marketPriceMissing(asset)) return false;
   if (uiState.statusFilter === "READY" && marketPriceMissing(asset)) return false;
@@ -1190,6 +1305,15 @@ function assetMatchesFilters(asset) {
     assetTypeLabel(asset)
   ].map(normalizeAssetKey).join(" ");
   return haystack.includes(query);
+}
+
+function renderRegionSegment() {
+  if (!els.assetRegionSegment) return;
+  els.assetRegionSegment.querySelectorAll("[data-region-filter]").forEach((button) => {
+    const active = button.dataset.regionFilter === uiState.regionFilter;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
 }
 
 function sortAssets(assets) {
@@ -1470,6 +1594,244 @@ function renderRebalanceSummary() {
       <small>목표 ${(targetRate * 100).toFixed(1)}% · 현재 ${((current[key] / total) * 100).toFixed(1)}%</small>
     </div>`;
   }).join("");
+}
+
+function renderJournal() {
+  if (!els.journalSummary || !els.journalList) return;
+  state.tradeJournalEntries = (state.tradeJournalEntries || []).map(normalizeTradeJournalEntry);
+  renderJournalAssetOptions();
+
+  const entries = [...state.tradeJournalEntries]
+    .sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt))
+    .filter(journalEntryMatchesFilter);
+
+  const total = state.tradeJournalEntries.length;
+  const reviewCount = state.tradeJournalEntries.filter((entry) => entry.status === "REVIEW").length;
+  const doneCount = state.tradeJournalEntries.filter((entry) => entry.status === "DONE").length;
+  const sellCount = state.tradeJournalEntries.filter((entry) => entry.action === "SELL").length;
+  els.journalSummary.innerHTML = [
+    ["전체 일지", `${total}건`, "판단 기록"],
+    ["복기 필요", `${reviewCount}건`, "다시 볼 기록"],
+    ["완료", `${doneCount}건`, "복기 완료"],
+    ["매도 연결", `${sellCount}건`, "실현손익 참고"]
+  ].map(([label, value, detail]) => `
+    <div class="history-summary-item journal-summary-item">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      <small>${escapeHtml(detail)}</small>
+    </div>
+  `).join("");
+
+  els.journalList.textContent = "";
+  if (!entries.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty journal-empty";
+    empty.textContent = total ? "조건에 맞는 매매일지가 없습니다." : "자산원장의 일지 버튼이나 일지 작성 버튼으로 첫 기록을 남겨보세요.";
+    els.journalList.append(empty);
+    return;
+  }
+
+  entries.forEach((entry) => {
+    const card = document.createElement("article");
+    card.className = `journal-card ${entry.status.toLowerCase()}`;
+    card.innerHTML = `
+      <div class="journal-card-main">
+        <div class="journal-card-top">
+          <span class="journal-date">${escapeHtml(formatTradeDate(entry.date))}</span>
+          <span class="journal-badge">${escapeHtml(JOURNAL_ACTION_LABELS[entry.action])}</span>
+          <span class="journal-badge muted">${escapeHtml(REGION_LABELS[entry.region])}</span>
+          <span class="journal-badge status">${escapeHtml(JOURNAL_STATUS_LABELS[entry.status])}</span>
+        </div>
+        <h3>${escapeHtml(entry.name || entry.ticker || "자산 미지정")}</h3>
+        <p class="journal-meta">
+          ${entry.ticker ? `<span>${escapeHtml(entry.ticker)}</span>` : ""}
+          ${entry.account ? `<span>${escapeHtml(entry.account)}</span>` : ""}
+          ${entry.quantity ? `<span>수량 ${escapeHtml(formatPlainNumber(entry.quantity))}</span>` : ""}
+          ${entry.price ? `<span>가격 ${escapeHtml(entry.type === "US" ? usd(entry.price) : formatPlainNumber(entry.price))}</span>` : ""}
+        </p>
+        ${entry.reason ? `<p><strong>이유</strong>${escapeHtml(entry.reason)}</p>` : ""}
+        ${entry.risk ? `<p><strong>리스크</strong>${escapeHtml(entry.risk)}</p>` : ""}
+        ${entry.review ? `<p><strong>복기</strong>${escapeHtml(entry.review)}</p>` : ""}
+        ${entry.tags ? `<div class="journal-tags">${entry.tags.split(",").map((tag) => `<span>${escapeHtml(tag.trim())}</span>`).join("")}</div>` : ""}
+      </div>
+      <div class="journal-actions">
+        <button class="table-action quiet-action" type="button" data-journal-action="copy-ai" data-id="${entry.id}">AI 질문 복사</button>
+        <button class="table-action quiet-action" type="button" data-journal-action="edit" data-id="${entry.id}">수정</button>
+        <button class="table-action danger-action" type="button" data-journal-action="delete" data-id="${entry.id}">삭제</button>
+      </div>
+    `;
+    els.journalList.append(card);
+  });
+}
+
+function journalEntryMatchesFilter(entry) {
+  const filter = uiState.journalFilter;
+  if (filter === "ALL") return true;
+  if (REGION_LABELS[filter]) return entry.region === filter;
+  if (JOURNAL_ACTION_LABELS[filter]) return entry.action === filter;
+  if (JOURNAL_STATUS_LABELS[filter]) return entry.status === filter;
+  return true;
+}
+
+function renderJournalAssetOptions() {
+  if (!els.journalAssetId) return;
+  const current = els.journalAssetId.value;
+  const options = state.assets
+    .map(normalizeAsset)
+    .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ko-KR"))
+    .map((asset) => `<option value="${escapeHtml(asset.id)}">${escapeHtml(asset.name)}${asset.ticker ? ` · ${escapeHtml(asset.ticker)}` : ""}</option>`)
+    .join("");
+  els.journalAssetId.innerHTML = `<option value="">직접 입력</option>${options}`;
+  els.journalAssetId.value = state.assets.some((asset) => asset.id === current) ? current : "";
+}
+
+function resetJournalForm() {
+  if (!els.journalForm) return;
+  els.journalForm.reset();
+  els.journalId.value = "";
+  els.journalRealizedTradeId.value = "";
+  els.journalDate.value = localDateInputValue();
+  els.journalRegion.value = "DOMESTIC";
+  els.journalAction.value = "BUY";
+  els.journalStatus.value = "OPEN";
+  els.saveJournalBtn.textContent = "일지 저장";
+  if (els.journalFormTitle) els.journalFormTitle.textContent = "매매일지 작성";
+  hideJournalForm();
+}
+
+function showJournalForm(entry = null) {
+  if (!els.journalFormPanel || !els.journalForm) return;
+  resetAssetForm();
+  resetSellForm();
+  els.journalFormPanel.hidden = false;
+  if (els.toggleJournalFormBtn) {
+    els.toggleJournalFormBtn.textContent = "닫기";
+    els.toggleJournalFormBtn.setAttribute("aria-expanded", "true");
+  }
+  if (!entry) {
+    resetJournalForm();
+    els.journalFormPanel.hidden = false;
+    if (els.toggleJournalFormBtn) {
+      els.toggleJournalFormBtn.textContent = "닫기";
+      els.toggleJournalFormBtn.setAttribute("aria-expanded", "true");
+    }
+    els.journalAssetName.focus();
+    return;
+  }
+
+  const normalized = normalizeTradeJournalEntry(entry);
+  els.journalId.value = normalized.id;
+  els.journalRealizedTradeId.value = normalized.realizedTradeId || "";
+  els.journalDate.value = normalized.date;
+  els.journalAssetId.value = state.assets.some((asset) => asset.id === normalized.assetId) ? normalized.assetId : "";
+  els.journalAssetName.value = normalized.name;
+  els.journalTicker.value = normalized.ticker;
+  els.journalRegion.value = normalized.region;
+  els.journalAccount.value = normalized.account;
+  els.journalAction.value = normalized.action;
+  els.journalStatus.value = normalized.status;
+  els.journalQuantity.value = normalized.quantity ? formatPlainNumber(normalized.quantity) : "";
+  els.journalPrice.value = normalized.price ? formatPlainNumber(normalized.price) : "";
+  els.journalReason.value = normalized.reason;
+  els.journalRisk.value = normalized.risk;
+  els.journalReview.value = normalized.review;
+  els.journalTags.value = normalized.tags;
+  els.saveJournalBtn.textContent = "일지 수정 저장";
+  if (els.journalFormTitle) els.journalFormTitle.textContent = "매매일지 수정";
+  els.journalAssetName.focus();
+}
+
+function hideJournalForm() {
+  if (els.journalFormPanel) els.journalFormPanel.hidden = true;
+  if (els.toggleJournalFormBtn) {
+    els.toggleJournalFormBtn.textContent = "일지 작성";
+    els.toggleJournalFormBtn.setAttribute("aria-expanded", "false");
+  }
+}
+
+function fillJournalFromAsset(asset) {
+  if (!asset) return;
+  const type = assetType(asset);
+  els.journalAssetId.value = asset.id;
+  els.journalAssetName.value = asset.name || "";
+  els.journalTicker.value = asset.ticker || "";
+  els.journalRegion.value = regionCodeForAsset(asset);
+  els.journalAccount.value = asset.account || "";
+  els.journalQuantity.value = asset.quantity ? formatPlainNumber(asset.quantity) : "";
+  els.journalPrice.value = asset.currentPrice ? formatPlainNumber(asset.currentPrice) : "";
+  if (els.journalAction.value === "WATCH") return;
+  if (type === "US" && !els.journalTags.value) els.journalTags.value = "해외";
+  if (type === "KRX" && !els.journalTags.value) els.journalTags.value = "국내";
+}
+
+function journalEntryFromForm() {
+  const selectedAsset = state.assets.find((asset) => asset.id === els.journalAssetId?.value);
+  const type = selectedAsset ? assetType(selectedAsset) : normalizeAssetType(els.journalRegion.value === "OVERSEAS" ? "US" : els.journalRegion.value === "DOMESTIC" ? "KRX" : "MANUAL");
+  return normalizeTradeJournalEntry({
+    id: els.journalId.value || uid(),
+    assetId: selectedAsset?.id || "",
+    realizedTradeId: els.journalRealizedTradeId.value || "",
+    date: els.journalDate.value,
+    name: els.journalAssetName.value.trim(),
+    ticker: els.journalTicker.value.trim().toUpperCase(),
+    type,
+    region: els.journalRegion.value,
+    account: els.journalAccount.value.trim(),
+    action: els.journalAction.value,
+    status: els.journalStatus.value,
+    quantity: parseAmount(els.journalQuantity.value),
+    price: parseAmount(els.journalPrice.value),
+    reason: els.journalReason.value.trim(),
+    risk: els.journalRisk.value.trim(),
+    review: els.journalReview.value.trim(),
+    tags: els.journalTags.value.trim(),
+    createdAt: state.tradeJournalEntries.find((entry) => entry.id === els.journalId.value)?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+}
+
+function createJournalEntryFromTrade(asset, trade) {
+  const gainText = `${trade.realizedGain > 0 ? "+" : ""}${money(trade.realizedGain)}`;
+  return normalizeTradeJournalEntry({
+    id: uid(),
+    assetId: asset.id,
+    realizedTradeId: trade.id,
+    date: trade.soldAt,
+    name: trade.name || asset.name,
+    ticker: trade.ticker || asset.ticker,
+    type: trade.type,
+    region: regionCodeForType(trade.type),
+    account: trade.account || asset.account || "",
+    action: "SELL",
+    status: "REVIEW",
+    quantity: trade.quantity,
+    price: trade.sellPrice,
+    reason: trade.memo || "매도 처리와 함께 자동 생성된 일지입니다.",
+    risk: "",
+    review: `실현손익 ${gainText}. 매도 이유와 배운 점을 나중에 보완하세요.`,
+    tags: "매도,복기",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+}
+
+function aiPromptForJournal(entry) {
+  const normalized = normalizeTradeJournalEntry(entry);
+  return [
+    "아래 매매일지를 투자 추천이 아니라 복기 관점에서 검토해줘.",
+    "",
+    `자산: ${normalized.name || "-"} (${normalized.ticker || "-"})`,
+    `구분: ${JOURNAL_ACTION_LABELS[normalized.action]} / ${REGION_LABELS[normalized.region]} / ${JOURNAL_STATUS_LABELS[normalized.status]}`,
+    `날짜: ${normalized.date}`,
+    `수량/가격: ${normalized.quantity || "-"} / ${normalized.price || "-"}`,
+    `투자 이유: ${normalized.reason || "-"}`,
+    `리스크: ${normalized.risk || "-"}`,
+    `복기 메모: ${normalized.review || "-"}`,
+    "",
+    "1. 이 판단의 약점 3가지를 찾아줘.",
+    "2. 놓친 리스크나 확인해야 할 데이터를 정리해줘.",
+    "3. 다음 매매 전에 체크리스트로 바꿔줘."
+  ].join("\n");
 }
 
 function renderRealized() {
@@ -2130,6 +2492,7 @@ function showSellForm(asset) {
   els.sellFees.value = "";
   els.sellTax.value = "";
   els.sellMemo.value = "";
+  if (els.sellJournalEnabled) els.sellJournalEnabled.checked = true;
   const type = assetType(asset);
   if (els.sellFxRateField) els.sellFxRateField.hidden = type !== "US";
   els.sellFxRate.value = type === "US" ? formatPlainNumber(usdKrwRate()) : "1";
@@ -2300,10 +2663,14 @@ els.sellForm?.addEventListener("submit", (event) => {
   const { asset, remainingQuantity, trade } = result;
   const previousAssets = state.assets.map((item) => ({ ...item }));
   const previousTrades = state.realizedTrades.map((item) => ({ ...item }));
+  const previousJournalEntries = state.tradeJournalEntries.map((item) => ({ ...item }));
   const index = state.assets.findIndex((item) => item.id === asset.id);
   if (index < 0) return;
 
   state.realizedTrades.push(trade);
+  if (els.sellJournalEnabled?.checked) {
+    state.tradeJournalEntries.push(createJournalEntryFromTrade(asset, trade));
+  }
   if (remainingQuantity <= 0.0000001) {
     state.assets.splice(index, 1);
   } else {
@@ -2320,6 +2687,7 @@ els.sellForm?.addEventListener("submit", (event) => {
   showUndoNotice(`${asset.name} 매도를 기록했습니다.`, () => {
     state.assets = previousAssets.map(normalizeAsset);
     state.realizedTrades = previousTrades.map(normalizeRealizedTrade);
+    state.tradeJournalEntries = previousJournalEntries.map(normalizeTradeJournalEntry);
     applyPricesToAssets();
     render();
   });
@@ -2331,6 +2699,13 @@ function handleAssetAction(button) {
 
   if (button.dataset.action === "sell") {
     showSellForm(asset);
+  }
+
+  if (button.dataset.action === "journal") {
+    showJournalForm();
+    fillJournalFromAsset(asset);
+    els.journalAction.value = "WATCH";
+    els.journalStatus.value = "OPEN";
   }
 
   if (button.dataset.action === "edit") {
@@ -2378,6 +2753,74 @@ els.assetCards?.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-action]");
   if (!button) return;
   handleAssetAction(button);
+});
+
+els.toggleJournalFormBtn?.addEventListener("click", () => {
+  if (els.journalFormPanel?.hidden) showJournalForm();
+  else resetJournalForm();
+});
+
+els.cancelJournalBtn?.addEventListener("click", resetJournalForm);
+
+els.journalAssetId?.addEventListener("change", () => {
+  const asset = state.assets.find((item) => item.id === els.journalAssetId.value);
+  if (asset) fillJournalFromAsset(asset);
+});
+
+els.journalFilter?.addEventListener("change", () => {
+  uiState.journalFilter = els.journalFilter.value;
+  render(false);
+});
+
+els.journalForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const entry = journalEntryFromForm();
+  if (!entry.name) {
+    alert("매매일지의 자산명을 입력하세요.");
+    return;
+  }
+  const index = state.tradeJournalEntries.findIndex((item) => item.id === entry.id);
+  if (index >= 0) state.tradeJournalEntries[index] = entry;
+  else state.tradeJournalEntries.push(entry);
+  resetJournalForm();
+  render();
+});
+
+els.journalList?.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-journal-action]");
+  if (!button) return;
+  const entry = state.tradeJournalEntries.find((item) => item.id === button.dataset.id);
+  if (!entry) return;
+
+  if (button.dataset.journalAction === "edit") {
+    showJournalForm(entry);
+    return;
+  }
+
+  if (button.dataset.journalAction === "delete") {
+    if (!confirm(`${entry.name || entry.ticker || "매매일지"} 기록을 삭제할까요?`)) return;
+    const before = state.tradeJournalEntries.map((item) => ({ ...item }));
+    state.tradeJournalEntries = state.tradeJournalEntries.filter((item) => item.id !== entry.id);
+    render();
+    showUndoNotice("매매일지를 삭제했습니다.", () => {
+      state.tradeJournalEntries = before.map(normalizeTradeJournalEntry);
+      render();
+    });
+    return;
+  }
+
+  if (button.dataset.journalAction === "copy-ai") {
+    const prompt = aiPromptForJournal(entry);
+    try {
+      await navigator.clipboard.writeText(prompt);
+      button.textContent = "복사 완료";
+      setTimeout(() => {
+        button.textContent = "AI 질문 복사";
+      }, 1400);
+    } catch {
+      window.prompt("AI에게 붙여넣을 질문입니다.", prompt);
+    }
+  }
 });
 
 [
@@ -2471,6 +2914,13 @@ els.assetSearch.addEventListener("input", () => {
 els.assetTypeFilter.addEventListener("change", () => {
   uiState.assetType = normalizeAssetType(els.assetTypeFilter.value);
   if (els.assetTypeFilter.value === "ALL") uiState.assetType = "ALL";
+  render(false);
+});
+
+els.assetRegionSegment?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-region-filter]");
+  if (!button) return;
+  uiState.regionFilter = button.dataset.regionFilter || "ALL";
   render(false);
 });
 
@@ -2653,6 +3103,7 @@ els.importInput.addEventListener("change", async (event) => {
 	    const summary = [
 	      `자산 ${imported.assets.length}개`,
 	      `히스토리 ${imported.snapshots.length}개`,
+	      Array.isArray(imported.tradeJournalEntries) ? `매매일지 ${imported.tradeJournalEntries.length}개` : "매매일지 없음",
 	      imported.retirement ? "은퇴 설정 포함" : "은퇴 설정 없음",
 	      Array.isArray(imported.retirementScenarios) ? `은퇴 시나리오 ${imported.retirementScenarios.length}개` : "은퇴 시나리오 없음"
 	    ].join("\n");
