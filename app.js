@@ -114,6 +114,7 @@ const els = {
   dashboardRecentRecordMeta: document.querySelector("#dashboardRecentRecordMeta"),
   dashboardPortfolioFocus: document.querySelector("#dashboardPortfolioFocus"),
   dashboardGoalProgress: document.querySelector("#dashboardGoalProgress"),
+  dashboardGoalBar: document.querySelector("#dashboardGoalBar"),
   dashboardComposition: document.querySelector("#dashboardComposition"),
   dashboardRecentList: document.querySelector("#dashboardRecentList"),
   settingsCloudStatus: document.querySelector("#settingsCloudStatus"),
@@ -1256,38 +1257,14 @@ function renderDashboard() {
     ? tasks.map((task) => `<li><strong>${escapeHtml(task.title)}</strong><span>${escapeHtml(task.detail)}</span></li>`).join("")
     : `<li><strong>오늘 확인할 일 없음</strong><span>가격, 목표 비중, 복기 기록이 안정적인 상태입니다.</span></li>`;
 
-  const topAsset = [...state.assets].sort((a, b) => assetValue(b) - assetValue(a))[0];
-  if (topAsset) {
-    const currentTotal = totalAssets();
-    const ratio = currentTotal ? assetValue(topAsset) / currentTotal : 0;
-    els.dashboardTopAsset.textContent = topAsset.name || "이름 없는 자산";
-    els.dashboardTopAssetMeta.textContent = `${assetTypeLabel(topAsset)} · ${money(assetValue(topAsset))} · ${(ratio * 100).toFixed(1)}%`;
-  } else {
-    els.dashboardTopAsset.textContent = "대기";
-    els.dashboardTopAssetMeta.textContent = "자산을 등록하면 표시됩니다.";
-  }
-
-  const recentEntry = [...(state.tradeJournalEntries || [])].sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt))[0];
-  const recentTrade = [...(state.realizedTrades || [])].sort((a, b) => new Date(b.soldAt) - new Date(a.soldAt))[0];
-  if (recentEntry) {
-    els.dashboardRecentRecord.textContent = `${JOURNAL_ACTION_LABELS[recentEntry.action] || "기록"} · ${recentEntry.name || "자산"}`;
-    els.dashboardRecentRecordMeta.textContent = `${formatDate(recentEntry.date || recentEntry.createdAt)} · ${JOURNAL_STATUS_LABELS[recentEntry.status] || "진행중"}`;
-  } else if (recentTrade) {
-    els.dashboardRecentRecord.textContent = `매도 · ${recentTrade.name || "자산"}`;
-    els.dashboardRecentRecordMeta.textContent = `${formatDate(recentTrade.soldAt)} · 실현손익 ${money(recentTrade.realizedGain || 0)}`;
-  } else {
-    els.dashboardRecentRecord.textContent = "기록 없음";
-    els.dashboardRecentRecordMeta.textContent = "매매일지를 작성하면 최근 판단이 표시됩니다.";
-  }
-
   const retirement = calculateRetirement(state.retirement);
   if (retirement?.nestEgg) {
     const progress = Math.max(0, Math.min(1, Number(state.retirement.currentInvestable || 0) / retirement.nestEgg));
-    els.dashboardGoalProgress.textContent = `${(progress * 100).toFixed(0)}% 진행`;
-    els.dashboardPortfolioFocus.textContent = `${money(Math.max(0, retirement.nestEgg - Number(state.retirement.currentInvestable || 0)))} 남음`;
+    els.dashboardGoalProgress.textContent = `${(progress * 100).toFixed(0)}%`;
+    if (els.dashboardGoalBar) els.dashboardGoalBar.style.width = `${Math.max(2, progress * 100)}%`;
   } else {
     els.dashboardGoalProgress.textContent = "계산 대기";
-    els.dashboardPortfolioFocus.textContent = "은퇴 설정과 목표 비중을 확인하세요.";
+    if (els.dashboardGoalBar) els.dashboardGoalBar.style.width = "0%";
   }
 
   renderDashboardComposition();

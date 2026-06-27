@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-store">
     <meta http-equiv="Pragma" content="no-cache">
     <title>자산 히스토리 & 은퇴 플래너</title>
-    <link rel="stylesheet" href="styles.css?v=20260628-action-col2">
+    <link rel="stylesheet" href="styles.css?v=20260628-dashboard">
   </head>
   <body>
     <div class="app">
@@ -40,67 +40,42 @@
 
       <main>
         <p class="sr-only" id="viewAnnounce" role="status" aria-live="polite"></p>
-        <section class="metric-grid" aria-label="요약 지표" data-app-section="DASHBOARD">
-          <article class="metric primary-metric">
-            <span>현재 총자산</span>
-            <strong id="totalAsset">₩0</strong>
-            <small id="assetCount">0개 자산</small>
-          </article>
-          <article class="metric">
-            <span>최근 조회 대비</span>
-            <strong id="lastDelta">₩0</strong>
-            <small id="lastDeltaRate">0.00%</small>
-          </article>
-          <article class="metric">
-            <span>첫 조회 대비</span>
-            <strong id="firstDelta">₩0</strong>
-            <small id="firstDeltaRate">0.00%</small>
-          </article>
-          <article class="metric">
-            <span>은퇴 목표까지</span>
-            <strong id="retireGap">₩0</strong>
-            <small id="retireGapLabel">계산 대기</small>
-          </article>
+        <section class="dashboard-hero" aria-label="요약 지표" data-app-section="DASHBOARD">
+          <div class="hero-main">
+            <span class="hero-kicker">현재 총자산</span>
+            <strong id="totalAsset" class="hero-total">₩0</strong>
+            <div class="hero-change-row">
+              <span class="hero-chip"><span class="hero-chip-label">오늘</span><strong id="lastDelta">₩0</strong><small id="lastDeltaRate">0.00%</small></span>
+              <span class="hero-chip"><span class="hero-chip-label">첫 조회 대비</span><strong id="firstDelta">₩0</strong><small id="firstDeltaRate">0.00%</small></span>
+              <small id="assetCount" class="hero-count">0개 자산</small>
+            </div>
+          </div>
+          <div class="hero-actions">
+            <button class="primary-button" id="dashboardSnapshotBtn" type="button">오늘 자산 기록 남기기</button>
+            <button class="ghost-button" type="button" data-go-view="ASSETS" data-open-asset-form="true">새 자산 등록</button>
+          </div>
         </section>
 
         <section class="panel dashboard-panel" data-app-section="DASHBOARD" aria-label="오늘의 투자 여정">
-          <div class="panel-header">
-            <div>
-              <h2>오늘의 투자 여정</h2>
-              <p>가격, 포트폴리오, 매매 기록, 장기 목표 중 지금 확인할 일을 먼저 보여줍니다.</p>
-            </div>
-            <div class="panel-actions">
-              <button class="primary-button" id="dashboardSnapshotBtn" type="button">오늘 자산 기록 남기기</button>
-              <button class="ghost-button" type="button" data-go-view="ASSETS" data-open-asset-form="true">새 자산 등록</button>
-            </div>
-          </div>
-          <div class="dashboard-grid">
-            <article class="journey-card attention-card">
-              <span class="card-kicker">Today</span>
-              <h3>오늘 확인할 일</h3>
-              <strong id="dashboardReviewCount">0개</strong>
+          <div class="dashboard-focus">
+            <article class="journey-card today-card">
+              <div class="today-head">
+                <h2 class="today-title">오늘 확인할 일</h2>
+                <strong id="dashboardReviewCount" class="today-count">0개</strong>
+              </div>
               <ul class="dashboard-checklist" id="dashboardChecklist"></ul>
             </article>
-            <article class="journey-card">
-              <span class="card-kicker">Largest</span>
-              <h3>가장 큰 보유 자산</h3>
-              <strong id="dashboardTopAsset">대기</strong>
-              <small id="dashboardTopAssetMeta">자산을 등록하면 표시됩니다.</small>
-              <button class="text-link-button" type="button" data-go-view="ASSETS">자산 원장 보기</button>
-            </article>
-            <article class="journey-card">
-              <span class="card-kicker">Decision</span>
-              <h3>최근 투자 기록</h3>
-              <strong id="dashboardRecentRecord">기록 없음</strong>
-              <small id="dashboardRecentRecordMeta">매매일지를 작성하면 최근 판단이 표시됩니다.</small>
-              <button class="text-link-button" type="button" data-go-view="JOURNAL">투자 기록 보기</button>
-            </article>
-            <article class="journey-card">
-              <span class="card-kicker">Goal</span>
-              <h3>목표와의 거리</h3>
-              <strong id="dashboardGoalProgress">계산 대기</strong>
-              <small id="dashboardPortfolioFocus">은퇴 설정과 목표 비중을 확인하세요.</small>
-              <button class="text-link-button" type="button" data-go-view="GOALS">목표 점검하기</button>
+            <article class="journey-card goal-card">
+              <div class="dashboard-module-head">
+                <h3>목표 진행</h3>
+                <button class="text-link-button" type="button" data-go-view="GOALS">목표 점검</button>
+              </div>
+              <strong id="dashboardGoalProgress" class="goal-progress-value">계산 대기</strong>
+              <div class="goal-progress-track"><span class="goal-progress-fill" id="dashboardGoalBar"></span></div>
+              <div class="goal-stats">
+                <div><span>남은 금액</span><strong id="retireGap">₩0</strong></div>
+                <div><span>은퇴까지</span><strong id="retireGapLabel">계산 대기</strong></div>
+              </div>
             </article>
           </div>
           <div class="dashboard-modules">
@@ -783,6 +758,6 @@
     </template>
 
     <script src="firebase-config.js?v=20260519-auth-result"></script>
-    <script type="module" src="app.js?v=20260628-chart"></script>
+    <script type="module" src="app.js?v=20260628-dashboard"></script>
   </body>
 </html>
