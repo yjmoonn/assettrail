@@ -51,6 +51,15 @@ const JOURNAL_STATUS_LABELS = {
 };
 const APP_VIEWS = new Set(["DASHBOARD", "ASSETS", "JOURNAL", "PORTFOLIO", "GOALS", "SETTINGS"]);
 
+function viewHash(view) {
+  return "#" + String(view).toLowerCase();
+}
+
+function viewFromHash() {
+  const slug = (location.hash || "").replace(/^#/, "").toUpperCase();
+  return APP_VIEWS.has(slug) ? slug : "DASHBOARD";
+}
+
 let cloud = {
   auth: null,
   db: null,
@@ -1345,6 +1354,12 @@ function setActiveView(view, options = {}) {
     button.classList.toggle("active", selected);
     button.setAttribute("aria-current", selected ? "page" : "false");
   });
+  if (options.updateHash) {
+    const target = viewHash(nextView);
+    if (location.hash !== target) {
+      history.pushState({ view: nextView }, "", target);
+    }
+  }
   if (options.scroll) {
     document.querySelector("main")?.scrollIntoView({ block: "start", behavior: "smooth" });
   }
@@ -3132,7 +3147,7 @@ function handleAssetAction(button) {
   }
 
   if (button.dataset.action === "journal") {
-    setActiveView("JOURNAL", { scroll: true });
+    setActiveView("JOURNAL", { scroll: true, updateHash: true });
     showJournalForm();
     fillJournalFromAsset(asset);
     els.journalAction.value = "WATCH";
@@ -3362,7 +3377,7 @@ document.addEventListener("click", (event) => {
   const viewButton = event.target.closest("[data-nav-view], [data-go-view]");
   if (viewButton) {
     const view = viewButton.dataset.navView || viewButton.dataset.goView;
-    setActiveView(view, { scroll: true });
+    setActiveView(view, { scroll: true, updateHash: true });
     if (viewButton.dataset.openAssetForm === "true") {
       resetSellForm();
       resetBuyForm();
@@ -3630,6 +3645,14 @@ renderRetirementScenarioOptions();
 state.assets = state.assets.map(normalizeAsset);
 applyPricesToAssets();
 updateAssetFormForType();
+uiState.activeView = viewFromHash();
+history.replaceState({ view: uiState.activeView }, "", viewHash(uiState.activeView));
+window.addEventListener("popstate", () => {
+  setActiveView(viewFromHash(), { scroll: false });
+});
+window.addEventListener("hashchange", () => {
+  setActiveView(viewFromHash(), { scroll: false });
+});
 render();
 updateAuthUi();
 initPrices();

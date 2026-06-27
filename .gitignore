@@ -31,6 +31,9 @@ backups/
 __pycache__/
 *.pyc
 
+# Local editor/preview tooling
+.claude/
+
 # Test and tool output
 coverage/
 .nyc_output/
