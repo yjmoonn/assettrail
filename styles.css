@@ -400,6 +400,7 @@ h3 {
 }
 
 .asset-form-panel,
+.buy-form-panel,
 .sell-form-panel,
 .journal-form-panel {
   background: var(--surface-2);
@@ -410,6 +411,7 @@ h3 {
 }
 
 .asset-form-panel[hidden],
+.buy-form-panel[hidden],
 .sell-form-panel[hidden],
 .journal-form-panel[hidden] {
   display: none;
@@ -430,6 +432,7 @@ h3 {
 }
 
 .asset-form,
+.buy-form,
 .sell-form,
 .journal-form,
 .retirement-grid {
@@ -438,6 +441,7 @@ h3 {
 }
 
 .asset-form,
+.buy-form,
 .sell-form,
 .journal-form {
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
@@ -447,6 +451,7 @@ h3 {
   grid-column: span 2;
 }
 
+.buy-preview,
 .sell-preview {
   align-self: end;
   background: #ffffff;
@@ -459,10 +464,12 @@ h3 {
   padding: 10px 12px;
 }
 
+.buy-preview.positive,
 .sell-preview.positive {
   color: var(--green);
 }
 
+.buy-preview.negative,
 .sell-preview.negative {
   color: var(--red);
 }
@@ -686,7 +693,7 @@ tbody tr:last-child td {
 }
 
 .sell-col {
-  width: 96px;
+  width: 184px;
 }
 
 .row-actions {
@@ -699,6 +706,15 @@ tbody tr:last-child td {
 
 .sell-cell {
   text-align: center;
+}
+
+.trade-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 7px;
+  justify-content: center;
+  min-width: max-content;
 }
 
 .inline-amount {
@@ -724,6 +740,12 @@ tbody tr:last-child td {
   min-height: 36px;
   padding: 0 14px;
   white-space: nowrap;
+}
+
+.text-icon-button.buy-action {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+  color: var(--green);
 }
 
 .table-action {
@@ -1627,6 +1649,7 @@ tbody tr:last-child td {
   }
 
   .asset-form,
+  .buy-form,
   .sell-form,
   .journal-form,
   .ledger-toolbar,
@@ -1708,6 +1731,7 @@ tbody tr:last-child td {
 
   .metric-grid,
   .asset-form,
+  .buy-form,
   .sell-form,
   .journal-form,
   .breakdown,
@@ -1780,6 +1804,7 @@ tbody tr:last-child td {
   }
 
   .asset-form-panel,
+  .buy-form-panel,
   .sell-form-panel,
   .journal-form-panel {
     margin-left: -15px;

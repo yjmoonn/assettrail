@@ -172,6 +172,29 @@ setValue("#assetAccount", "DC");
 setValue("#assetAmount", "700000");
 submitAsset();
 
+const samsungMainRowBeforeBuy = [...window.document.querySelectorAll("#assetRows tr")].find((row) =>
+  row.textContent.includes("삼성전자") && row.textContent.includes("삼성증권")
+);
+samsungMainRowBeforeBuy.querySelector('[data-action="buy"]').click();
+assert.equal(window.document.querySelector("#buyFormPanel").hidden, false);
+setValue("#buyDate", "2026-06-19");
+setValue("#buyQuantity", "5");
+setValue("#buyPrice", "80000");
+setValue("#buyFees", "0");
+assert.match(window.document.querySelector("#buyPreview").textContent, /보유 10주 → 15주/);
+assert.match(window.document.querySelector("#buyPreview").textContent, /평단 70,000 → 73,333\.333333/);
+window.document
+  .querySelector("#buyForm")
+  .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+
+const savedAfterBuy = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
+const samsungMainAfterBuy = savedAfterBuy.assets.find((asset) => asset.ticker === "005930" && asset.account === "삼성증권");
+assert.equal(samsungMainAfterBuy.quantity, 15);
+assert.ok(Math.abs(samsungMainAfterBuy.averagePrice - 73333.33333333333) < 0.000001);
+assert.equal(savedAfterBuy.tradeJournalEntries.length, 1);
+assert.equal(savedAfterBuy.tradeJournalEntries[0].action, "BUY");
+assert.equal(savedAfterBuy.tradeJournalEntries[0].ticker, "005930");
+
 const rows = [...window.document.querySelectorAll("#assetRows tr")].map((row) =>
   row.textContent.replace(/\s+/g, " ").trim()
 );
@@ -199,8 +222,8 @@ assert.equal(window.document.querySelector("#postReturnRate").value, "4.5");
 assert.match(window.document.querySelector("#retirementProgressLabel").textContent, /%/);
 
 assert.equal(window.document.querySelector("#priceStatus").textContent, "가격 5/19 09:00");
-assert.equal(window.document.querySelector("#totalAsset").textContent, "₩6,123,645");
-assert.match(rows.join("\n"), /삼성전자 삼성증권 005930 KRX 국내 10 ₩740,000종가 74,000 · 5월 18일 \+₩40,000/);
+assert.equal(window.document.querySelector("#totalAsset").textContent, "₩6,493,645");
+assert.match(rows.join("\n"), /삼성전자 삼성증권 005930 KRX 국내 15 ₩1,110,000종가 74,000 · 5월 18일 \+₩10,000/);
 assert.match(rows.join("\n"), /삼성전자 미래에셋 005930 KRX 국내 5 ₩370,000종가 74,000 · 5월 18일 \+₩10,000/);
 assert.match(rows.join("\n"), /SOL 한국원자력SMR 연금저축 0092B0 KRX 국내 1 ₩19,645종가 19,645 · 5월 19일 \+₩9,645/);
 assert.match(rows.join("\n"), /Apple Inc\. AAPL US 미국 2 ₩494,000종가 \$190\.00 · 환율 1,300원 · 5월 18일 \+₩26,000/);
@@ -260,8 +283,11 @@ window.document
 const savedAfterSell = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
 assert.equal(savedAfterSell.realizedTrades.length, 1);
 assert.equal(savedAfterSell.realizedTrades[0].realizedGain, 24500);
-assert.equal(savedAfterSell.tradeJournalEntries.length, 1);
-assert.equal(savedAfterSell.tradeJournalEntries[0].realizedTradeId, savedAfterSell.realizedTrades[0].id);
+assert.equal(savedAfterSell.tradeJournalEntries.length, 2);
+assert.equal(
+  savedAfterSell.tradeJournalEntries.some((entry) => entry.realizedTradeId === savedAfterSell.realizedTrades[0].id),
+  true
+);
 assert.equal(savedAfterSell.assets.find((asset) => asset.ticker === "AAPL").quantity, 1);
 assert.equal(window.document.querySelector("#realizedTabPanel").hidden, false);
 assert.equal(window.document.querySelector("#journalTabPanel").hidden, true);

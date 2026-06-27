@@ -114,6 +114,20 @@ const els = {
   sellJournalEnabled: document.querySelector("#sellJournalEnabled"),
   sellPreview: document.querySelector("#sellPreview"),
   cancelSellBtn: document.querySelector("#cancelSellBtn"),
+  buyFormPanel: document.querySelector("#buyFormPanel"),
+  buyAssetSummary: document.querySelector("#buyAssetSummary"),
+  buyForm: document.querySelector("#buyForm"),
+  buyAssetId: document.querySelector("#buyAssetId"),
+  buyDate: document.querySelector("#buyDate"),
+  buyQuantity: document.querySelector("#buyQuantity"),
+  buyPrice: document.querySelector("#buyPrice"),
+  buyFxRateField: document.querySelector("#buyFxRateField"),
+  buyFxRate: document.querySelector("#buyFxRate"),
+  buyFees: document.querySelector("#buyFees"),
+  buyMemo: document.querySelector("#buyMemo"),
+  buyJournalEnabled: document.querySelector("#buyJournalEnabled"),
+  buyPreview: document.querySelector("#buyPreview"),
+  cancelBuyBtn: document.querySelector("#cancelBuyBtn"),
   saveAssetBtn: document.querySelector("#saveAssetBtn"),
   cancelEditBtn: document.querySelector("#cancelEditBtn"),
   snapshotBtn: document.querySelector("#snapshotBtn"),
@@ -1114,6 +1128,10 @@ function canSellAsset(asset) {
   return isMarketType(type) && Number(asset.quantity || 0) > 0;
 }
 
+function canBuyAsset(asset) {
+  return isMarketType(assetType(asset));
+}
+
 function decimalValue(input) {
   return parseAmount(input.value);
 }
@@ -1218,6 +1236,9 @@ function renderAssets() {
     const gain = assetGain(asset);
     const gainRate = gain === null ? null : gain / assetCost(asset);
     const valueDetail = assetValueDetail(asset);
+    const buyButton = canBuyAsset(asset)
+      ? `<button class="text-icon-button buy-action" type="button" title="추가매수" aria-label="${escapeHtml(asset.name)} 추가매수" data-action="buy" data-id="${asset.id}">추가매수</button>`
+      : "";
     const sellButton = canSellAsset(asset)
       ? `<button class="text-icon-button" type="button" title="매도 기록" aria-label="${escapeHtml(asset.name)} 매도 기록" data-action="sell" data-id="${asset.id}">매도</button>`
       : "";
@@ -1232,7 +1253,12 @@ function renderAssets() {
       <td class="number">${money(assetValue(asset))}${valueDetail}</td>
       <td class="number ${gain > 0 ? "positive" : gain < 0 ? "negative" : ""}">${gain === null ? "-" : `${gain > 0 ? "+" : ""}${money(gain)}${gainRate ? ` (${gainRate > 0 ? "+" : ""}${percent(gainRate)})` : ""}`}</td>
       <td>${escapeHtml(asset.note || "")}</td>
-      <td class="sell-cell">${sellButton || `<span class="muted-dash">-</span>`}</td>
+      <td class="sell-cell">
+        <div class="trade-actions">
+          ${buyButton}
+          ${sellButton || (buyButton ? "" : `<span class="muted-dash">-</span>`)}
+        </div>
+      </td>
       <td>
         <div class="row-actions">
           ${journalButton}
@@ -1242,11 +1268,11 @@ function renderAssets() {
       </td>
     `;
     els.assetRows.append(row);
-    renderAssetCard(asset, gain, gainRate, valueDetail, sellButton, journalButton);
+    renderAssetCard(asset, gain, gainRate, valueDetail, buyButton, sellButton, journalButton);
   });
 }
 
-function renderAssetCard(asset, gain, gainRate, valueDetail, sellButton, journalButton) {
+function renderAssetCard(asset, gain, gainRate, valueDetail, buyButton, sellButton, journalButton) {
   if (!els.assetCards) return;
   const type = assetType(asset);
   const gainTone = gain > 0 ? "positive" : gain < 0 ? "negative" : "";
@@ -1272,7 +1298,7 @@ function renderAssetCard(asset, gain, gainRate, valueDetail, sellButton, journal
     </div>
     ${asset.note ? `<p class="asset-card-note">${escapeHtml(asset.note)}</p>` : ""}
     <div class="asset-card-actions">
-      ${isMarketType(type) ? sellButton || `<button class="text-icon-button disabled-action" type="button" disabled>매도</button>` : `<button class="text-icon-button disabled-action" type="button" disabled>잠금</button>`}
+      ${isMarketType(type) ? `${buyButton}${sellButton || `<button class="text-icon-button disabled-action" type="button" disabled>매도</button>`}` : `<button class="text-icon-button disabled-action" type="button" disabled>잠금</button>`}
       ${journalButton}
       <button class="table-action quiet-action" type="button" data-action="edit" data-id="${asset.id}">수정</button>
       <button class="table-action danger-action" type="button" data-action="delete" data-id="${asset.id}">삭제</button>
@@ -1762,6 +1788,7 @@ function showJournalForm(entry = null) {
   setInvestmentRecordTab("JOURNAL");
   resetAssetForm();
   resetSellForm();
+  resetBuyForm();
   els.journalFormPanel.hidden = false;
   if (els.toggleJournalFormBtn) {
     els.toggleJournalFormBtn.textContent = "접기";
@@ -1873,6 +1900,32 @@ function createJournalEntryFromRealizedTrade(trade, asset = null) {
     risk: "",
     review: `실현손익 ${gainText}. 매도 이유와 배운 점을 나중에 보완하세요.`,
     tags: "매도,복기",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+}
+
+function createJournalEntryFromBuy(asset, buy) {
+  const type = assetType(asset);
+  const priceText = type === "US" ? usd(buy.buyPrice) : formatPlainNumber(buy.buyPrice);
+  const averageText = type === "US" ? usd(buy.nextAveragePrice) : formatPlainNumber(buy.nextAveragePrice);
+  return normalizeTradeJournalEntry({
+    id: uid(),
+    assetId: asset.id,
+    date: buy.boughtAt,
+    name: asset.name || "",
+    ticker: asset.ticker || "",
+    type,
+    region: regionCodeForType(type),
+    account: asset.account || "",
+    action: "BUY",
+    status: "OPEN",
+    quantity: buy.quantity,
+    price: buy.buyPrice,
+    reason: buy.memo || "추가매수와 함께 자동 생성된 일지입니다.",
+    risk: "",
+    review: `추가매수 ${formatPlainNumber(buy.quantity)}주 @ ${priceText}. 보유 ${formatPlainNumber(buy.nextQuantity)}주, 새 평단 ${averageText}.`,
+    tags: type === "US" ? "매수,해외" : "매수,국내",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   });
@@ -2576,9 +2629,22 @@ function hideSellForm() {
   if (els.sellFormPanel) els.sellFormPanel.hidden = true;
 }
 
+function resetBuyForm() {
+  if (!els.buyForm) return;
+  els.buyForm.reset();
+  if (els.buyAssetId) els.buyAssetId.value = "";
+  if (els.buyPreview) els.buyPreview.textContent = "";
+  hideBuyForm();
+}
+
+function hideBuyForm() {
+  if (els.buyFormPanel) els.buyFormPanel.hidden = true;
+}
+
 function showSellForm(asset) {
   if (!els.sellFormPanel || !els.sellForm) return;
   resetAssetForm();
+  resetBuyForm();
   els.sellFormPanel.hidden = false;
   els.sellAssetId.value = asset.id;
   els.sellDate.value = localDateInputValue();
@@ -2594,6 +2660,27 @@ function showSellForm(asset) {
   els.sellAssetSummary.textContent = `${asset.name} · ${asset.account || "계좌 미지정"} · 보유 ${formatPlainNumber(asset.quantity)}주 · 평단 ${type === "US" ? usd(asset.averagePrice) : formatPlainNumber(asset.averagePrice)}`;
   renderSellPreview();
   els.sellQuantity.focus();
+}
+
+function showBuyForm(asset) {
+  if (!els.buyFormPanel || !els.buyForm) return;
+  resetAssetForm();
+  resetSellForm();
+  resetJournalForm();
+  els.buyFormPanel.hidden = false;
+  els.buyAssetId.value = asset.id;
+  els.buyDate.value = localDateInputValue();
+  els.buyQuantity.value = "";
+  els.buyPrice.value = asset.currentPrice ? formatPlainNumber(asset.currentPrice) : "";
+  els.buyFees.value = "";
+  els.buyMemo.value = "";
+  if (els.buyJournalEnabled) els.buyJournalEnabled.checked = true;
+  const type = assetType(asset);
+  if (els.buyFxRateField) els.buyFxRateField.hidden = type !== "US";
+  els.buyFxRate.value = type === "US" ? formatPlainNumber(usdKrwRate()) : "1";
+  els.buyAssetSummary.textContent = `${asset.name} · ${asset.account || "계좌 미지정"} · 현재 ${formatPlainNumber(asset.quantity)}주 · 평단 ${type === "US" ? usd(asset.averagePrice) : formatPlainNumber(asset.averagePrice)}`;
+  renderBuyPreview();
+  els.buyQuantity.focus();
 }
 
 function renderSellPreview() {
@@ -2612,6 +2699,25 @@ function renderSellPreview() {
     `원가 ${money(preview.trade.costAmount)}`,
     `비용 ${money(preview.trade.fees + preview.trade.tax)}`,
     `실현손익 ${gain > 0 ? "+" : ""}${money(gain)}${rate === null ? "" : ` (${rate > 0 ? "+" : ""}${percent(rate)})`}`
+  ].join(" · ");
+}
+
+function renderBuyPreview() {
+  if (!els.buyPreview) return;
+  const preview = parseBuyForm(false);
+  if (!preview.ok) {
+    els.buyPreview.textContent = preview.message || "추가매수 정보를 입력하면 새 보유수량과 평단이 표시됩니다.";
+    els.buyPreview.className = "buy-preview";
+    return;
+  }
+  const type = assetType(preview.asset);
+  const averageText = type === "US" ? usd(preview.nextAveragePrice) : formatPlainNumber(preview.nextAveragePrice);
+  const previousAverageText = type === "US" ? usd(Number(preview.asset.averagePrice || 0)) : formatPlainNumber(preview.asset.averagePrice || 0);
+  els.buyPreview.className = "buy-preview positive";
+  els.buyPreview.textContent = [
+    `매수금액 ${money(preview.grossAmount + preview.fees)}`,
+    `보유 ${formatPlainNumber(preview.previousQuantity)}주 → ${formatPlainNumber(preview.nextQuantity)}주`,
+    `평단 ${previousAverageText} → ${averageText}`
   ].join(" · ");
 }
 
@@ -2664,6 +2770,49 @@ function parseSellForm(strict = true) {
     asset,
     remainingQuantity: Math.max(0, holdingQuantity - quantity),
     trade
+  };
+}
+
+function parseBuyForm(strict = true) {
+  const asset = state.assets.find((item) => item.id === els.buyAssetId?.value);
+  if (!asset) return { ok: false, message: "추가매수할 자산을 찾을 수 없습니다." };
+  const type = assetType(asset);
+  if (!isMarketType(type)) return { ok: false, message: "KRX/US 자산만 추가매수할 수 있습니다." };
+
+  const quantity = parseAmount(els.buyQuantity?.value || 0);
+  const buyPrice = parseAmount(els.buyPrice?.value || 0);
+  const fxRate = type === "US" ? parseAmount(els.buyFxRate?.value || 0) : 1;
+  const fees = Math.max(0, parseAmount(els.buyFees?.value || 0));
+  const boughtAt = els.buyDate?.value || localDateInputValue();
+
+  if (quantity <= 0) return { ok: false, message: strict ? "추가매수 수량은 0보다 커야 합니다." : "" };
+  if (buyPrice <= 0) return { ok: false, message: strict ? "매수가를 입력하세요." : "" };
+  if (type === "US" && fxRate <= 0) return { ok: false, message: strict ? "달러 환율을 입력하세요." : "" };
+
+  const effectiveFx = type === "US" ? fxRate : 1;
+  const previousQuantity = Number(asset.quantity || 0);
+  const previousAveragePrice = Number(asset.averagePrice || 0);
+  const nextQuantity = previousQuantity + quantity;
+  const feeInPriceCurrency = fees / effectiveFx;
+  const previousCost = previousQuantity * previousAveragePrice;
+  const addedCost = quantity * buyPrice + feeInPriceCurrency;
+  const nextAveragePrice = nextQuantity > 0 ? (previousCost + addedCost) / nextQuantity : buyPrice;
+  const grossAmount = quantity * buyPrice * effectiveFx;
+
+  return {
+    ok: true,
+    asset,
+    boughtAt,
+    quantity,
+    buyPrice,
+    fxRate: effectiveFx,
+    fees,
+    grossAmount,
+    previousQuantity,
+    previousAveragePrice,
+    nextQuantity,
+    nextAveragePrice,
+    memo: els.buyMemo?.value.trim() || ""
   };
 }
 
@@ -2747,6 +2896,44 @@ els.assetForm.addEventListener("submit", (event) => {
   render();
 });
 
+els.buyForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const result = parseBuyForm(true);
+  if (!result.ok) {
+    alert(result.message);
+    return;
+  }
+
+  const { asset, nextQuantity, nextAveragePrice } = result;
+  const previousAssets = state.assets.map((item) => ({ ...item }));
+  const previousJournalEntries = state.tradeJournalEntries.map((item) => ({ ...item }));
+  const index = state.assets.findIndex((item) => item.id === asset.id);
+  if (index < 0) return;
+
+  state.assets[index] = normalizeAsset({
+    ...state.assets[index],
+    quantity: nextQuantity,
+    averagePrice: nextAveragePrice,
+    updatedAt: new Date().toISOString()
+  });
+
+  const journalCreated = Boolean(els.buyJournalEnabled?.checked);
+  if (journalCreated) {
+    state.tradeJournalEntries.push(createJournalEntryFromBuy(state.assets[index], result));
+  }
+
+  applyPricesToAssets();
+  resetBuyForm();
+  uiState.investmentRecordTab = journalCreated ? "JOURNAL" : uiState.investmentRecordTab;
+  render();
+  showUndoNotice(journalCreated ? "추가매수와 매매일지를 함께 저장했습니다." : "추가매수를 저장했습니다.", () => {
+    state.assets = previousAssets.map(normalizeAsset);
+    state.tradeJournalEntries = previousJournalEntries.map(normalizeTradeJournalEntry);
+    applyPricesToAssets();
+    render();
+  });
+});
+
 els.sellForm?.addEventListener("submit", (event) => {
   event.preventDefault();
   const result = parseSellForm(true);
@@ -2794,6 +2981,10 @@ function handleAssetAction(button) {
   const asset = state.assets.find((item) => item.id === button.dataset.id);
   if (!asset) return;
 
+  if (button.dataset.action === "buy") {
+    showBuyForm(asset);
+  }
+
   if (button.dataset.action === "sell") {
     showSellForm(asset);
   }
@@ -2807,6 +2998,7 @@ function handleAssetAction(button) {
 
   if (button.dataset.action === "edit") {
     resetSellForm();
+    resetBuyForm();
     showAssetForm("edit");
     els.assetId.value = asset.id;
     els.assetName.value = asset.name;
@@ -2831,6 +3023,7 @@ function handleAssetAction(button) {
     state.assets = state.assets.filter((item) => item.id !== asset.id);
     resetAssetForm();
     resetSellForm();
+    resetBuyForm();
     render();
     showUndoNotice(`${asset.name} 자산을 삭제했습니다.`, () => {
       state.assets.splice(Math.max(0, index), 0, deleted);
@@ -2952,11 +3145,23 @@ els.realizedRows?.addEventListener("click", (event) => {
   input?.addEventListener("input", renderSellPreview);
 });
 
+[
+  els.buyDate,
+  els.buyQuantity,
+  els.buyPrice,
+  els.buyFxRate,
+  els.buyFees
+].forEach((input) => {
+  input?.addEventListener("input", renderBuyPreview);
+});
+
 els.cancelSellBtn?.addEventListener("click", resetSellForm);
+els.cancelBuyBtn?.addEventListener("click", resetBuyForm);
 
 els.toggleAssetFormBtn.addEventListener("click", () => {
   if (els.assetFormPanel.hidden) {
     resetSellForm();
+    resetBuyForm();
     showAssetForm("create");
     els.assetName.focus();
   } else {
