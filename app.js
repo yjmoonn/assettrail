@@ -2071,8 +2071,8 @@ function renderJournal() {
   els.journalList.textContent = "";
   if (!entries.length) {
     const empty = document.createElement("div");
-    empty.className = "empty journal-empty";
-    empty.textContent = total ? "조건에 맞는 매매일지가 없습니다." : "자산원장의 일지 버튼이나 일지 작성 버튼으로 첫 기록을 남겨보세요.";
+    empty.className = "journal-empty";
+    empty.innerHTML = `<div class="empty-state"><span class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4a2 2 0 0 1 2-2h11a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6a2 2 0 0 1-2-2z"></path><path d="M4 4v16"></path><path d="M9 7h5M9 11h5"></path></svg></span><strong>${total ? "조건에 맞는 일지가 없어요" : "아직 매매일지가 없어요"}</strong><p>${total ? "필터를 바꿔서 다시 찾아보세요." : "자산 원장의 일지 버튼이나 일지 작성으로 첫 판단을 기록해 보세요. 투자 추천이 아니라 스스로의 복기를 위한 공간이에요."}</p></div>`;
     els.journalList.append(empty);
     return;
   }
@@ -2087,7 +2087,7 @@ function renderJournal() {
           <span class="journal-date">${escapeHtml(formatTradeDate(entry.date))}</span>
           <span class="journal-badge">${escapeHtml(JOURNAL_ACTION_LABELS[entry.action])}</span>
           <span class="journal-badge muted">${escapeHtml(REGION_LABELS[entry.region])}</span>
-          <span class="journal-badge status">${escapeHtml(JOURNAL_STATUS_LABELS[entry.status])}</span>
+          <span class="journal-badge status-${entry.status.toLowerCase()}">${escapeHtml(JOURNAL_STATUS_LABELS[entry.status])}</span>
           ${realizedGainBadge(linkedTrade)}
         </div>
         <h3>${escapeHtml(entry.name || entry.ticker || "자산 미지정")}</h3>
@@ -2097,9 +2097,9 @@ function renderJournal() {
           ${entry.quantity ? `<span>수량 ${escapeHtml(formatPlainNumber(entry.quantity))}</span>` : ""}
           ${entry.price ? `<span>가격 ${escapeHtml(entry.type === "US" ? usd(entry.price) : formatPlainNumber(entry.price))}</span>` : ""}
         </p>
-        ${entry.reason ? `<p><strong>이유</strong>${escapeHtml(entry.reason)}</p>` : ""}
-        ${entry.risk ? `<p><strong>리스크</strong>${escapeHtml(entry.risk)}</p>` : ""}
-        ${entry.review ? `<p><strong>복기</strong>${escapeHtml(entry.review)}</p>` : ""}
+        ${entry.reason ? `<div class="journal-note"><span class="journal-note-label">이유</span><p>${escapeHtml(entry.reason)}</p></div>` : ""}
+        ${entry.risk ? `<div class="journal-note"><span class="journal-note-label">리스크</span><p>${escapeHtml(entry.risk)}</p></div>` : ""}
+        ${entry.review ? `<div class="journal-note"><span class="journal-note-label">복기</span><p>${escapeHtml(entry.review)}</p></div>` : ""}
         ${entry.tags ? `<div class="journal-tags">${entry.tags.split(",").map((tag) => `<span>${escapeHtml(tag.trim())}</span>`).join("")}</div>` : ""}
       </div>
       <div class="journal-actions">
@@ -2429,18 +2429,20 @@ function renderRealizedRows(trades) {
     const journalAction = linkedJournal
       ? `<button class="table-action quiet-action" type="button" data-realized-action="view-journal" data-id="${trade.id}">일지 보기</button>`
       : `<button class="table-action quiet-action" type="button" data-realized-action="create-journal" data-id="${trade.id}">일지 작성</button>`;
+    const realizedArrow = trade.realizedGain > 0 ? "▲ " : trade.realizedGain < 0 ? "▼ " : "";
     const row = document.createElement("tr");
     row.innerHTML = `
-      <td>${escapeHtml(formatTradeDate(trade.soldAt))}</td>
-      <td><strong>${escapeHtml(trade.name || trade.ticker)}</strong><small class="sub-value">${escapeHtml(trade.type)}:${escapeHtml(trade.ticker)}</small></td>
-      <td>${escapeHtml(trade.account || "계좌 미지정")}</td>
-      <td class="number">${formatPlainNumber(trade.quantity)}</td>
-      <td class="number">${price}${trade.type === "US" ? `<small class="sub-value">환율 ${formatPlainNumber(trade.fxRate)}원</small>` : ""}</td>
+      <td>
+        <strong>${escapeHtml(trade.name || trade.ticker)}</strong>
+        <span class="realized-sub">
+          <span class="realized-date">${escapeHtml(formatTradeDate(trade.soldAt))}</span>
+          ${trade.ticker ? `<span class="ticker">${escapeHtml(trade.ticker)}</span>` : ""}
+          <span class="realized-account">${escapeHtml(trade.account || "계좌 미지정")}</span>
+        </span>
+      </td>
+      <td class="number">${formatPlainNumber(trade.quantity)}<small class="sub-value">${price}${trade.type === "US" ? ` · 환율 ${formatPlainNumber(trade.fxRate)}` : ""}</small></td>
       <td class="number">${money(trade.grossAmount)}</td>
-      <td class="number">${money(trade.costAmount)}</td>
-      <td class="number">${money(trade.fees + trade.tax)}</td>
-      <td class="number ${tone}">${trade.realizedGain > 0 ? "+" : ""}${money(trade.realizedGain)}${rate === null ? "" : `<small class="sub-value">${rate > 0 ? "+" : ""}${percent(rate)}</small>`}</td>
-      <td>${escapeHtml(trade.memo || "")}</td>
+      <td class="number ${tone}">${realizedArrow}${trade.realizedGain > 0 ? "+" : ""}${money(trade.realizedGain)}${rate === null ? "" : `<small class="sub-value">${rate > 0 ? "+" : ""}${percent(rate)}</small>`}</td>
       <td><div class="row-actions">${journalAction}</div></td>
     `;
     els.realizedRows.append(row);

@@ -497,6 +497,8 @@ h3 {
 
 .dashboard-module {
   gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
 }
 
 .dashboard-module-head {
@@ -579,6 +581,7 @@ h3 {
 .recent-record-list {
   display: grid;
   gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
   list-style: none;
   margin: 0;
   padding: 0;
@@ -1402,21 +1405,12 @@ tbody tr:last-child td {
   align-items: start;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-left: 4px solid var(--blue);
   border-radius: 16px;
   box-shadow: var(--shadow-flat);
   display: grid;
   gap: 10px;
   grid-template-columns: minmax(0, 1fr) auto;
-  padding: 11px 12px;
-}
-
-.journal-card.review {
-  border-left-color: var(--amber);
-}
-
-.journal-card.done {
-  border-left-color: var(--green);
+  padding: 16px 18px;
 }
 
 .journal-card-main {
@@ -1444,12 +1438,12 @@ tbody tr:last-child td {
 }
 
 .journal-badge {
-  background: var(--blue-2);
-  border-radius: 999px;
-  color: #284ba8;
+  background: var(--surface-3);
+  border-radius: 8px;
+  color: var(--slate);
   font-size: 10px;
   font-weight: 700;
-  padding: 3px 7px;
+  padding: 3px 8px;
 }
 
 .journal-badge.muted {
@@ -1457,7 +1451,17 @@ tbody tr:last-child td {
   color: var(--slate);
 }
 
-.journal-badge.status {
+.journal-badge.status-open {
+  background: var(--blue-2);
+  color: var(--blue);
+}
+
+.journal-badge.status-review {
+  background: var(--amber-2);
+  color: var(--amber);
+}
+
+.journal-badge.status-done {
   background: var(--green-2);
   color: var(--green);
 }
@@ -2650,3 +2654,27 @@ h3 { font-weight: 700; }
   .today-card .dashboard-checklist,
   .goal-stats { grid-template-columns: 1fr; }
 }
+
+/* ============================================================
+   투자기록 개편 — 일지 추론 가독성 / 실현손익 표 통합
+   ============================================================ */
+.journal-note { margin-top: 10px; }
+.journal-note-label { display: block; margin-bottom: 3px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.journal-card .journal-note p {
+  margin: 0;
+  color: var(--slate);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.realized-table table { min-width: 640px; }
+.realized-table .actions-col { width: 120px; }
+.realized-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+.realized-date { font-size: 11.5px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.realized-account { font-size: 11.5px; font-weight: 600; color: var(--muted); }
