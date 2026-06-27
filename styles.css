@@ -449,6 +449,123 @@ h3 {
   padding: 0;
 }
 
+.dashboard-modules {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 3fr 2fr;
+  margin-top: 14px;
+}
+
+.dashboard-module {
+  gap: 14px;
+}
+
+.dashboard-module-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.dashboard-module-head .text-link-button {
+  min-height: auto;
+}
+
+.dashboard-module-empty,
+.recent-record-empty span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.composition-bars {
+  display: grid;
+  gap: 14px;
+}
+
+.composition-row {
+  display: grid;
+  gap: 6px;
+}
+
+.composition-row-head {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+}
+
+.composition-label {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.composition-value {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.composition-track {
+  background: rgba(226, 232, 240, 0.78);
+  border-radius: 999px;
+  height: 10px;
+  position: relative;
+}
+
+.composition-fill {
+  background: var(--blue);
+  border-radius: 999px;
+  display: block;
+  height: 100%;
+  min-width: 2px;
+}
+
+.composition-target {
+  background: var(--ink);
+  border-radius: 1px;
+  height: 16px;
+  position: absolute;
+  top: -3px;
+  transform: translateX(-50%);
+  width: 2px;
+}
+
+.composition-meta {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.recent-record-list {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.recent-record-list li {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(226, 232, 240, 0.78);
+  border-radius: 15px;
+  display: grid;
+  gap: 3px;
+  padding: 10px 11px;
+}
+
+.recent-record-list strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.recent-record-list span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
 .settings-panel {
   margin-bottom: 20px;
 }
@@ -2013,6 +2130,7 @@ tbody tr:last-child td {
 
   .metric-grid,
   .dashboard-grid,
+  .dashboard-modules,
   .settings-grid,
   .asset-form,
   .buy-form,

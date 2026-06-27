@@ -106,6 +106,8 @@ const els = {
   dashboardRecentRecordMeta: document.querySelector("#dashboardRecentRecordMeta"),
   dashboardPortfolioFocus: document.querySelector("#dashboardPortfolioFocus"),
   dashboardGoalProgress: document.querySelector("#dashboardGoalProgress"),
+  dashboardComposition: document.querySelector("#dashboardComposition"),
+  dashboardRecentList: document.querySelector("#dashboardRecentList"),
   settingsCloudStatus: document.querySelector("#settingsCloudStatus"),
   settingsPriceStatus: document.querySelector("#settingsPriceStatus"),
   assetForm: document.querySelector("#assetForm"),
@@ -1276,6 +1278,79 @@ function renderDashboard() {
     els.dashboardGoalProgress.textContent = "계산 대기";
     els.dashboardPortfolioFocus.textContent = "은퇴 설정과 목표 비중을 확인하세요.";
   }
+
+  renderDashboardComposition();
+  renderDashboardRecentList();
+}
+
+function renderDashboardComposition() {
+  if (!els.dashboardComposition) return;
+  const total = totalAssets();
+  if (!state.assets.length || !total) {
+    els.dashboardComposition.innerHTML = `<p class="dashboard-module-empty">자산을 등록하면 국내·해외·현금·수동 비중이 표시됩니다.</p>`;
+    return;
+  }
+
+  const buckets = [
+    { key: "domestic", label: "국내", type: "KRX" },
+    { key: "overseas", label: "해외", type: "US" },
+    { key: "cash", label: "현금", type: "CASH" },
+    { key: "manual", label: "수동", type: "MANUAL" }
+  ];
+
+  els.dashboardComposition.innerHTML = buckets
+    .map((bucket) => {
+      const value = state.assets
+        .filter((asset) => assetType(asset) === bucket.type)
+        .reduce((sum, asset) => sum + assetValue(asset), 0);
+      const currentRate = total ? value / total : 0;
+      const targetRate = Math.max(0, Number(state.portfolioTargets?.[bucket.key] || 0)) / 100;
+      const diff = currentRate - targetRate;
+      const diffLabel = Math.abs(diff) < 0.005
+        ? "목표 충족"
+        : `목표 ${diff > 0 ? "초과" : "부족"} ${(Math.abs(diff) * 100).toFixed(1)}%p`;
+      const width = Math.max(0, Math.min(100, currentRate * 100));
+      const markerPos = Math.max(0, Math.min(100, targetRate * 100));
+      return `
+        <div class="composition-row">
+          <div class="composition-row-head">
+            <span class="composition-label">${escapeHtml(bucket.label)}</span>
+            <span class="composition-value">${(currentRate * 100).toFixed(1)}%</span>
+          </div>
+          <div class="composition-track" role="img" aria-label="${escapeHtml(bucket.label)} 현재 ${(currentRate * 100).toFixed(1)}%, 목표 ${(targetRate * 100).toFixed(0)}%">
+            <span class="composition-fill" style="width:${width}%"></span>
+            <span class="composition-target" style="left:${markerPos}%" title="목표 ${(targetRate * 100).toFixed(0)}%"></span>
+          </div>
+          <div class="composition-meta">${escapeHtml(money(value))} · ${escapeHtml(diffLabel)}</div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderDashboardRecentList() {
+  if (!els.dashboardRecentList) return;
+  const records = [];
+  (state.tradeJournalEntries || []).forEach((entry) => {
+    const when = entry.date || entry.createdAt;
+    records.push({
+      time: new Date(when).getTime() || 0,
+      title: `${JOURNAL_ACTION_LABELS[entry.action] || "기록"} · ${entry.name || "자산"}`,
+      meta: `${formatDate(when)} · ${JOURNAL_STATUS_LABELS[entry.status] || "진행중"}`
+    });
+  });
+  (state.realizedTrades || []).forEach((trade) => {
+    records.push({
+      time: new Date(trade.soldAt).getTime() || 0,
+      title: `매도 · ${trade.name || "자산"}`,
+      meta: `${formatDate(trade.soldAt)} · 실현손익 ${money(trade.realizedGain || 0)}`
+    });
+  });
+
+  const top = records.sort((a, b) => b.time - a.time).slice(0, 5);
+  els.dashboardRecentList.innerHTML = top.length
+    ? top.map((record) => `<li><strong>${escapeHtml(record.title)}</strong><span>${escapeHtml(record.meta)}</span></li>`).join("")
+    : `<li class="recent-record-empty"><strong>기록 없음</strong><span>매매일지를 작성하면 최근 기록이 쌓입니다.</span></li>`;
 }
 
 function dashboardTasks() {
