@@ -2619,8 +2619,8 @@ h3 { font-weight: 700; }
 .hero-trend-title { font-size: 13px; font-weight: 700; color: var(--muted); align-self: center; }
 .hero-actions { display: flex; flex-direction: row; gap: 8px; }
 .hero-actions > button { white-space: nowrap; }
-.hero-spark-wrap { position: relative; flex: 1 1 auto; min-height: 132px; }
-.hero-sparkline { display: block; width: 100%; height: 132px; }
+.hero-spark-wrap { position: relative; flex: 1 1 auto; min-width: 0; min-height: 132px; overflow: hidden; border-radius: 12px; }
+.hero-sparkline { display: block; width: 100%; max-width: 100%; height: 132px; }
 .hero-spark-empty { display: grid; place-items: center; height: 132px; margin: 0; color: var(--muted); font-size: 13px; font-weight: 600; text-align: center; }
 
 .dashboard-focus { display: grid; grid-template-columns: 1.7fr 1fr; gap: 14px; margin-bottom: 14px; }

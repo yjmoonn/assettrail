@@ -1278,13 +1278,13 @@ function drawHeroSparkline() {
   if (!hasTrend) return;
 
   const wrap = canvas.parentElement;
-  const cssWidth = Math.max(160, wrap ? wrap.clientWidth : canvas.clientWidth || 320);
-  const cssHeight = 132;
+  // Use the canvas's actual rendered width (CSS controls display size to avoid overflow).
+  const measured = canvas.clientWidth || (wrap ? wrap.clientWidth : 0);
+  const cssWidth = Math.max(160, measured || 320);
+  const cssHeight = canvas.clientHeight || 132;
   const dpr = window.devicePixelRatio || 1;
   canvas.width = Math.round(cssWidth * dpr);
   canvas.height = Math.round(cssHeight * dpr);
-  canvas.style.width = `${cssWidth}px`;
-  canvas.style.height = `${cssHeight}px`;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   const cs = getComputedStyle(document.documentElement);
