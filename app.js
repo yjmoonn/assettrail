@@ -2455,6 +2455,7 @@ function chartPalette() {
     slate: read("--slate", "#334155"),
     green: read("--green", "#059669"),
     red: read("--red", "#dc2626"),
+    surface: read("--surface", "#ffffff"),
   };
 }
 
@@ -2464,8 +2465,6 @@ function drawChart(snapshots = state.snapshots) {
   const width = canvas.width;
   const height = canvas.height;
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, width, height);
 
   const palette = chartPalette();
   const topPad = 50;
@@ -2548,43 +2547,23 @@ function drawChart(snapshots = state.snapshots) {
   ctx.strokeStyle = lineColor;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.lineWidth = 5;
-  ctx.shadowBlur = 12;
-  ctx.shadowColor = fillColor;
+  ctx.lineWidth = 2.5;
   ctx.stroke();
-  ctx.shadowBlur = 0;
 
-  ctx.setLineDash([6, 7]);
   [0, points.length - 1].forEach((index) => {
     const x = xFor(index);
+    const y = yFor(points[index]);
     ctx.beginPath();
-    ctx.moveTo(x, topPad);
-    ctx.lineTo(x, plotBottom);
-    ctx.strokeStyle = hexToRgba(palette.muted, 0.28);
-    ctx.lineWidth = 1;
-    ctx.stroke();
-  });
-  ctx.setLineDash([]);
-
-  points.forEach((value, index) => {
-    const x = xFor(index);
-    const y = yFor(value);
-    const isEdge = index === 0 || index === points.length - 1;
-    ctx.beginPath();
-    ctx.arc(x, y, isEdge ? 7 : 4.5, 0, Math.PI * 2);
-    ctx.fillStyle = "#ffffff";
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = palette.surface;
     ctx.fill();
-    ctx.strokeStyle = isEdge ? accentColor : lineColor;
-    ctx.lineWidth = isEdge ? 4 : 3;
+    ctx.strokeStyle = index === points.length - 1 ? accentColor : palette.slate;
+    ctx.lineWidth = 3;
     ctx.stroke();
   });
 
   drawChartBadge(ctx, xFor(0), yFor(first), "시작", money(first), palette.slate, width, height, palette);
   drawChartBadge(ctx, xFor(points.length - 1), yFor(latest), "최근", money(latest), accentColor, width, height, palette);
-  if (points.length > 1) {
-    const changeText = `${change > 0 ? "+" : ""}${money(change)} (${percent(deltaRate(latest, first))})`;
-    drawChartBadge(ctx, width / 2, topPad + 10, "조회 기간 변화", changeText, accentColor, width, height, palette);
-  }
   if (els.historyChartDescription) {
     els.historyChartDescription.textContent = `선택 기간 첫 기록 ${money(first)}, 최근 기록 ${money(latest)}, 변화 ${change > 0 ? "+" : ""}${money(change)}입니다.`;
   }
@@ -2611,7 +2590,7 @@ function drawXAxisLabels(ctx, snapshots, xFor, left, right, plotBottom, height, 
   ctx.stroke();
 
   ctx.fillStyle = palette.muted;
-  ctx.font = `800 12px ${CHART_FONT}`;
+  ctx.font = `600 11px ${CHART_FONT}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   [...indexes].sort((a, b) => a - b).forEach((index) => {
@@ -2628,22 +2607,28 @@ function drawXAxisLabels(ctx, snapshots, xFor, left, right, plotBottom, height, 
 
 function drawChartBadge(ctx, x, y, label, value, color, width, height, palette = chartPalette()) {
   const text = `${label} ${value}`;
-  ctx.font = `700 13px ${CHART_FONT}`;
+  ctx.font = `700 12px ${CHART_FONT}`;
   const textWidth = ctx.measureText(text).width;
-  const boxWidth = Math.min(textWidth + 22, width - 20);
-  const boxHeight = 28;
+  const boxWidth = Math.min(textWidth + 20, width - 20);
+  const boxHeight = 26;
   const boxX = Math.min(Math.max(10, x - boxWidth / 2), width - boxWidth - 10);
-  const boxY = Math.min(Math.max(10, y - 42), height - boxHeight - 10);
+  const boxY = Math.min(Math.max(8, y - 40), height - boxHeight - 8);
 
-  ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
-  ctx.strokeStyle = hexToRgba(palette.muted, 0.24);
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 9);
+  else ctx.rect(boxX, boxY, boxWidth, boxHeight);
+  ctx.fillStyle = palette.surface;
+  ctx.fill();
+  ctx.strokeStyle = hexToRgba(palette.muted, 0.2);
   ctx.lineWidth = 1;
-  ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
-  ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+  ctx.stroke();
+
   ctx.fillStyle = color;
   ctx.textAlign = "center";
-  ctx.fillText(text, boxX + boxWidth / 2, boxY + 18);
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, boxX + boxWidth / 2, boxY + boxHeight / 2 + 0.5);
   ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
 }
 
 function renderRetirement() {
