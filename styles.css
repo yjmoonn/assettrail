@@ -1,33 +1,11 @@
+/* 폰트 + AssetTrail 디자인 토큰. @import 는 반드시 파일 최상단에 위치해야 합니다. */
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css");
+@import url("./assettrail-tokens.css");
 
-:root {
-  --bg: #f4f8fc;
-  --surface: #ffffff;
-  --surface-2: #f8fafc;
-  --surface-3: #eef4fb;
-  --ink: #0f172a;
-  --slate: #334155;
-  --muted: #64748b;
-  --line: #e2e8f0;
-  --line-strong: #cbd5e1;
-  --green: #059669;
-  --green-2: #ecfdf5;
-  --blue: #2563eb;
-  --blue-2: #eff6ff;
-  --red: #dc2626;
-  --red-2: #fef2f2;
-  --amber: #d97706;
-  --amber-2: #fffbeb;
-  --violet: #8b5cf6;
-  --radius-sm: 12px;
-  --radius-md: 18px;
-  --radius-lg: 24px;
-  --radius-xl: 28px;
-  --shadow: 0 24px 60px rgba(15, 23, 42, 0.10);
-  --shadow-soft: 0 18px 42px rgba(15, 23, 42, 0.07);
-  --shadow-flat: 0 10px 26px rgba(15, 23, 42, 0.05);
-  --ring: 0 0 0 4px rgba(37, 99, 235, 0.13);
-}
+/* 토큰은 assettrail-tokens.css 가 정의합니다.
+   기존 변수(--blue, --ink, --green …)는 그 파일의 'Legacy aliases' 블록이
+   새 50–900 스케일 위에 그대로 매핑하므로, 아래 컴포넌트 CSS는 수정 없이 동작합니다.
+   다크 모드: <html data-theme="dark"> 를 토글하면 됩니다. */
 
 * {
   box-sizing: border-box;
