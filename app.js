@@ -239,6 +239,8 @@ const els = {
   deleteScenarioBtn: document.querySelector("#deleteScenarioBtn"),
   retirementSensitivity: document.querySelector("#retirementSensitivity"),
   emptyAssetTemplate: document.querySelector("#emptyAssetTemplate"),
+  assetDetailOverlay: document.querySelector("#assetDetailOverlay"),
+  assetDetailDrawer: document.querySelector("#assetDetailDrawer"),
   emptyRealizedTemplate: document.querySelector("#emptyRealizedTemplate"),
   emptyHistoryTemplate: document.querySelector("#emptyHistoryTemplate"),
   journalFormPanel: document.querySelector("#journalFormPanel"),
@@ -1477,7 +1479,7 @@ function renderAssets() {
 
   if (!filtered.length) {
     const row = document.createElement("tr");
-    row.innerHTML = `<td colspan="10" class="empty">조건에 맞는 자산이 없습니다.</td>`;
+    row.innerHTML = `<td colspan="5" class="empty">조건에 맞는 자산이 없습니다.</td>`;
     els.assetRows.append(row);
     renderAssetCardEmpty("조건에 맞는 자산이 없습니다.");
     return;
@@ -1495,23 +1497,25 @@ function renderAssets() {
       : "";
     const journalButton = `<button class="table-action quiet-action" type="button" title="일지 작성" aria-label="${escapeHtml(asset.name)} 일지 작성" data-action="journal" data-id="${asset.id}">일지</button>`;
     const row = document.createElement("tr");
+    row.dataset.id = asset.id;
+    const gainArrow = gain > 0 ? "▲ " : gain < 0 ? "▼ " : "";
     row.innerHTML = `
-      <td><strong>${escapeHtml(asset.name)}</strong></td>
-      <td>${escapeHtml(asset.account || "")}</td>
-      <td>${asset.ticker ? `<span class="ticker">${escapeHtml(asset.ticker)}</span>` : ""}</td>
-      <td><span class="badge">${escapeHtml(assetTypeLabel(asset))}</span></td>
+      <td class="asset-cell">
+        <strong>${escapeHtml(asset.name)}</strong>
+        <span class="asset-sub">
+          ${asset.ticker ? `<span class="ticker">${escapeHtml(asset.ticker)}</span>` : ""}
+          <span class="badge">${escapeHtml(assetTypeLabel(asset))}</span>
+          ${asset.account ? `<span class="asset-account">${escapeHtml(asset.account)}</span>` : ""}
+        </span>
+        ${asset.note ? `<span class="asset-note-line">${escapeHtml(asset.note)}</span>` : ""}
+      </td>
       <td class="number">${asset.quantity ? formatPlainNumber(asset.quantity) : "-"}</td>
       <td class="number">${money(assetValue(asset))}${valueDetail}</td>
-      <td class="number ${gain > 0 ? "positive" : gain < 0 ? "negative" : ""}">${gain === null ? "-" : `${gain > 0 ? "+" : ""}${money(gain)}${gainRate ? ` (${gainRate > 0 ? "+" : ""}${percent(gainRate)})` : ""}`}</td>
-      <td>${escapeHtml(asset.note || "")}</td>
-      <td class="sell-cell">
-        <div class="trade-actions">
-          ${buyButton}
-          ${sellButton || (buyButton ? "" : `<span class="muted-dash">-</span>`)}
-        </div>
-      </td>
+      <td class="number ${gain > 0 ? "positive" : gain < 0 ? "negative" : ""}">${gain === null ? "-" : `${gainArrow}${gain > 0 ? "+" : ""}${money(gain)}${gainRate ? ` (${gainRate > 0 ? "+" : ""}${percent(gainRate)})` : ""}`}</td>
       <td>
         <div class="row-actions">
+          ${buyButton}
+          ${sellButton}
           ${journalButton}
           <button class="table-action quiet-action" type="button" title="수정" aria-label="${escapeHtml(asset.name)} 수정" data-action="edit" data-id="${asset.id}">수정</button>
           <button class="table-action danger-action" type="button" title="삭제" aria-label="${escapeHtml(asset.name)} 삭제" data-action="delete" data-id="${asset.id}">삭제</button>
@@ -1529,6 +1533,7 @@ function renderAssetCard(asset, gain, gainRate, valueDetail, buyButton, sellButt
   const gainTone = gain > 0 ? "positive" : gain < 0 ? "negative" : "";
   const card = document.createElement("article");
   card.className = "asset-card";
+  card.dataset.id = asset.id;
   card.innerHTML = `
     <div class="asset-card-head">
       <div>
@@ -3324,16 +3329,92 @@ function handleAssetAction(button) {
   }
 }
 
-els.assetRows.addEventListener("click", (event) => {
+function openAssetDetail(assetId) {
+  const asset = state.assets.find((item) => item.id === assetId);
+  if (!asset || !els.assetDetailDrawer || !els.assetDetailOverlay) return;
+  const value = assetValue(asset);
+  const gain = assetGain(asset);
+  const cost = assetCost(asset);
+  const gainRate = gain === null || !cost ? null : gain / cost;
+  const tone = gain > 0 ? "positive" : gain < 0 ? "negative" : "";
+  const arrow = gain > 0 ? "▲ " : gain < 0 ? "▼ " : "";
+  const gainText = gain === null
+    ? "—"
+    : `${arrow}${gain > 0 ? "+" : ""}${money(gain)}${gainRate ? ` (${gainRate > 0 ? "+" : ""}${percent(gainRate)})` : ""}`;
+  const noteHtml = asset.note
+    ? `<p>${escapeHtml(asset.note)}</p>`
+    : `<p class="detail-empty">작성된 메모가 없어요. 일지에서 판단을 기록해 보세요.</p>`;
+  els.assetDetailDrawer.innerHTML = `
+    <div class="detail-head">
+      <div class="detail-id">
+        <strong>${escapeHtml(asset.name)}</strong>
+        <span class="asset-sub">
+          ${asset.ticker ? `<span class="ticker">${escapeHtml(asset.ticker)}</span>` : ""}
+          <span class="badge">${escapeHtml(assetTypeLabel(asset))}</span>
+          ${asset.account ? `<span class="asset-account">${escapeHtml(asset.account)}</span>` : ""}
+        </span>
+      </div>
+      <button class="icon-button detail-close" type="button" data-detail-close aria-label="상세 닫기">✕</button>
+    </div>
+    <div class="detail-body">
+      <div class="detail-value-card">
+        <span class="detail-kicker">평가금액</span>
+        <strong class="detail-value">${money(value)}</strong>
+        <span class="detail-gain ${tone}">${gainText}</span>
+      </div>
+      <div class="detail-grid">
+        <div><span>보유수량</span><strong>${asset.quantity ? formatPlainNumber(asset.quantity) : "—"}</strong></div>
+        <div><span>평단가</span><strong>${asset.averagePrice ? formatPlainNumber(asset.averagePrice) : "—"}</strong></div>
+        <div><span>매입원가</span><strong>${cost ? money(cost) : "—"}</strong></div>
+        <div><span>유형</span><strong>${escapeHtml(assetTypeLabel(asset))}</strong></div>
+      </div>
+      <div class="detail-note">
+        <span class="detail-kicker">메모</span>
+        ${noteHtml}
+      </div>
+    </div>
+    <div class="detail-actions">
+      ${canBuyAsset(asset) ? `<button class="primary-button compact-button" type="button" data-action="buy" data-id="${asset.id}">추가매수</button>` : ""}
+      ${canSellAsset(asset) ? `<button class="ghost-button" type="button" data-action="sell" data-id="${asset.id}">매도</button>` : ""}
+      <button class="ghost-button" type="button" data-action="journal" data-id="${asset.id}">일지</button>
+      <button class="ghost-button" type="button" data-action="edit" data-id="${asset.id}">수정</button>
+      <button class="ghost-button danger-action" type="button" data-action="delete" data-id="${asset.id}">삭제</button>
+    </div>
+  `;
+  els.assetDetailOverlay.hidden = false;
+  const closeBtn = els.assetDetailDrawer.querySelector("[data-detail-close]");
+  if (closeBtn) closeBtn.focus();
+}
+
+function closeAssetDetail() {
+  if (els.assetDetailOverlay) els.assetDetailOverlay.hidden = true;
+}
+
+function handleAssetSurfaceClick(event) {
   const button = event.target.closest("button[data-action]");
-  if (!button) return;
-  handleAssetAction(button);
+  if (button) {
+    handleAssetAction(button);
+    return;
+  }
+  const row = event.target.closest("[data-id]");
+  if (row && row.dataset.id) openAssetDetail(row.dataset.id);
+}
+
+els.assetRows.addEventListener("click", handleAssetSurfaceClick);
+els.assetCards?.addEventListener("click", handleAssetSurfaceClick);
+
+els.assetDetailOverlay?.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-action]");
+  if (button) {
+    closeAssetDetail();
+    handleAssetAction(button);
+    return;
+  }
+  if (event.target.closest("[data-detail-close]")) closeAssetDetail();
 });
 
-els.assetCards?.addEventListener("click", (event) => {
-  const button = event.target.closest("button[data-action]");
-  if (!button) return;
-  handleAssetAction(button);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && els.assetDetailOverlay && !els.assetDetailOverlay.hidden) closeAssetDetail();
 });
 
 els.investmentJournalTab?.addEventListener("click", () => {

@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-store">
     <meta http-equiv="Pragma" content="no-cache">
     <title>자산 히스토리 & 은퇴 플래너</title>
-    <link rel="stylesheet" href="styles.css?v=20260627-settings-topbar">
+    <link rel="stylesheet" href="styles.css?v=20260627-asset-detail">
   </head>
   <body>
     <div class="app">
@@ -368,15 +368,10 @@
                 <thead>
                   <tr>
                     <th>자산</th>
-                    <th>계좌</th>
-                    <th>티커</th>
-                    <th>유형</th>
                     <th class="number">보유수량</th>
                     <th class="number">평가금액</th>
                     <th class="number">평가손익</th>
-                    <th>메모</th>
-                    <th class="sell-col">거래</th>
-                    <th class="actions-col">관리</th>
+                    <th class="actions-col">거래 · 관리</th>
                   </tr>
                 </thead>
                 <tbody id="assetRows"></tbody>
@@ -758,10 +753,19 @@
       </main>
     </div>
 
+    <div class="asset-detail-overlay" id="assetDetailOverlay" hidden>
+      <div class="asset-detail-scrim" data-detail-close></div>
+      <aside class="asset-detail-drawer" id="assetDetailDrawer" role="dialog" aria-modal="true" aria-label="자산 상세"></aside>
+    </div>
+
     <template id="emptyAssetTemplate">
       <tr>
-        <td colspan="10" class="empty">
-          등록된 자산이 없습니다. 상단의 자산 추가 버튼으로 첫 자산을 등록하세요.
+        <td colspan="5" class="empty">
+          <div class="empty-state">
+            <span class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 4v16"></path></svg></span>
+            <strong>아직 등록된 자산이 없어요</strong>
+            <p>첫 자산을 추가하면 평가금액과 손익이 한눈에 정리돼요. 상단의 “자산 추가”로 시작해 보세요.</p>
+          </div>
         </td>
       </tr>
     </template>
@@ -779,6 +783,6 @@
     </template>
 
     <script src="firebase-config.js?v=20260519-auth-result"></script>
-    <script type="module" src="app.js?v=20260627-px-nav"></script>
+    <script type="module" src="app.js?v=20260627-asset-detail"></script>
   </body>
 </html>
