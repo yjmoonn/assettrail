@@ -2324,3 +2324,9 @@ tbody tr:last-child td {
   position: absolute;
   width: 1px;
 }
+
+/* Programmatic focus target on view change: no stray outline (announce + scroll handle feedback). */
+[data-app-section][tabindex="-1"]:focus,
+[data-app-section] :is(h1, h2, h3)[tabindex="-1"]:focus {
+  outline: none;
+}

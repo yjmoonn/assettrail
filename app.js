@@ -50,6 +50,14 @@ const JOURNAL_STATUS_LABELS = {
   DONE: "완료"
 };
 const APP_VIEWS = new Set(["DASHBOARD", "ASSETS", "JOURNAL", "PORTFOLIO", "GOALS", "SETTINGS"]);
+const VIEW_LABELS = {
+  DASHBOARD: "대시보드",
+  ASSETS: "자산",
+  JOURNAL: "투자 기록",
+  PORTFOLIO: "포트폴리오",
+  GOALS: "목표",
+  SETTINGS: "설정",
+};
 
 function viewHash(view) {
   return "#" + String(view).toLowerCase();
@@ -223,6 +231,7 @@ const els = {
   historyRange: document.querySelector("#historyRange"),
   snapshotNote: document.querySelector("#snapshotNote"),
   historyChartDescription: document.querySelector("#historyChartDescription"),
+  viewAnnounce: document.querySelector("#viewAnnounce"),
   retirementScenarioName: document.querySelector("#retirementScenarioName"),
   retirementScenarioSelect: document.querySelector("#retirementScenarioSelect"),
   saveScenarioBtn: document.querySelector("#saveScenarioBtn"),
@@ -1421,13 +1430,17 @@ function renderSettingsSummary() {
 function setActiveView(view, options = {}) {
   const nextView = APP_VIEWS.has(view) ? view : "DASHBOARD";
   uiState.activeView = nextView;
+  let activeSection = null;
   els.appSections.forEach((section) => {
-    section.hidden = section.dataset.appSection !== nextView;
+    const selected = section.dataset.appSection === nextView;
+    section.hidden = !selected;
+    if (selected && !activeSection) activeSection = section;
   });
   els.appNavButtons.forEach((button) => {
     const selected = button.dataset.navView === nextView;
     button.classList.toggle("active", selected);
-    button.setAttribute("aria-current", selected ? "page" : "false");
+    if (selected) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
   });
   if (options.updateHash) {
     const target = viewHash(nextView);
@@ -1437,6 +1450,12 @@ function setActiveView(view, options = {}) {
   }
   if (options.scroll) {
     document.querySelector("main")?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+  if (options.focus && activeSection) {
+    const focusTarget = activeSection.querySelector("h1, h2, h3") || activeSection;
+    focusTarget.setAttribute("tabindex", "-1");
+    focusTarget.focus({ preventScroll: true });
+    if (els.viewAnnounce) els.viewAnnounce.textContent = `${VIEW_LABELS[nextView] || nextView} 화면`;
   }
 }
 
@@ -3250,7 +3269,7 @@ function handleAssetAction(button) {
   }
 
   if (button.dataset.action === "journal") {
-    setActiveView("JOURNAL", { scroll: true, updateHash: true });
+    setActiveView("JOURNAL", { scroll: true, updateHash: true, focus: true });
     showJournalForm();
     fillJournalFromAsset(asset);
     els.journalAction.value = "WATCH";
@@ -3480,7 +3499,7 @@ document.addEventListener("click", (event) => {
   const viewButton = event.target.closest("[data-nav-view], [data-go-view]");
   if (viewButton) {
     const view = viewButton.dataset.navView || viewButton.dataset.goView;
-    setActiveView(view, { scroll: true, updateHash: true });
+    setActiveView(view, { scroll: true, updateHash: true, focus: true });
     if (viewButton.dataset.openAssetForm === "true") {
       resetSellForm();
       resetBuyForm();
@@ -3729,10 +3748,10 @@ updateAssetFormForType();
 uiState.activeView = viewFromHash();
 history.replaceState({ view: uiState.activeView }, "", viewHash(uiState.activeView));
 window.addEventListener("popstate", () => {
-  setActiveView(viewFromHash(), { scroll: false });
+  setActiveView(viewFromHash(), { scroll: false, focus: true });
 });
 window.addEventListener("hashchange", () => {
-  setActiveView(viewFromHash(), { scroll: false });
+  setActiveView(viewFromHash(), { scroll: false, focus: true });
 });
 render();
 updateAuthUi();

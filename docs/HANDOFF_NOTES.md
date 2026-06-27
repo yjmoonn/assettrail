@@ -43,7 +43,7 @@
 ### P2
 - ~~카드 radius 토큰 통일~~ — 완료. `--radius-xl: 28px` 추가, 토픽바는 xl(28)로 위계 유지, 나머지 주요 카드(app-nav 20→24, journey/settings 22→24, metric/panel + 24px 카드 9종)는 `--radius-lg`(24)로 통일. 모바일 오버라이드도 토큰화(app-nav 도킹 상단 라운드 lg, topbar lg, journey md). `styles.css` :root + 각 카드.
 - ~~히스토리 차트 디자인 토큰화~~ — 완료. `app.js`에 `CHART_FONT`(Pretendard 스택)·`chartPalette()`(--line/--muted/--slate/--green/--red를 `getComputedStyle`으로 읽음)·`hexToRgba()` 헬퍼 추가. drawChart/drawXAxisLabels/drawChartBadge의 하드코딩 `#dbe2dc`/`#65716a`/`#657386`/`rgba(101,113,106,*)`/`#44524a`/녹·적 라인색·`Segoe UI` 폰트를 전부 토큰 기반으로 교체. 시드 스냅샷 12건으로 1280 헤드리스 렌더 검증.
-- 뷰 전환 시 포커스 이동/`aria-live` 없음, `aria-current="false"` → 접근성 보완.
+- ~~뷰 전환 접근성 보완~~ — 완료. `setActiveView`: 비활성 네비는 `aria-current="false"` 대신 속성 제거(활성만 `page`). 사용자 네비게이션(네비 클릭/일지 분기/popstate/hashchange)에 `focus:true` 추가 → 활성 뷰의 첫 섹션·헤딩(`h1/h2/h3` 폴백은 섹션)에 `tabindex=-1` 부여 후 `focus({preventScroll:true})`로 포커스 이동, `#viewAnnounce`(`role=status`/`aria-live=polite`, sr-only)로 "{뷰명} 화면" 안내. `render()`의 호출(1222)은 `focus` 미설정이라 매 렌더 포커스 가로채기 없음. `styles.css`에 프로그래매틱 포커스 아웃라인 제거 규칙 + `VIEW_LABELS` 맵 추가. 헤드리스로 aria-current/포커스/announce/뒤로가기 검증.
 - 비-자산 뷰에서 빈 `.workspace`(margin-bottom:20px) 죽은 여백. `index.html` ~114 / `styles.css` ~528
 - 포트폴리오 도넛 4개 → 문서 권고인 가로 막대(목표 대비 차이 라벨) 비교 검토. `app.js` renderBreakdown ~1602
 
