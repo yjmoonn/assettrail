@@ -24,6 +24,7 @@ body {
   color: var(--ink);
   font-family: "Pretendard Variable", Pretendard, "Segoe UI", "Malgun Gothic", Arial, sans-serif;
   font-feature-settings: "ss05";
+  font-variant-numeric: tabular-nums;
   letter-spacing: 0;
 }
 
@@ -94,7 +95,7 @@ button:disabled {
   color: var(--blue);
   display: inline-flex;
   font-size: 22px;
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: 0;
   line-height: 1;
   margin: 0 0 12px;
@@ -191,7 +192,7 @@ h3 {
   color: var(--slate);
   display: inline-flex;
   font-size: 12px;
-  font-weight: 850;
+  font-weight: 600;
   box-shadow: none;
   line-height: 1.25;
   max-width: 280px;
@@ -222,7 +223,7 @@ h3 {
   border: 1px solid transparent;
   border-radius: 14px;
   display: inline-flex;
-  font-weight: 900;
+  font-weight: 700;
   gap: 6px;
   justify-content: center;
   min-height: 40px;
@@ -265,7 +266,7 @@ h3 {
   color: var(--slate);
   cursor: pointer;
   font-size: 14px;
-  font-weight: 850;
+  font-weight: 600;
   height: 40px;
   line-height: 1;
   min-height: 40px;
@@ -274,7 +275,7 @@ h3 {
 
 .import-label {
   font-size: 14px;
-  font-weight: 850;
+  font-weight: 600;
   line-height: 1;
 }
 
@@ -307,17 +308,33 @@ h3 {
 }
 
 .app-nav-item {
+  align-items: center;
   background: transparent;
   border: 0;
   border-radius: 15px;
   color: var(--muted);
+  display: inline-flex;
   flex: 1 1 0;
   font-size: 14px;
-  font-weight: 900;
+  font-weight: 700;
+  gap: 8px;
+  justify-content: center;
   min-height: 42px;
   padding: 0 12px;
   transition: background 160ms ease, color 160ms ease, transform 160ms ease;
   white-space: nowrap;
+}
+
+/* 아이콘은 데스크톱 상단 내비에서는 숨기고(텍스트 유지), 모바일 탭바에서만 노출 */
+.nav-icon {
+  display: none;
+  flex: 0 0 auto;
+  height: 18px;
+  width: 18px;
+}
+
+.nav-label {
+  line-height: 1;
 }
 
 .app-nav-item:hover {
@@ -362,7 +379,7 @@ h3 {
 .settings-card > span {
   color: var(--muted);
   font-size: 11px;
-  font-weight: 950;
+  font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -422,7 +439,7 @@ h3 {
   border: 0;
   color: var(--blue);
   font-size: 13px;
-  font-weight: 950;
+  font-weight: 700;
   justify-self: start;
   min-height: 32px;
   padding: 0;
@@ -476,13 +493,13 @@ h3 {
 .composition-label {
   color: var(--ink);
   font-size: 13px;
-  font-weight: 850;
+  font-weight: 600;
 }
 
 .composition-value {
   color: var(--ink);
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .composition-track {
@@ -597,7 +614,7 @@ h3 {
   color: var(--muted);
   display: block;
   font-size: 13px;
-  font-weight: 850;
+  font-weight: 600;
   margin-bottom: 8px;
 }
 
@@ -742,7 +759,7 @@ h3 {
   border-radius: 16px;
   color: var(--muted);
   font-size: 12px;
-  font-weight: 850;
+  font-weight: 600;
   min-height: 42px;
   padding: 10px 12px;
 }
@@ -780,7 +797,7 @@ label {
   color: var(--muted);
   display: grid;
   font-size: 12px;
-  font-weight: 850;
+  font-weight: 600;
   gap: 6px;
 }
 
@@ -861,7 +878,7 @@ textarea {
   border-radius: 999px;
   color: var(--muted);
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
   min-height: 34px;
   padding: 0 14px;
   white-space: nowrap;
@@ -885,7 +902,7 @@ textarea {
   color: var(--blue);
   display: inline-flex;
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 700;
   justify-content: center;
   min-height: 42px;
   padding: 0 12px;
@@ -898,7 +915,7 @@ textarea {
   border-radius: 16px;
   color: #92400e;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.45;
   margin-bottom: 12px;
   padding: 11px 12px;
@@ -953,7 +970,7 @@ th {
   background: var(--surface-2);
   color: var(--muted);
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 700;
   position: sticky;
   top: 0;
   z-index: 1;
@@ -1066,7 +1083,7 @@ tbody tr:last-child td {
   border: 1px dashed var(--line-strong);
   border-radius: var(--radius-md);
   color: var(--muted);
-  font-weight: 800;
+  font-weight: 700;
   padding: 24px;
   text-align: center;
 }
@@ -1099,7 +1116,7 @@ tbody tr:last-child td {
   color: var(--muted);
   display: block;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
   margin-top: 4px;
 }
 
@@ -1111,7 +1128,7 @@ tbody tr:last-child td {
 .asset-card-value > span {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 850;
+  font-weight: 600;
 }
 
 .asset-card-value > strong {
@@ -1130,7 +1147,7 @@ tbody tr:last-child td {
   border-radius: 12px;
   color: var(--muted);
   font-size: 12px;
-  font-weight: 850;
+  font-weight: 600;
   min-width: 0;
   overflow-wrap: anywhere;
   padding: 7px 10px;
@@ -1167,7 +1184,7 @@ tbody tr:last-child td {
 
 .muted-dash {
   color: var(--muted);
-  font-weight: 850;
+  font-weight: 600;
 }
 
 .empty {
@@ -1183,7 +1200,7 @@ tbody tr:last-child td {
   color: var(--blue);
   display: inline-flex;
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 700;
   min-height: 24px;
   padding: 4px 9px;
 }
@@ -1193,7 +1210,7 @@ tbody tr:last-child td {
   border-radius: 999px;
   color: var(--blue);
   display: inline-flex;
-  font-weight: 900;
+  font-weight: 700;
   padding: 4px 9px;
 }
 
@@ -1201,7 +1218,7 @@ tbody tr:last-child td {
   color: var(--muted);
   display: block;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
   margin-top: 4px;
 }
 
@@ -1228,7 +1245,7 @@ tbody tr:last-child td {
   color: var(--muted);
   display: inline-flex;
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
   gap: 8px;
   min-height: 38px;
   padding: 0 14px;
@@ -1347,7 +1364,7 @@ tbody tr:last-child td {
 .journal-date {
   color: var(--muted);
   font-size: 11px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .journal-badge {
@@ -1355,7 +1372,7 @@ tbody tr:last-child td {
   border-radius: 999px;
   color: #284ba8;
   font-size: 10px;
-  font-weight: 900;
+  font-weight: 700;
   padding: 3px 7px;
 }
 
@@ -1394,7 +1411,7 @@ tbody tr:last-child td {
 .journal-meta {
   color: var(--muted);
   font-size: 11px;
-  font-weight: 850;
+  font-weight: 600;
   margin-bottom: 5px;
 }
 
@@ -1434,7 +1451,7 @@ tbody tr:last-child td {
   border-radius: 999px;
   color: var(--muted);
   font-size: 10px;
-  font-weight: 850;
+  font-weight: 600;
   padding: 3px 7px;
 }
 
@@ -1482,7 +1499,7 @@ tbody tr:last-child td {
   color: var(--ink);
   display: flex;
   font-size: 15px;
-  font-weight: 900;
+  font-weight: 700;
   gap: 9px;
   letter-spacing: 0;
   line-height: 1.2;
@@ -1548,7 +1565,7 @@ tbody tr:last-child td {
   color: var(--muted);
   display: grid;
   font-size: 10px;
-  font-weight: 850;
+  font-weight: 600;
   gap: 2px;
   line-height: 1.05;
   max-width: 48%;
@@ -1560,7 +1577,7 @@ tbody tr:last-child td {
 .donut-center strong {
   color: var(--ink);
   font-size: 13px;
-  font-weight: 950;
+  font-weight: 700;
   letter-spacing: 0;
   white-space: nowrap;
 }
@@ -1590,7 +1607,7 @@ tbody tr:last-child td {
 .breakdown-name {
   color: var(--ink);
   font-size: 14px;
-  font-weight: 900;
+  font-weight: 700;
   line-height: 1.25;
   min-width: 0;
   overflow-wrap: anywhere;
@@ -1599,7 +1616,7 @@ tbody tr:last-child td {
 .breakdown-value {
   color: var(--ink);
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
   text-align: right;
   white-space: nowrap;
 }
@@ -1607,7 +1624,7 @@ tbody tr:last-child td {
 .breakdown-percent {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
   text-align: right;
   white-space: nowrap;
 }
@@ -1670,7 +1687,7 @@ tbody tr:last-child td {
   color: var(--muted);
   display: block;
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .history-summary-item strong {
@@ -1727,7 +1744,7 @@ tbody tr:last-child td {
 .realized-chart-title span {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 850;
+  font-weight: 600;
 }
 
 .realized-bars {
@@ -1775,7 +1792,7 @@ tbody tr:last-child td {
 .realized-bar-wrap small {
   color: var(--muted);
   font-size: 11px;
-  font-weight: 850;
+  font-weight: 600;
   text-align: center;
 }
 
@@ -1864,7 +1881,7 @@ tbody tr:last-child td {
 .sensitivity-item span {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .sensitivity-item strong {
@@ -2009,10 +2026,37 @@ tbody tr:last-child td {
   }
 
   .app-nav-item {
-    border-radius: 15px;
-    font-size: 11px;
-    min-height: 52px;
-    padding: 0 4px;
+    border-radius: 14px;
+    flex-direction: column;
+    font-size: 10px;
+    font-weight: 700;
+    gap: 4px;
+    letter-spacing: -0.01em;
+    min-height: 56px;
+    padding: 6px 2px;
+    color: var(--muted);
+  }
+
+  .app-nav-item .nav-icon {
+    display: block;
+    height: 22px;
+    width: 22px;
+  }
+
+  /* 모바일 탭은 어두운 알약 채움 대신 브랜드색 아이콘+라벨 */
+  .app-nav-item.active {
+    background: transparent;
+    box-shadow: none;
+    color: var(--blue);
+  }
+
+  .app-nav-item:hover {
+    background: transparent;
+    color: var(--muted);
+  }
+
+  .app-nav-item.active:hover {
+    color: var(--blue);
   }
 
   .panel-header {
@@ -2302,3 +2346,24 @@ tbody tr:last-child td {
 [data-app-section] :is(h1, h2, h3)[tabindex="-1"]:focus {
   outline: none;
 }
+
+
+/* ============================================================
+   디자인 시스템 개편 ①②  (굵기 위계 / 고정폭 숫자)
+   - 굵기: 본문·보조 600 · 강조 700 · 제목 800 (장식적 900/950 제거)
+   - 숫자: 금액·등락률 tabular-nums 로 자릿수 정렬
+   ============================================================ */
+h1, h2 { font-weight: 800; }
+h3 { font-weight: 700; }
+
+/* 등락·금액 숫자는 항상 고정폭 + 우측 정렬 가독성 */
+.positive, .negative,
+.asset-card-meta span,
+.journal-badge.gain-badge,
+.history-summary-item strong,
+.buy-preview, .sell-preview {
+  font-variant-numeric: tabular-nums;
+}
+/* 등락은 색에만 의존하지 않도록 부호/방향을 함께 (마크업에서 ▲▼ +/− 동반 권장) */
+.positive { color: var(--green); }
+.negative { color: var(--red); }
