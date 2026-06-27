@@ -49,6 +49,7 @@ const JOURNAL_STATUS_LABELS = {
   REVIEW: "복기필요",
   DONE: "완료"
 };
+const APP_VIEWS = new Set(["DASHBOARD", "ASSETS", "JOURNAL", "PORTFOLIO", "GOALS", "SETTINGS"]);
 
 let cloud = {
   auth: null,
@@ -85,6 +86,19 @@ const els = {
   firstDeltaRate: document.querySelector("#firstDeltaRate"),
   retireGap: document.querySelector("#retireGap"),
   retireGapLabel: document.querySelector("#retireGapLabel"),
+  appNavButtons: [...document.querySelectorAll("[data-nav-view]")],
+  appSections: [...document.querySelectorAll("[data-app-section]")],
+  dashboardSnapshotBtn: document.querySelector("#dashboardSnapshotBtn"),
+  dashboardReviewCount: document.querySelector("#dashboardReviewCount"),
+  dashboardChecklist: document.querySelector("#dashboardChecklist"),
+  dashboardTopAsset: document.querySelector("#dashboardTopAsset"),
+  dashboardTopAssetMeta: document.querySelector("#dashboardTopAssetMeta"),
+  dashboardRecentRecord: document.querySelector("#dashboardRecentRecord"),
+  dashboardRecentRecordMeta: document.querySelector("#dashboardRecentRecordMeta"),
+  dashboardPortfolioFocus: document.querySelector("#dashboardPortfolioFocus"),
+  dashboardGoalProgress: document.querySelector("#dashboardGoalProgress"),
+  settingsCloudStatus: document.querySelector("#settingsCloudStatus"),
+  settingsPriceStatus: document.querySelector("#settingsPriceStatus"),
   assetForm: document.querySelector("#assetForm"),
   assetFormPanel: document.querySelector("#assetFormPanel"),
   assetFormTitle: document.querySelector("#assetFormTitle"),
@@ -245,6 +259,7 @@ const uiState = {
   regionFilter: "ALL",
   journalFilter: "ALL",
   investmentRecordTab: "JOURNAL",
+  activeView: "DASHBOARD",
   historyRange: "ALL",
   realizedYear: "ALL",
   autofilledAssetName: ""
@@ -1182,6 +1197,9 @@ function render(syncCloud = true) {
   renderHistory();
   renderRetirement();
   renderSummary();
+  renderDashboard();
+  renderSettingsSummary();
+  setActiveView(uiState.activeView, { scroll: false });
   persist();
   if (syncCloud && cloud.docRef) {
     pushCloudData().catch((error) => {
@@ -1206,6 +1224,130 @@ function renderSummary() {
   setSigned(els.lastDeltaRate, deltaRate(currentTotal, lastBase), percent);
   setSigned(els.firstDelta, firstChange);
   setSigned(els.firstDeltaRate, deltaRate(currentTotal, firstBase), percent);
+}
+
+function renderDashboard() {
+  if (!els.dashboardChecklist) return;
+  const tasks = dashboardTasks();
+  els.dashboardReviewCount.textContent = `${tasks.length}개`;
+  els.dashboardChecklist.innerHTML = tasks.length
+    ? tasks.map((task) => `<li><strong>${escapeHtml(task.title)}</strong><span>${escapeHtml(task.detail)}</span></li>`).join("")
+    : `<li><strong>오늘 확인할 일 없음</strong><span>가격, 목표 비중, 복기 기록이 안정적인 상태입니다.</span></li>`;
+
+  const topAsset = [...state.assets].sort((a, b) => assetValue(b) - assetValue(a))[0];
+  if (topAsset) {
+    const currentTotal = totalAssets();
+    const ratio = currentTotal ? assetValue(topAsset) / currentTotal : 0;
+    els.dashboardTopAsset.textContent = topAsset.name || "이름 없는 자산";
+    els.dashboardTopAssetMeta.textContent = `${assetTypeLabel(topAsset)} · ${money(assetValue(topAsset))} · ${(ratio * 100).toFixed(1)}%`;
+  } else {
+    els.dashboardTopAsset.textContent = "대기";
+    els.dashboardTopAssetMeta.textContent = "자산을 등록하면 표시됩니다.";
+  }
+
+  const recentEntry = [...(state.tradeJournalEntries || [])].sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt))[0];
+  const recentTrade = [...(state.realizedTrades || [])].sort((a, b) => new Date(b.soldAt) - new Date(a.soldAt))[0];
+  if (recentEntry) {
+    els.dashboardRecentRecord.textContent = `${JOURNAL_ACTION_LABELS[recentEntry.action] || "기록"} · ${recentEntry.assetName || "자산"}`;
+    els.dashboardRecentRecordMeta.textContent = `${formatDate(recentEntry.date || recentEntry.createdAt)} · ${JOURNAL_STATUS_LABELS[recentEntry.status] || "진행중"}`;
+  } else if (recentTrade) {
+    els.dashboardRecentRecord.textContent = `매도 · ${recentTrade.assetName || "자산"}`;
+    els.dashboardRecentRecordMeta.textContent = `${formatDate(recentTrade.soldAt)} · 실현손익 ${money(recentTrade.realizedGain || 0)}`;
+  } else {
+    els.dashboardRecentRecord.textContent = "기록 없음";
+    els.dashboardRecentRecordMeta.textContent = "매매일지를 작성하면 최근 판단이 표시됩니다.";
+  }
+
+  const retirement = calculateRetirement(state.retirement);
+  if (retirement?.nestEgg) {
+    const progress = Math.max(0, Math.min(1, Number(state.retirement.currentInvestable || 0) / retirement.nestEgg));
+    els.dashboardGoalProgress.textContent = `${(progress * 100).toFixed(0)}% 진행`;
+    els.dashboardPortfolioFocus.textContent = `${money(Math.max(0, retirement.nestEgg - Number(state.retirement.currentInvestable || 0)))} 남음`;
+  } else {
+    els.dashboardGoalProgress.textContent = "계산 대기";
+    els.dashboardPortfolioFocus.textContent = "은퇴 설정과 목표 비중을 확인하세요.";
+  }
+}
+
+function dashboardTasks() {
+  const tasks = [];
+  const missingPrices = marketAssetsMissingPrices();
+  if (missingPrices.length) {
+    tasks.push({
+      title: "가격 대기 자산",
+      detail: `${missingPrices.length}개 티커가 다음 가격표 생성을 기다립니다.`
+    });
+  }
+
+  const reviewCount = (state.tradeJournalEntries || []).filter((entry) => entry.status === "REVIEW").length;
+  if (reviewCount) {
+    tasks.push({
+      title: "복기 필요한 투자 기록",
+      detail: `${reviewCount}건의 매매일지를 다시 볼 차례입니다.`
+    });
+  }
+
+  const targetGap = largestTargetGap();
+  if (targetGap && targetGap.absRate >= 0.05) {
+    tasks.push({
+      title: "목표 비중 차이",
+      detail: `${targetGap.label}이 목표보다 ${targetGap.direction} ${Math.abs(targetGap.rate * 100).toFixed(1)}%p입니다.`
+    });
+  }
+
+  if (!state.snapshots.length) {
+    tasks.push({
+      title: "첫 조회 기록",
+      detail: "오늘 총자산을 저장하면 변화 추적이 시작됩니다."
+    });
+  }
+
+  return tasks.slice(0, 4);
+}
+
+function largestTargetGap() {
+  const total = totalAssets();
+  if (!total) return null;
+  const current = {
+    domestic: state.assets.filter((asset) => assetType(asset) === "KRX").reduce((sum, asset) => sum + assetValue(asset), 0),
+    overseas: state.assets.filter((asset) => assetType(asset) === "US").reduce((sum, asset) => sum + assetValue(asset), 0),
+    cash: state.assets.filter((asset) => assetType(asset) === "CASH").reduce((sum, asset) => sum + assetValue(asset), 0),
+    manual: state.assets.filter((asset) => assetType(asset) === "MANUAL").reduce((sum, asset) => sum + assetValue(asset), 0)
+  };
+  const labels = { domestic: "국내", overseas: "해외", cash: "현금", manual: "수동" };
+  return Object.entries(labels)
+    .map(([key, label]) => {
+      const currentRate = current[key] / total;
+      const targetRate = Math.max(0, Number(state.portfolioTargets?.[key] || 0)) / 100;
+      const rate = currentRate - targetRate;
+      return { label, rate, absRate: Math.abs(rate), direction: rate > 0 ? "초과" : "부족" };
+    })
+    .sort((a, b) => b.absRate - a.absRate)[0];
+}
+
+function renderSettingsSummary() {
+  if (els.settingsCloudStatus) {
+    els.settingsCloudStatus.textContent = cloud.user?.email ? `클라우드: ${cloud.user.email}` : "로컬 저장";
+  }
+  if (els.settingsPriceStatus) {
+    els.settingsPriceStatus.textContent = els.priceStatus?.textContent || "가격 대기";
+  }
+}
+
+function setActiveView(view, options = {}) {
+  const nextView = APP_VIEWS.has(view) ? view : "DASHBOARD";
+  uiState.activeView = nextView;
+  els.appSections.forEach((section) => {
+    section.hidden = section.dataset.appSection !== nextView;
+  });
+  els.appNavButtons.forEach((button) => {
+    const selected = button.dataset.navView === nextView;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-current", selected ? "page" : "false");
+  });
+  if (options.scroll) {
+    document.querySelector("main")?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
 }
 
 function renderAssets() {
@@ -3215,6 +3357,42 @@ els.cloudSyncBtn.addEventListener("click", async () => {
   }
 });
 
+document.addEventListener("click", (event) => {
+  const viewButton = event.target.closest("[data-nav-view], [data-go-view]");
+  if (viewButton) {
+    const view = viewButton.dataset.navView || viewButton.dataset.goView;
+    setActiveView(view, { scroll: true });
+    if (viewButton.dataset.openAssetForm === "true") {
+      resetSellForm();
+      resetBuyForm();
+      showAssetForm("create");
+      window.setTimeout(() => els.assetName?.focus(), 160);
+    }
+  }
+
+  const focusButton = event.target.closest("[data-focus-control]");
+  if (focusButton) {
+    const target = document.querySelector(`#${focusButton.dataset.focusControl}`);
+    if (!target) return;
+    target.scrollIntoView({ block: "center", behavior: "smooth" });
+    if (target instanceof HTMLElement) target.focus({ preventScroll: true });
+    return;
+  }
+
+  const triggerButton = event.target.closest("[data-trigger-control]");
+  if (!triggerButton) return;
+  const target = document.querySelector(`#${triggerButton.dataset.triggerControl}`);
+  if (!target) return;
+  if (target === els.importInput) {
+    target.click();
+    return;
+  }
+  if (target instanceof HTMLButtonElement) {
+    target.focus({ preventScroll: true });
+    target.click();
+  }
+});
+
 els.cancelEditBtn.addEventListener("click", resetAssetForm);
 
 els.assetCategory.addEventListener("change", updateAssetFormForType);
@@ -3269,6 +3447,10 @@ els.assetSort.addEventListener("change", () => {
 
 els.priceRefreshBtn?.addEventListener("click", () => {
   initPrices();
+});
+
+els.dashboardSnapshotBtn?.addEventListener("click", () => {
+  els.snapshotBtn?.click();
 });
 
 [els.targetDomestic, els.targetOverseas, els.targetCash, els.targetManual].forEach((input) => {

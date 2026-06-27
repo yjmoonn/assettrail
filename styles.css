@@ -311,6 +311,158 @@ h3 {
   display: none;
 }
 
+.app-nav {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 20px;
+  box-shadow: var(--shadow-flat);
+  display: flex;
+  gap: 6px;
+  margin: 0 0 20px;
+  padding: 6px;
+  position: sticky;
+  top: 10px;
+  z-index: 10;
+  backdrop-filter: blur(16px);
+}
+
+.app-nav-item {
+  background: transparent;
+  border: 0;
+  border-radius: 15px;
+  color: var(--muted);
+  flex: 1 1 0;
+  font-size: 14px;
+  font-weight: 900;
+  min-height: 42px;
+  padding: 0 12px;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+  white-space: nowrap;
+}
+
+.app-nav-item:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.app-nav-item.active {
+  background: var(--ink);
+  box-shadow: 0 16px 28px rgba(15, 23, 42, 0.14);
+  color: #fff;
+}
+
+.dashboard-panel {
+  margin-bottom: 20px;
+}
+
+.dashboard-grid,
+.settings-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.journey-card,
+.settings-card {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 18px;
+}
+
+.attention-card {
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
+.card-kicker,
+.settings-card > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.journey-card h3 {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.journey-card strong,
+.settings-card strong {
+  color: var(--ink);
+  display: block;
+  font-size: 22px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.journey-card small,
+.settings-card p {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.dashboard-checklist {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dashboard-checklist li {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(226, 232, 240, 0.78);
+  border-radius: 15px;
+  display: grid;
+  gap: 3px;
+  padding: 10px 11px;
+}
+
+.dashboard-checklist strong {
+  font-size: 13px;
+}
+
+.dashboard-checklist span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.text-link-button {
+  background: transparent;
+  border: 0;
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 950;
+  justify-self: start;
+  min-height: 32px;
+  padding: 0;
+}
+
+.settings-panel {
+  margin-bottom: 20px;
+}
+
+.settings-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .metric-grid {
   display: grid;
   gap: 16px;
@@ -423,10 +575,12 @@ h3 {
 }
 
 .ledger-panel h2::before { box-shadow: inset 0 0 0 8px var(--blue-2), inset 0 0 0 10px var(--blue); }
+.dashboard-panel h2::before { box-shadow: inset 0 0 0 8px var(--blue-2), inset 0 0 0 10px var(--ink); }
 .investment-record-panel h2::before { box-shadow: inset 0 0 0 7px var(--blue-2), inset 0 0 0 9px var(--amber); }
 .portfolio-panel h2::before { box-shadow: inset 0 0 0 8px var(--blue-2), inset 0 0 0 10px var(--green); }
 .history-panel h2::before { box-shadow: inset 0 0 0 8px var(--blue-2), inset 0 0 0 10px var(--violet); }
 .retirement-panel h2::before { box-shadow: inset 0 0 0 8px var(--blue-2), inset 0 0 0 10px var(--blue); }
+.settings-panel h2::before { box-shadow: inset 0 0 0 8px var(--blue-2), inset 0 0 0 10px var(--muted); }
 
 .compact {
   margin-bottom: 12px;
@@ -1673,6 +1827,8 @@ tbody tr:last-child td {
   .history-summary,
   .realized-summary,
   .journal-summary,
+  .dashboard-grid,
+  .settings-grid,
   .result-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1739,8 +1895,34 @@ tbody tr:last-child td {
 }
 
 @media (max-width: 720px) {
+  body {
+    padding-bottom: 88px;
+  }
+
   .app {
     padding: 14px;
+  }
+
+  .app-nav {
+    border-radius: 22px 22px 0 0;
+    bottom: 0;
+    box-shadow: 0 -18px 40px rgba(15, 23, 42, 0.12);
+    gap: 2px;
+    left: 0;
+    margin: 0;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+    position: fixed;
+    right: 0;
+    top: auto;
+    width: 100%;
+    z-index: 50;
+  }
+
+  .app-nav-item {
+    border-radius: 15px;
+    font-size: 11px;
+    min-height: 52px;
+    padding: 0 4px;
   }
 
   .panel-header {
@@ -1830,6 +2012,8 @@ tbody tr:last-child td {
   }
 
   .metric-grid,
+  .dashboard-grid,
+  .settings-grid,
   .asset-form,
   .buy-form,
   .sell-form,
@@ -1845,6 +2029,30 @@ tbody tr:last-child td {
   .scenario-toolbar,
   .sensitivity-grid {
     grid-template-columns: 1fr;
+  }
+
+  .metric-grid,
+  .dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .primary-metric,
+  .attention-card {
+    grid-column: 1 / -1;
+  }
+
+  .journey-card {
+    border-radius: 18px;
+    gap: 8px;
+    padding: 14px;
+  }
+
+  .journey-card strong {
+    font-size: 18px;
+  }
+
+  .journey-card small {
+    font-size: 12px;
   }
 
   .metric {
