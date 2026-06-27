@@ -4,7 +4,8 @@
 > 웹/앱(claude.ai/code) 클라우드 세션은 대화 컨텍스트가 이어지지 않으므로, 이 문서를 시작점으로 사용하세요.
 > 예: *"docs/HANDOFF_NOTES.md를 읽고 P1 항목부터 이어서 작업해줘."*
 
-서비스 정의/구조는 `docs/PROJECT_CORE.md`, `docs/PRODUCT_EXPERIENCE_REDESIGN.md`, `docs/DATA_AND_PRICES.md` 참고.
+서비스 정의/구조는 `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/PRODUCT_EXPERIENCE_REDESIGN.md` 참고.
+상세 과거 메모는 `docs/PROJECT_CORE.md`, `docs/DATA_AND_PRICES.md`, `docs/OPERATIONS.md`, `docs/TODO.md`에 보존되어 있습니다.
 
 ## 반드시 지킬 제약
 - 기존 사용자 데이터·Firestore 사용자별 분리(`storageKeyForUser`) 구조를 깨지 않는다.
@@ -20,6 +21,9 @@
 ## 완료한 수정 (P1-3, `app.js`)
 - **뷰 상태 URL/History 연동** — 해시 기반 라우팅 도입(GitHub Pages 정적 호스팅이라 path pushState는 새로고침 404 → 해시 선택). `viewHash()`/`viewFromHash()` 헬퍼(app.js ~54), `setActiveView`에 `updateHash` 옵션(같은 뷰면 중복 항목 X, `render()`의 호출은 히스토리 미오염), 유저 네비 2곳에 `updateHash:true`, 부트스트랩에서 해시→activeView 복원 + `replaceState` + `popstate`/`hashchange` 리스너. 검증: 최초 `#dashboard`, 네비 클릭 시 해시/히스토리 갱신, 뒤로가기 복귀, 딥링크 새로고침 복원, 잘못된 해시는 대시보드 폴백. 헤드리스 실측 통과. (커밋 d8c8ffa, 배포됨)
 
+## 완료한 수정 (P1-2)
+- **토픽바 과밀 → 운영 액션을 설정으로 실제 이동** — 토픽바는 가격/클라우드 상태 표시 + Login/Logout만 남기고, 가격갱신(`priceRefreshBtn` "최신 가격 확인")·동기화(`cloudSyncBtn` "지금 동기화", 로그인 시 노출)·내보내기(`exportBtn`)·가져오기(`importInput`/import-label)를 설정 패널의 클라우드/가격표/데이터 카드 안 **실제 컨트롤**로 이동. 기존 설정의 프록시 버튼(중복) 제거 + `app.js`의 죽은 `data-focus-control`/`data-trigger-control` 핸들러 삭제. 핸들러가 ID로 바인딩(`els.X = querySelector("#X")`)이라 DOM 이동해도 배선 유지. `styles.css` `.import-label` 스코프를 토픽바 한정에서 전역으로 일반화. 검증: 1440/390 헤드리스 — 토픽바 슬림화, 설정 3카드(로컬 저장/가격표/백업과 복원)에 컨트롤 정상 렌더. `check:js`/`test:prices`/`npm test` 통과.
+
 ## 완료한 수정 (P1-1)
 - **데스크톱 대시보드 밀도** — 여정카드4 아래에 2모듈 행(`.dashboard-modules`, 3fr 2fr) 추가. 좌측 **포트폴리오 비중 가로막대**(국내/해외/현금/수동: 현재% 막대 + 목표 위치 마커 + "목표 초과/부족 N%p" 라벨, `renderDashboardComposition` app.js ~1281), 우측 **최근 기록 리스트**(매매일지+실현매도 병합·날짜 내림차순 최대 5건, `renderDashboardRecentList`). `index.html` dashboard-panel에 마크업, `styles.css`에 `.dashboard-modules`/`.composition-*`/`.recent-record-list` 추가(720px에서 1열로 collapse). 1440/390 헤드리스 + 빈 상태 검증 통과.
 
@@ -29,7 +33,7 @@
 
 ### P1
 - ~~**데스크톱 대시보드 밀도**~~ — 완료(위 "완료한 수정 P1-1" 참고).
-- **토픽바 과밀 → 설정으로 실제 이동** — 현재 토픽바에 가격갱신/Login/Logout/Sync/Export/Import가 그대로 있고 설정엔 프록시 버튼만 있음(중복). 문서 P0는 "운영 액션을 설정으로 이동". (`index.html` .topbar / .settings-panel)
+- ~~**토픽바 과밀 → 설정으로 실제 이동**~~ — 완료(위 "완료한 수정 P1-2" 참고).
 - ~~**뷰 상태 URL/History 연동**~~ — 완료(위 "완료한 수정 P1-3" 참고).
 
 ### P2

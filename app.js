@@ -3460,28 +3460,6 @@ document.addEventListener("click", (event) => {
       window.setTimeout(() => els.assetName?.focus(), 160);
     }
   }
-
-  const focusButton = event.target.closest("[data-focus-control]");
-  if (focusButton) {
-    const target = document.querySelector(`#${focusButton.dataset.focusControl}`);
-    if (!target) return;
-    target.scrollIntoView({ block: "center", behavior: "smooth" });
-    if (target instanceof HTMLElement) target.focus({ preventScroll: true });
-    return;
-  }
-
-  const triggerButton = event.target.closest("[data-trigger-control]");
-  if (!triggerButton) return;
-  const target = document.querySelector(`#${triggerButton.dataset.triggerControl}`);
-  if (!target) return;
-  if (target === els.importInput) {
-    target.click();
-    return;
-  }
-  if (target instanceof HTMLButtonElement) {
-    target.focus({ preventScroll: true });
-    target.click();
-  }
 });
 
 els.cancelEditBtn.addEventListener("click", resetAssetForm);

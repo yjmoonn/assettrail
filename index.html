@@ -23,15 +23,8 @@
             <span class="sync-status" id="syncDetail" hidden>저장 대기</span>
           </div>
           <div class="action-cluster">
-            <button class="ghost-button compact-button" id="priceRefreshBtn" type="button" title="최신 가격표 다시 불러오기">가격 갱신</button>
             <button class="ghost-button" id="loginBtn" type="button">Login</button>
             <button class="ghost-button" id="logoutBtn" type="button" hidden>Logout</button>
-            <button class="ghost-button" id="cloudSyncBtn" type="button" hidden>Sync</button>
-            <button class="ghost-button" id="exportBtn" type="button" title="데이터 내보내기">Export</button>
-            <label class="ghost-button import-label" title="데이터 가져오기">
-              Import
-              <input id="importInput" type="file" accept="application/json">
-            </label>
           </div>
         </div>
       </header>
@@ -739,21 +732,24 @@
               <span>클라우드</span>
               <strong id="settingsCloudStatus">로컬 저장</strong>
               <p>로그인하면 계정별로 자산 원장과 투자 기록이 분리되어 저장됩니다.</p>
-              <button class="ghost-button" type="button" data-focus-control="cloudSyncBtn">상단 클라우드 상태 보기</button>
+              <button class="ghost-button" id="cloudSyncBtn" type="button" hidden>지금 동기화</button>
             </article>
             <article class="settings-card">
               <span>가격표</span>
               <strong id="settingsPriceStatus">가격 대기</strong>
               <p>KRX/US 자산은 prices.json 기준으로 평가금액과 손익을 계산합니다.</p>
-              <button class="ghost-button" type="button" data-trigger-control="priceRefreshBtn">최신 가격 확인</button>
+              <button class="ghost-button compact-button" id="priceRefreshBtn" type="button" title="최신 가격표 다시 불러오기">최신 가격 확인</button>
             </article>
             <article class="settings-card">
               <span>데이터</span>
               <strong>백업과 복원</strong>
               <p>민감한 자산 정보가 담기므로 내보낸 JSON 파일은 안전한 위치에 보관하세요.</p>
               <div class="settings-actions">
-                <button class="ghost-button" type="button" data-trigger-control="exportBtn">데이터 내보내기</button>
-                <button class="ghost-button" type="button" data-trigger-control="importInput">데이터 가져오기</button>
+                <button class="ghost-button" id="exportBtn" type="button" title="데이터 내보내기">데이터 내보내기</button>
+                <label class="ghost-button import-label" title="데이터 가져오기">
+                  데이터 가져오기
+                  <input id="importInput" type="file" accept="application/json">
+                </label>
               </div>
             </article>
           </div>
