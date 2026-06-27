@@ -49,6 +49,12 @@ const JOURNAL_STATUS_LABELS = {
   REVIEW: "복기필요",
   DONE: "완료"
 };
+const CHECK_ICON_GLYPHS = {
+  price: "₩",
+  review: "↻",
+  target: "%",
+  snapshot: "✦"
+};
 const APP_VIEWS = new Set(["DASHBOARD", "ASSETS", "JOURNAL", "PORTFOLIO", "GOALS", "SETTINGS"]);
 const VIEW_LABELS = {
   DASHBOARD: "대시보드",
@@ -99,8 +105,12 @@ const els = {
   assetCount: document.querySelector("#assetCount"),
   lastDelta: document.querySelector("#lastDelta"),
   lastDeltaRate: document.querySelector("#lastDeltaRate"),
+  lastDeltaChip: document.querySelector("#lastDeltaChip"),
   firstDelta: document.querySelector("#firstDelta"),
   firstDeltaRate: document.querySelector("#firstDeltaRate"),
+  firstDeltaChip: document.querySelector("#firstDeltaChip"),
+  heroSparkline: document.querySelector("#heroSparkline"),
+  heroSparklineEmpty: document.querySelector("#heroSparklineEmpty"),
   retireGap: document.querySelector("#retireGap"),
   retireGapLabel: document.querySelector("#retireGapLabel"),
   appNavButtons: [...document.querySelectorAll("[data-nav-view]")],
@@ -1247,15 +1257,109 @@ function renderSummary() {
   setSigned(els.lastDeltaRate, deltaRate(currentTotal, lastBase), percent);
   setSigned(els.firstDelta, firstChange);
   setSigned(els.firstDeltaRate, deltaRate(currentTotal, firstBase), percent);
+  setChipTone(els.lastDeltaChip, lastChange);
+  setChipTone(els.firstDeltaChip, firstChange);
+  drawHeroSparkline();
+}
+
+function setChipTone(chip, value) {
+  if (!chip) return;
+  chip.classList.toggle("chip-up", value > 0);
+  chip.classList.toggle("chip-down", value < 0);
+}
+
+function drawHeroSparkline() {
+  const canvas = els.heroSparkline;
+  if (!canvas) return;
+  const points = state.snapshots.slice(-12).map((snapshot) => Number(snapshot.total) || 0);
+  const hasTrend = points.length >= 2;
+  if (els.heroSparklineEmpty) els.heroSparklineEmpty.hidden = hasTrend;
+  canvas.hidden = !hasTrend;
+  if (!hasTrend) return;
+
+  const wrap = canvas.parentElement;
+  const cssWidth = Math.max(160, wrap ? wrap.clientWidth : canvas.clientWidth || 320);
+  const cssHeight = 132;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(cssWidth * dpr);
+  canvas.height = Math.round(cssHeight * dpr);
+  canvas.style.width = `${cssWidth}px`;
+  canvas.style.height = `${cssHeight}px`;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const cs = getComputedStyle(document.documentElement);
+  const cssVar = (name, fallback) => cs.getPropertyValue(name).trim() || fallback;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+  const padX = 6;
+  const padTop = 12;
+  const padBottom = 10;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const span = max - min || Math.abs(max) || 1;
+  const plotW = cssWidth - padX * 2;
+  const plotH = cssHeight - padTop - padBottom;
+  const xFor = (i) => padX + (points.length === 1 ? plotW / 2 : (plotW * i) / (points.length - 1));
+  const yFor = (v) => padTop + plotH - ((v - min) / span) * plotH;
+
+  const up = points[points.length - 1] >= points[0];
+  const line = up ? cssVar("--green", "#059669") : cssVar("--red", "#dc2626");
+
+  ctx.beginPath();
+  points.forEach((value, index) => {
+    const x = xFor(index);
+    const y = yFor(value);
+    if (index === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+
+  const fill = ctx.createLinearGradient(0, padTop, 0, cssHeight - padBottom);
+  fill.addColorStop(0, hexToRgba(line, 0.18));
+  fill.addColorStop(1, hexToRgba(line, 0));
+  ctx.save();
+  ctx.lineTo(xFor(points.length - 1), cssHeight - padBottom);
+  ctx.lineTo(xFor(0), cssHeight - padBottom);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.restore();
+
+  ctx.beginPath();
+  points.forEach((value, index) => {
+    const x = xFor(index);
+    const y = yFor(value);
+    if (index === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = line;
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.stroke();
+
+  const lastX = xFor(points.length - 1);
+  const lastY = yFor(points[points.length - 1]);
+  ctx.beginPath();
+  ctx.arc(lastX, lastY, 4, 0, Math.PI * 2);
+  ctx.fillStyle = cssVar("--surface", "#ffffff");
+  ctx.fill();
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = line;
+  ctx.stroke();
 }
 
 function renderDashboard() {
   if (!els.dashboardChecklist) return;
   const tasks = dashboardTasks();
-  els.dashboardReviewCount.textContent = `${tasks.length}개`;
+  els.dashboardReviewCount.textContent = `${tasks.length}건`;
   els.dashboardChecklist.innerHTML = tasks.length
-    ? tasks.map((task) => `<li><strong>${escapeHtml(task.title)}</strong><span>${escapeHtml(task.detail)}</span></li>`).join("")
-    : `<li><strong>오늘 확인할 일 없음</strong><span>가격, 목표 비중, 복기 기록이 안정적인 상태입니다.</span></li>`;
+    ? tasks
+        .map(
+          (task) => `<li class="check-card"><span class="check-icon kind-${escapeHtml(task.kind || "snapshot")}" aria-hidden="true">${CHECK_ICON_GLYPHS[task.kind] || "•"}</span><div class="check-text"><strong>${escapeHtml(task.title)}</strong><span>${escapeHtml(task.detail)}</span></div></li>`
+        )
+        .join("")
+    : `<li class="check-card check-card-ok"><span class="check-icon kind-ok" aria-hidden="true">✓</span><div class="check-text"><strong>모두 정상이에요</strong><span>가격, 목표 비중, 복기 기록이 안정적인 상태예요.</span></div></li>`;
 
   const retirement = calculateRetirement(state.retirement);
   if (retirement?.nestEgg) {
@@ -1323,21 +1427,31 @@ function renderDashboardRecentList() {
     const when = entry.date || entry.createdAt;
     records.push({
       time: new Date(when).getTime() || 0,
-      title: `${JOURNAL_ACTION_LABELS[entry.action] || "기록"} · ${entry.name || "자산"}`,
-      meta: `${formatDate(when)} · ${JOURNAL_STATUS_LABELS[entry.status] || "진행중"}`
+      action: entry.action || "WATCH",
+      title: entry.name || "자산",
+      sub: entry.reason || JOURNAL_STATUS_LABELS[entry.status] || "",
+      day: shortDay(when)
     });
   });
   (state.realizedTrades || []).forEach((trade) => {
     records.push({
       time: new Date(trade.soldAt).getTime() || 0,
-      title: `매도 · ${trade.name || "자산"}`,
-      meta: `${formatDate(trade.soldAt)} · 실현손익 ${money(trade.realizedGain || 0)}`
+      action: "SELL",
+      title: trade.name || "자산",
+      sub: `실현손익 ${money(trade.realizedGain || 0)}`,
+      day: shortDay(trade.soldAt)
     });
   });
 
   const top = records.sort((a, b) => b.time - a.time).slice(0, 5);
   els.dashboardRecentList.innerHTML = top.length
-    ? top.map((record) => `<li><strong>${escapeHtml(record.title)}</strong><span>${escapeHtml(record.meta)}</span></li>`).join("")
+    ? top
+        .map((record) => {
+          const label = JOURNAL_ACTION_LABELS[record.action] || "기록";
+          const sub = record.sub ? ` · ${record.sub}` : "";
+          return `<li class="recent-item"><span class="recent-badge badge-${escapeHtml(record.action.toLowerCase())}">${escapeHtml(label)}</span><div class="recent-text"><strong>${escapeHtml(record.title)}${escapeHtml(sub)}</strong></div><span class="recent-day">${escapeHtml(record.day)}</span></li>`;
+        })
+        .join("")
     : `<li class="recent-record-empty"><strong>기록 없음</strong><span>매매일지를 작성하면 최근 기록이 쌓입니다.</span></li>`;
 }
 
@@ -1346,31 +1460,35 @@ function dashboardTasks() {
   const missingPrices = marketAssetsMissingPrices();
   if (missingPrices.length) {
     tasks.push({
-      title: "가격 대기 자산",
-      detail: `${missingPrices.length}개 티커가 다음 가격표 생성을 기다립니다.`
+      kind: "price",
+      title: `가격 대기 자산 ${missingPrices.length}개`,
+      detail: "다음 가격표 생성을 기다리는 티커가 있어요."
     });
   }
 
   const reviewCount = (state.tradeJournalEntries || []).filter((entry) => entry.status === "REVIEW").length;
   if (reviewCount) {
     tasks.push({
-      title: "복기 필요한 투자 기록",
-      detail: `${reviewCount}건의 매매일지를 다시 볼 차례입니다.`
+      kind: "review",
+      title: `복기 필요한 기록 ${reviewCount}건`,
+      detail: "매매일지를 다시 볼 차례예요."
     });
   }
 
   const targetGap = largestTargetGap();
   if (targetGap && targetGap.absRate >= 0.05) {
     tasks.push({
+      kind: "target",
       title: "목표 비중 차이",
-      detail: `${targetGap.label}이 목표보다 ${targetGap.direction} ${Math.abs(targetGap.rate * 100).toFixed(1)}%p입니다.`
+      detail: `${targetGap.label} 비중이 목표보다 ${targetGap.direction} ${Math.abs(targetGap.rate * 100).toFixed(1)}%p예요.`
     });
   }
 
   if (!state.snapshots.length) {
     tasks.push({
+      kind: "snapshot",
       title: "첫 조회 기록",
-      detail: "오늘 총자산을 저장하면 변화 추적이 시작됩니다."
+      detail: "오늘 총자산을 저장하면 변화 추적이 시작돼요."
     });
   }
 
@@ -1435,6 +1553,9 @@ function setActiveView(view, options = {}) {
     focusTarget.setAttribute("tabindex", "-1");
     focusTarget.focus({ preventScroll: true });
     if (els.viewAnnounce) els.viewAnnounce.textContent = `${VIEW_LABELS[nextView] || nextView} 화면`;
+  }
+  if (nextView === "DASHBOARD") {
+    requestAnimationFrame(() => drawHeroSparkline());
   }
 }
 
@@ -2782,6 +2903,15 @@ function formatDate(value) {
   }).format(date);
 }
 
+function shortDay(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${m}.${d}`;
+}
+
 function shortDate(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -3806,6 +3936,12 @@ window.addEventListener("popstate", () => {
 });
 window.addEventListener("hashchange", () => {
   setActiveView(viewFromHash(), { scroll: false, focus: true });
+});
+let heroSparkResizeRaf = 0;
+window.addEventListener("resize", () => {
+  if (uiState.activeView !== "DASHBOARD") return;
+  cancelAnimationFrame(heroSparkResizeRaf);
+  heroSparkResizeRaf = requestAnimationFrame(() => drawHeroSparkline());
 });
 render();
 updateAuthUi();

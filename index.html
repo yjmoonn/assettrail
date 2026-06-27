@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-store">
     <meta http-equiv="Pragma" content="no-cache">
     <title>자산 히스토리 & 은퇴 플래너</title>
-    <link rel="stylesheet" href="styles.css?v=20260628-dashboard">
+    <link rel="stylesheet" href="styles.css?v=20260628-dashboard2">
   </head>
   <body>
     <div class="app">
@@ -45,14 +45,24 @@
             <span class="hero-kicker">현재 총자산</span>
             <strong id="totalAsset" class="hero-total">₩0</strong>
             <div class="hero-change-row">
-              <span class="hero-chip"><span class="hero-chip-label">오늘</span><strong id="lastDelta">₩0</strong><small id="lastDeltaRate">0.00%</small></span>
-              <span class="hero-chip"><span class="hero-chip-label">첫 조회 대비</span><strong id="firstDelta">₩0</strong><small id="firstDeltaRate">0.00%</small></span>
+              <span class="hero-chip" id="lastDeltaChip"><span class="hero-chip-label">오늘</span><strong id="lastDeltaRate">0.00%</strong><small id="lastDelta">₩0</small></span>
+              <span class="hero-chip" id="firstDeltaChip"><span class="hero-chip-label">첫 조회 대비</span><strong id="firstDeltaRate">0.00%</strong></span>
+              <small id="firstDelta" class="sr-only">₩0</small>
               <small id="assetCount" class="hero-count">0개 자산</small>
             </div>
           </div>
-          <div class="hero-actions">
-            <button class="primary-button" id="dashboardSnapshotBtn" type="button">오늘 자산 기록 남기기</button>
-            <button class="ghost-button" type="button" data-go-view="ASSETS" data-open-asset-form="true">새 자산 등록</button>
+          <div class="hero-trend">
+            <div class="hero-trend-head">
+              <span class="hero-trend-title">최근 12회 조회 추이</span>
+              <div class="hero-actions">
+                <button class="primary-button" id="dashboardSnapshotBtn" type="button">오늘 자산 기록</button>
+                <button class="ghost-button" type="button" data-go-view="ASSETS" data-open-asset-form="true">새 자산 등록</button>
+              </div>
+            </div>
+            <div class="hero-spark-wrap">
+              <canvas id="heroSparkline" class="hero-sparkline" aria-hidden="true"></canvas>
+              <p class="hero-spark-empty" id="heroSparklineEmpty" hidden>자산 기록을 남기면 추이가 표시됩니다.</p>
+            </div>
           </div>
         </section>
 
@@ -758,6 +768,6 @@
     </template>
 
     <script src="firebase-config.js?v=20260519-auth-result"></script>
-    <script type="module" src="app.js?v=20260628-dashboard"></script>
+    <script type="module" src="app.js?v=20260628-dashboard2"></script>
   </body>
 </html>

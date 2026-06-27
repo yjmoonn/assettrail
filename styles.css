@@ -440,6 +440,32 @@ h3 {
   padding: 10px 11px;
 }
 
+.dashboard-checklist li.check-card {
+  align-items: center;
+  display: flex;
+  gap: 11px;
+}
+
+.dashboard-checklist .check-icon {
+  align-items: center;
+  border-radius: 11px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 15px;
+  font-weight: 800;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.dashboard-checklist .check-icon.kind-price { background: var(--blue-2); color: var(--blue); }
+.dashboard-checklist .check-icon.kind-review { background: var(--amber-2); color: var(--amber); }
+.dashboard-checklist .check-icon.kind-target { background: var(--violet-2, var(--blue-2)); color: var(--violet, var(--blue)); }
+.dashboard-checklist .check-icon.kind-snapshot { background: var(--blue-2); color: var(--blue); }
+.dashboard-checklist .check-icon.kind-ok { background: var(--green-2); color: var(--green); }
+
+.dashboard-checklist .check-text { display: grid; gap: 3px; min-width: 0; }
+
 .dashboard-checklist strong {
   font-size: 13px;
 }
@@ -566,6 +592,38 @@ h3 {
   gap: 3px;
   padding: 10px 11px;
 }
+
+.recent-record-list li.recent-item {
+  align-items: center;
+  display: flex;
+  gap: 11px;
+}
+
+.recent-badge {
+  align-items: center;
+  border-radius: 9px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  justify-content: center;
+  min-width: 42px;
+  padding: 5px 9px;
+  white-space: nowrap;
+}
+.recent-badge.badge-buy { background: var(--green-2); color: var(--green); }
+.recent-badge.badge-sell { background: var(--red-2); color: var(--red); }
+.recent-badge.badge-rebalance { background: var(--blue-2); color: var(--blue); }
+.recent-badge.badge-watch { background: var(--amber-2); color: var(--amber); }
+
+.recent-text { flex: 1 1 auto; min-width: 0; }
+.recent-text strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-day { color: var(--muted); flex: 0 0 auto; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .recent-record-list strong {
   color: var(--ink);
@@ -2510,9 +2568,9 @@ h3 { font-weight: 700; }
    ============================================================ */
 .dashboard-hero {
   display: grid;
-  grid-template-columns: 1.2fr auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
   gap: 24px;
-  align-items: center;
+  align-items: stretch;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-xl);
@@ -2520,6 +2578,7 @@ h3 { font-weight: 700; }
   padding: 26px 28px;
   margin-bottom: 14px;
 }
+.hero-main { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
 .hero-kicker { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .hero-total {
   display: block;
@@ -2545,9 +2604,24 @@ h3 { font-weight: 700; }
 .hero-chip, .hero-chip-label { white-space: nowrap; }
 .hero-chip strong { font-size: 14px; font-weight: 700; color: var(--ink); }
 .hero-chip small { font-size: 12.5px; font-weight: 700; color: var(--muted); }
+.hero-chip.chip-up { background: var(--green-2); }
+.hero-chip.chip-up .hero-chip-label,
+.hero-chip.chip-up strong,
+.hero-chip.chip-up small { color: var(--green); }
+.hero-chip.chip-down { background: var(--red-2); }
+.hero-chip.chip-down .hero-chip-label,
+.hero-chip.chip-down strong,
+.hero-chip.chip-down small { color: var(--red); }
 .hero-count { color: var(--muted); font-size: 13px; font-weight: 600; }
-.hero-actions { display: flex; flex-direction: column; gap: 9px; }
+
+.hero-trend { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.hero-trend-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.hero-trend-title { font-size: 13px; font-weight: 700; color: var(--muted); align-self: center; }
+.hero-actions { display: flex; flex-direction: row; gap: 8px; }
 .hero-actions > button { white-space: nowrap; }
+.hero-spark-wrap { position: relative; flex: 1 1 auto; min-height: 132px; }
+.hero-sparkline { display: block; width: 100%; height: 132px; }
+.hero-spark-empty { display: grid; place-items: center; height: 132px; margin: 0; color: var(--muted); font-size: 13px; font-weight: 600; text-align: center; }
 
 .dashboard-focus { display: grid; grid-template-columns: 1.7fr 1fr; gap: 14px; margin-bottom: 14px; }
 .today-card { gap: 14px; }
