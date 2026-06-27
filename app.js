@@ -2396,6 +2396,33 @@ function renderHistorySummary(snapshots = state.snapshots) {
   });
 }
 
+const CHART_FONT = '"Pretendard Variable", Pretendard, "Segoe UI", "Malgun Gothic", Arial, sans-serif';
+
+function hexToRgba(hex, alpha) {
+  const normalized = String(hex || "").trim().replace("#", "");
+  const full = normalized.length === 3
+    ? normalized.split("").map((c) => c + c).join("")
+    : normalized;
+  const value = parseInt(full, 16);
+  if (!Number.isFinite(value) || full.length !== 6) return `rgba(100, 116, 139, ${alpha})`;
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function chartPalette() {
+  const cs = getComputedStyle(document.documentElement);
+  const read = (name, fallback) => cs.getPropertyValue(name).trim() || fallback;
+  return {
+    grid: read("--line", "#e2e8f0"),
+    muted: read("--muted", "#64748b"),
+    slate: read("--slate", "#334155"),
+    green: read("--green", "#059669"),
+    red: read("--red", "#dc2626"),
+  };
+}
+
 function drawChart(snapshots = state.snapshots) {
   const canvas = els.historyChart;
   const ctx = canvas.getContext("2d");
@@ -2405,6 +2432,7 @@ function drawChart(snapshots = state.snapshots) {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
 
+  const palette = chartPalette();
   const topPad = 50;
   const leftPad = 58;
   const rightPad = 44;
@@ -2422,10 +2450,10 @@ function drawChart(snapshots = state.snapshots) {
   const max = rawMax + padding;
   const range = max - min || 1;
 
-  ctx.strokeStyle = "#dbe2dc";
+  ctx.strokeStyle = palette.grid;
   ctx.lineWidth = 1;
-  ctx.fillStyle = "#65716a";
-  ctx.font = "13px Segoe UI, Arial";
+  ctx.fillStyle = palette.muted;
+  ctx.font = `13px ${CHART_FONT}`;
 
   for (let i = 0; i <= 4; i += 1) {
     const y = topPad + (plotHeight / 4) * i;
@@ -2438,7 +2466,7 @@ function drawChart(snapshots = state.snapshots) {
   }
 
   if (!points.length) {
-    ctx.fillStyle = "#65716a";
+    ctx.fillStyle = palette.muted;
     ctx.textAlign = "center";
     ctx.fillText("조회 기록을 저장하면 차트가 표시됩니다.", width / 2, height / 2);
     ctx.textAlign = "left";
@@ -2453,14 +2481,14 @@ function drawChart(snapshots = state.snapshots) {
   const first = points[0];
   const latest = points.at(-1);
   const change = latest - first;
-  const lineColor = change < 0 ? "#c7503f" : "#1f7a4d";
-  const fillColor = change < 0 ? "rgba(199, 80, 63, 0.18)" : "rgba(31, 122, 77, 0.18)";
-  const accentColor = change < 0 ? "#8f2f25" : "#0f5f38";
+  const lineColor = change < 0 ? palette.red : palette.green;
+  const fillColor = hexToRgba(lineColor, 0.18);
+  const accentColor = lineColor;
   const fill = ctx.createLinearGradient(0, topPad, 0, plotBottom);
   fill.addColorStop(0, fillColor);
   fill.addColorStop(1, "rgba(255, 255, 255, 0)");
 
-  drawXAxisLabels(ctx, snapshots, xFor, leftPad, width - rightPad, plotBottom, height);
+  drawXAxisLabels(ctx, snapshots, xFor, leftPad, width - rightPad, plotBottom, height, palette);
 
   ctx.beginPath();
   points.forEach((value, index) => {
@@ -2497,7 +2525,7 @@ function drawChart(snapshots = state.snapshots) {
     ctx.beginPath();
     ctx.moveTo(x, topPad);
     ctx.lineTo(x, plotBottom);
-    ctx.strokeStyle = "rgba(101, 113, 106, 0.28)";
+    ctx.strokeStyle = hexToRgba(palette.muted, 0.28);
     ctx.lineWidth = 1;
     ctx.stroke();
   });
@@ -2516,18 +2544,18 @@ function drawChart(snapshots = state.snapshots) {
     ctx.stroke();
   });
 
-  drawChartBadge(ctx, xFor(0), yFor(first), "시작", money(first), "#44524a", width, height);
-  drawChartBadge(ctx, xFor(points.length - 1), yFor(latest), "최근", money(latest), accentColor, width, height);
+  drawChartBadge(ctx, xFor(0), yFor(first), "시작", money(first), palette.slate, width, height, palette);
+  drawChartBadge(ctx, xFor(points.length - 1), yFor(latest), "최근", money(latest), accentColor, width, height, palette);
   if (points.length > 1) {
     const changeText = `${change > 0 ? "+" : ""}${money(change)} (${percent(deltaRate(latest, first))})`;
-    drawChartBadge(ctx, width / 2, topPad + 10, "조회 기간 변화", changeText, accentColor, width, height);
+    drawChartBadge(ctx, width / 2, topPad + 10, "조회 기간 변화", changeText, accentColor, width, height, palette);
   }
   if (els.historyChartDescription) {
     els.historyChartDescription.textContent = `선택 기간 첫 기록 ${money(first)}, 최근 기록 ${money(latest)}, 변화 ${change > 0 ? "+" : ""}${money(change)}입니다.`;
   }
 }
 
-function drawXAxisLabels(ctx, snapshots, xFor, left, right, plotBottom, height) {
+function drawXAxisLabels(ctx, snapshots, xFor, left, right, plotBottom, height, palette = chartPalette()) {
   const lastIndex = snapshots.length - 1;
   const axisY = plotBottom + 8;
   const labelY = Math.min(height - 18, plotBottom + 30);
@@ -2540,15 +2568,15 @@ function drawXAxisLabels(ctx, snapshots, xFor, left, right, plotBottom, height) 
     indexes.add(index);
   }
 
-  ctx.strokeStyle = "rgba(101, 113, 106, 0.26)";
+  ctx.strokeStyle = hexToRgba(palette.muted, 0.26);
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(left, plotBottom);
   ctx.lineTo(right, plotBottom);
   ctx.stroke();
 
-  ctx.fillStyle = "#657386";
-  ctx.font = "800 12px Segoe UI, Arial";
+  ctx.fillStyle = palette.muted;
+  ctx.font = `800 12px ${CHART_FONT}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   [...indexes].sort((a, b) => a - b).forEach((index) => {
@@ -2563,9 +2591,9 @@ function drawXAxisLabels(ctx, snapshots, xFor, left, right, plotBottom, height) 
   ctx.textBaseline = "alphabetic";
 }
 
-function drawChartBadge(ctx, x, y, label, value, color, width, height) {
+function drawChartBadge(ctx, x, y, label, value, color, width, height, palette = chartPalette()) {
   const text = `${label} ${value}`;
-  ctx.font = "700 13px Segoe UI, Arial";
+  ctx.font = `700 13px ${CHART_FONT}`;
   const textWidth = ctx.measureText(text).width;
   const boxWidth = Math.min(textWidth + 22, width - 20);
   const boxHeight = 28;
@@ -2573,7 +2601,7 @@ function drawChartBadge(ctx, x, y, label, value, color, width, height) {
   const boxY = Math.min(Math.max(10, y - 42), height - boxHeight - 10);
 
   ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
-  ctx.strokeStyle = "rgba(101, 113, 106, 0.24)";
+  ctx.strokeStyle = hexToRgba(palette.muted, 0.24);
   ctx.lineWidth = 1;
   ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
   ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);

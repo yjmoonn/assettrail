@@ -22,6 +22,7 @@
   --radius-sm: 12px;
   --radius-md: 18px;
   --radius-lg: 24px;
+  --radius-xl: 28px;
   --shadow: 0 24px 60px rgba(15, 23, 42, 0.10);
   --shadow-soft: 0 18px 42px rgba(15, 23, 42, 0.07);
   --shadow-flat: 0 10px 26px rgba(15, 23, 42, 0.05);
@@ -81,7 +82,7 @@ button:disabled {
   align-items: center;
   background: rgba(255, 255, 255, 0.9);
   border: 1px solid rgba(226, 232, 240, 0.92);
-  border-radius: 28px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-soft);
   color: var(--ink);
   display: grid;
@@ -315,7 +316,7 @@ h3 {
   align-items: center;
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid rgba(226, 232, 240, 0.95);
-  border-radius: 20px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-flat);
   display: flex;
   gap: 6px;
@@ -367,7 +368,7 @@ h3 {
 .settings-card {
   background: var(--surface-2);
   border: 1px solid var(--line);
-  border-radius: 22px;
+  border-radius: var(--radius-lg);
   display: grid;
   gap: 10px;
   min-width: 0;
@@ -590,7 +591,7 @@ h3 {
 .metric {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 24px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-flat);
   min-width: 0;
   overflow: hidden;
@@ -653,7 +654,7 @@ h3 {
 .panel {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 24px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-soft);
   min-width: 0;
   overflow: hidden;
@@ -1095,7 +1096,7 @@ tbody tr:last-child td {
 .asset-card {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 24px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-flat);
   display: grid;
   gap: 14px;
@@ -1490,7 +1491,7 @@ tbody tr:last-child td {
   align-self: start;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 24px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-flat);
   display: grid;
   gap: 14px;
@@ -1658,7 +1659,7 @@ tbody tr:last-child td {
 #historyChart {
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 24px;
+  border-radius: var(--radius-lg);
   display: block;
   height: auto;
   margin-bottom: 14px;
@@ -1726,7 +1727,7 @@ tbody tr:last-child td {
 .realized-chart {
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 24px;
+  border-radius: var(--radius-lg);
   display: grid;
   gap: 12px;
   margin-bottom: 12px;
@@ -1808,7 +1809,7 @@ tbody tr:last-child td {
 .retirement-progress {
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 24px;
+  border-radius: var(--radius-lg);
   display: grid;
   gap: 10px;
   margin-bottom: 12px;
@@ -1855,7 +1856,7 @@ tbody tr:last-child td {
 .target-panel {
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 24px;
+  border-radius: var(--radius-lg);
   display: grid;
   gap: 10px;
   padding: 14px;
@@ -1911,7 +1912,7 @@ tbody tr:last-child td {
 
 .result-grid {
   border: 1px solid var(--line);
-  border-radius: 24px;
+  border-radius: var(--radius-lg);
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   overflow: hidden;
@@ -2021,7 +2022,7 @@ tbody tr:last-child td {
   }
 
   .app-nav {
-    border-radius: 22px 22px 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     bottom: 0;
     box-shadow: 0 -18px 40px rgba(15, 23, 42, 0.12);
     gap: 2px;
@@ -2070,7 +2071,7 @@ tbody tr:last-child td {
 
   .topbar {
     gap: 18px;
-    border-radius: 22px;
+    border-radius: var(--radius-lg);
     padding: 20px;
   }
 
@@ -2160,7 +2161,7 @@ tbody tr:last-child td {
   }
 
   .journey-card {
-    border-radius: 18px;
+    border-radius: var(--radius-md);
     gap: 8px;
     padding: 14px;
   }
