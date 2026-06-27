@@ -15,6 +15,12 @@
 - React/Tailwind 대전환은 단계적 검토 후. 변경은 작은 단위로.
 - 수정 후 `npm run check:js` + `npm run test:prices` (가능하면 `npm test`) 실행. `npm test`의 firestore `PERMISSION_DENIED` 로그는 규칙 검증의 정상 출력.
 
+## 방금 완료한 수정 (투자기록 개편 + 대시보드 박스 넘침, 커밋 7e89616 배포됨)
+- **매매일지 카드 개편** — 좌측 색 띠 제거(`.journal-card.review/.done` border-left 규칙 삭제, padding 16px 18px). 상태 배지를 `.journal-badge.status` 단일 → `.status-open`(파랑)/`.status-review`(주황)/`.status-done`(초록)로 분리. `renderJournal`이 `status-${status.toLowerCase()}` 클래스 출력. 매수/매도 배지는 중립(`--surface-3`). 이유·리스크·복기는 `<p><strong>` → `.journal-note > .journal-note-label + p`(키커+본문, 3줄 clamp). 빈 상태는 `.empty-state`(아이콘+안내+작성 유도)로 교체.
+- **실현손익 표 11→5열 통합** — `index.html` thead 5개(매도일·종목 / 수량·매도가 / 매도금액 / 실현손익 / 일지), `emptyRealizedTemplate` colspan 11→5. `renderRealizedRows`가 5 `<td>` 출력(종목+`.realized-sub`로 날짜·티커·계좌 묶음, 실현손익 ▲/▼ 부호·색). `styles.css` 끝에 `.journal-note*`/`.realized-sub`/`.realized-date`/`.realized-account`/`.realized-table table{min-width:640px}` 추가.
+- **대시보드 "최근 기록" 박스 넘침 해결** — `.dashboard-module`(그리드 아이템이자 그리드 컨테이너)에 `min-width:0`+`grid-template-columns:minmax(0,1fr)`, `.recent-record-list`에 `grid-template-columns:minmax(0,1fr)` 추가. 암시적 auto 트랙이 max-content로 부풀어 텍스트 ellipsis가 안 먹던 문제 해결. 1440px moduleScrollW 526≤528, 390px 가로 스크롤 없음 실측.
+- 검증: `npm run check:js` 통과. 프리뷰(1440/390)에서 일지 카드·실현 표 헤더(5열)·최근 기록 클리핑 확인. 배포 성공 후 작업 파일 `app1.js`/`index1.html`/`styles1.css` 삭제. 캐시버스터 `20260628-journal`.
+
 ## 방금 완료한 수정 (P0, `app.js`)
 1. **대시보드 "최근 투자 기록" 카드가 항상 "자산"으로 표시** — `recentEntry.assetName`/`recentTrade.assetName` → `name`(저장 객체의 실제 필드). app.js 1251/1254. 화면으로 `매수 · 삼성전자` 정상 표시 확인.
 2. **자산 화면에서 "일지" 클릭 시 무반응** — `handleAssetAction`의 journal 분기에 `setActiveView("JOURNAL", { scroll: true })` 추가. 숨겨진 JOURNAL 섹션에 폼이 열리던 문제 해결. app.js ~3135.
