@@ -1248,10 +1248,10 @@ function renderDashboard() {
   const recentEntry = [...(state.tradeJournalEntries || [])].sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt))[0];
   const recentTrade = [...(state.realizedTrades || [])].sort((a, b) => new Date(b.soldAt) - new Date(a.soldAt))[0];
   if (recentEntry) {
-    els.dashboardRecentRecord.textContent = `${JOURNAL_ACTION_LABELS[recentEntry.action] || "기록"} · ${recentEntry.assetName || "자산"}`;
+    els.dashboardRecentRecord.textContent = `${JOURNAL_ACTION_LABELS[recentEntry.action] || "기록"} · ${recentEntry.name || "자산"}`;
     els.dashboardRecentRecordMeta.textContent = `${formatDate(recentEntry.date || recentEntry.createdAt)} · ${JOURNAL_STATUS_LABELS[recentEntry.status] || "진행중"}`;
   } else if (recentTrade) {
-    els.dashboardRecentRecord.textContent = `매도 · ${recentTrade.assetName || "자산"}`;
+    els.dashboardRecentRecord.textContent = `매도 · ${recentTrade.name || "자산"}`;
     els.dashboardRecentRecordMeta.textContent = `${formatDate(recentTrade.soldAt)} · 실현손익 ${money(recentTrade.realizedGain || 0)}`;
   } else {
     els.dashboardRecentRecord.textContent = "기록 없음";
@@ -3132,6 +3132,7 @@ function handleAssetAction(button) {
   }
 
   if (button.dataset.action === "journal") {
+    setActiveView("JOURNAL", { scroll: true });
     showJournalForm();
     fillJournalFromAsset(asset);
     els.journalAction.value = "WATCH";
