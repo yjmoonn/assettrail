@@ -2398,10 +2398,10 @@ h3 { font-weight: 700; }
   font-size: 12px;
   line-height: 1.4;
 }
-.asset-table-wrap .actions-col { width: 280px; }
-.asset-table-wrap .row-actions { flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+.asset-table-wrap .actions-col { width: 1%; white-space: nowrap; }
+.asset-table-wrap .row-actions { flex-wrap: nowrap; justify-content: flex-end; min-width: max-content; }
 .asset-table-wrap .table-action,
-.asset-table-wrap .text-icon-button { font-size: 12px; min-height: 32px; padding: 0 10px; }
+.asset-table-wrap .text-icon-button { font-size: 12px; min-height: 32px; padding: 0 10px; white-space: nowrap; }
 
 /* 빈 상태 */
 .empty-state {
