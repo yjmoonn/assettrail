@@ -1855,29 +1855,40 @@ function renderRebalanceSummary() {
     return;
   }
 
-  const current = {
-    domestic: state.assets.filter((asset) => assetType(asset) === "KRX").reduce((sum, asset) => sum + assetValue(asset), 0),
-    overseas: state.assets.filter((asset) => assetType(asset) === "US").reduce((sum, asset) => sum + assetValue(asset), 0),
-    cash: state.assets.filter((asset) => assetType(asset) === "CASH").reduce((sum, asset) => sum + assetValue(asset), 0),
-    manual: state.assets.filter((asset) => assetType(asset) === "MANUAL").reduce((sum, asset) => sum + assetValue(asset), 0)
-  };
-  const labels = {
-    domestic: "국내",
-    overseas: "해외",
-    cash: "현금",
-    manual: "수동"
-  };
-  els.rebalanceSummary.innerHTML = Object.entries(labels).map(([key, label]) => {
-    const targetRate = Math.max(0, Number(state.portfolioTargets[key] || 0)) / 100;
+  const buckets = [
+    { key: "domestic", label: "국내", type: "KRX" },
+    { key: "overseas", label: "해외", type: "US" },
+    { key: "cash", label: "현금", type: "CASH" },
+    { key: "manual", label: "수동", type: "MANUAL" }
+  ];
+
+  els.rebalanceSummary.innerHTML = buckets.map((bucket) => {
+    const value = state.assets
+      .filter((asset) => assetType(asset) === bucket.type)
+      .reduce((sum, asset) => sum + assetValue(asset), 0);
+    const currentRate = total ? value / total : 0;
+    const targetRate = Math.max(0, Number(state.portfolioTargets[bucket.key] || 0)) / 100;
     const targetValue = total * targetRate;
-    const diff = targetValue - current[key];
-    const tone = diff > 0 ? "positive" : diff < 0 ? "negative" : "";
-    const action = diff > 0 ? "부족" : diff < 0 ? "초과" : "일치";
-    return `<div class="rebalance-row">
-      <span>${escapeHtml(label)}</span>
-      <strong class="${tone}">${action} ${money(Math.abs(diff))}</strong>
-      <small>목표 ${(targetRate * 100).toFixed(1)}% · 현재 ${((current[key] / total) * 100).toFixed(1)}%</small>
-    </div>`;
+    const gap = targetValue - value;
+    const rateDiff = currentRate - targetRate;
+    const onTarget = Math.abs(rateDiff) < 0.005;
+    const tone = onTarget ? "" : gap > 0 ? "positive" : "negative";
+    const action = onTarget ? "목표 충족" : `${gap > 0 ? "부족" : "초과"} ${money(Math.abs(gap))}`;
+    const width = Math.max(0, Math.min(100, currentRate * 100));
+    const markerPos = Math.max(0, Math.min(100, targetRate * 100));
+    return `
+      <div class="composition-row">
+        <div class="composition-row-head">
+          <span class="composition-label">${escapeHtml(bucket.label)}</span>
+          <span class="composition-value ${tone}">${escapeHtml(action)}</span>
+        </div>
+        <div class="composition-track" role="img" aria-label="${escapeHtml(bucket.label)} 현재 ${(currentRate * 100).toFixed(1)}%, 목표 ${(targetRate * 100).toFixed(0)}%">
+          <span class="composition-fill" style="width:${width}%"></span>
+          <span class="composition-target" style="left:${markerPos}%" title="목표 ${(targetRate * 100).toFixed(0)}%"></span>
+        </div>
+        <div class="composition-meta">현재 ${(currentRate * 100).toFixed(1)}% · 목표 ${(targetRate * 100).toFixed(0)}% · ${escapeHtml(money(value))}</div>
+      </div>
+    `;
   }).join("");
 }
 

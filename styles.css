@@ -1870,10 +1870,10 @@ tbody tr:last-child td {
 
 .rebalance-summary {
   display: grid;
-  gap: 8px;
+  gap: 14px;
+  margin-top: 4px;
 }
 
-.rebalance-row,
 .sensitivity-item {
   background: #f8fbff;
   border: 1px solid var(--line);
@@ -1883,20 +1883,14 @@ tbody tr:last-child td {
   padding: 10px;
 }
 
-.rebalance-row span,
 .sensitivity-item span {
   color: var(--muted);
   font-size: 12px;
   font-weight: 900;
 }
 
-.rebalance-row strong,
 .sensitivity-item strong {
   font-size: 14px;
-}
-
-.rebalance-row small {
-  color: var(--muted);
 }
 
 .small-empty {
