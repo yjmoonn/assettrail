@@ -128,6 +128,12 @@ const els = {
   realizedChart: document.querySelector("#realizedChart"),
   realizedRows: document.querySelector("#realizedRows"),
   realizedYearFilter: document.querySelector("#realizedYearFilter"),
+  investmentJournalTab: document.querySelector("#investmentJournalTab"),
+  investmentRealizedTab: document.querySelector("#investmentRealizedTab"),
+  journalTabPanel: document.querySelector("#journalTabPanel"),
+  realizedTabPanel: document.querySelector("#realizedTabPanel"),
+  journalTabCount: document.querySelector("#journalTabCount"),
+  realizedTabCount: document.querySelector("#realizedTabCount"),
   historyChart: document.querySelector("#historyChart"),
   historyRows: document.querySelector("#historyRows"),
   historySummary: document.querySelector("#historySummary"),
@@ -224,6 +230,7 @@ const uiState = {
   assetSort: "VALUE_DESC",
   regionFilter: "ALL",
   journalFilter: "ALL",
+  investmentRecordTab: "JOURNAL",
   historyRange: "ALL",
   realizedYear: "ALL",
   autofilledAssetName: ""
@@ -1152,6 +1159,7 @@ function render(syncCloud = true) {
   renderJournal();
   renderBreakdown();
   renderRealized();
+  renderInvestmentRecordTabs();
   renderPriceNotice();
   renderHistory();
   renderRetirement();
@@ -1596,6 +1604,53 @@ function renderRebalanceSummary() {
   }).join("");
 }
 
+function renderInvestmentRecordTabs() {
+  const active = uiState.investmentRecordTab === "REALIZED" ? "REALIZED" : "JOURNAL";
+  uiState.investmentRecordTab = active;
+  const tabPairs = [
+    ["JOURNAL", els.investmentJournalTab, els.journalTabPanel],
+    ["REALIZED", els.investmentRealizedTab, els.realizedTabPanel]
+  ];
+
+  tabPairs.forEach(([tab, button, panel]) => {
+    const selected = tab === active;
+    button?.classList.toggle("active", selected);
+    button?.setAttribute("aria-selected", String(selected));
+    if (panel) panel.hidden = !selected;
+  });
+
+  if (els.journalTabCount) els.journalTabCount.textContent = `${state.tradeJournalEntries.length}건`;
+  if (els.realizedTabCount) els.realizedTabCount.textContent = `${state.realizedTrades.length}건`;
+}
+
+function setInvestmentRecordTab(tab, { scroll = false } = {}) {
+  if (!["JOURNAL", "REALIZED"].includes(tab)) return;
+  uiState.investmentRecordTab = tab;
+  renderInvestmentRecordTabs();
+  if (scroll) {
+    const panel = tab === "REALIZED" ? els.realizedTabPanel : els.journalTabPanel;
+    panel?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }
+}
+
+function realizedTradeForJournal(entry) {
+  const realizedTradeId = String(entry?.realizedTradeId || "");
+  if (!realizedTradeId) return null;
+  return state.realizedTrades.find((trade) => trade.id === realizedTradeId) || null;
+}
+
+function journalForRealizedTrade(trade) {
+  const tradeId = String(trade?.id || "");
+  if (!tradeId) return null;
+  return state.tradeJournalEntries.find((entry) => entry.realizedTradeId === tradeId) || null;
+}
+
+function realizedGainBadge(trade) {
+  if (!trade) return "";
+  const tone = trade.realizedGain > 0 ? "positive" : trade.realizedGain < 0 ? "negative" : "";
+  return `<span class="journal-badge gain-badge ${tone}">실현손익 ${trade.realizedGain > 0 ? "+" : ""}${money(trade.realizedGain)}</span>`;
+}
+
 function renderJournal() {
   if (!els.journalSummary || !els.journalList) return;
   state.tradeJournalEntries = (state.tradeJournalEntries || []).map(normalizeTradeJournalEntry);
@@ -1608,12 +1663,12 @@ function renderJournal() {
   const total = state.tradeJournalEntries.length;
   const reviewCount = state.tradeJournalEntries.filter((entry) => entry.status === "REVIEW").length;
   const doneCount = state.tradeJournalEntries.filter((entry) => entry.status === "DONE").length;
-  const sellCount = state.tradeJournalEntries.filter((entry) => entry.action === "SELL").length;
+  const linkedSellCount = state.tradeJournalEntries.filter((entry) => realizedTradeForJournal(entry)).length;
   els.journalSummary.innerHTML = [
     ["전체 일지", `${total}건`, "판단 기록"],
     ["복기 필요", `${reviewCount}건`, "다시 볼 기록"],
     ["완료", `${doneCount}건`, "복기 완료"],
-    ["매도 연결", `${sellCount}건`, "실현손익 참고"]
+    ["매도 연결", `${linkedSellCount}건`, "실현손익 참고"]
   ].map(([label, value, detail]) => `
     <div class="history-summary-item journal-summary-item">
       <span>${escapeHtml(label)}</span>
@@ -1632,6 +1687,7 @@ function renderJournal() {
   }
 
   entries.forEach((entry) => {
+    const linkedTrade = realizedTradeForJournal(entry);
     const card = document.createElement("article");
     card.className = `journal-card ${entry.status.toLowerCase()}`;
     card.innerHTML = `
@@ -1641,6 +1697,7 @@ function renderJournal() {
           <span class="journal-badge">${escapeHtml(JOURNAL_ACTION_LABELS[entry.action])}</span>
           <span class="journal-badge muted">${escapeHtml(REGION_LABELS[entry.region])}</span>
           <span class="journal-badge status">${escapeHtml(JOURNAL_STATUS_LABELS[entry.status])}</span>
+          ${realizedGainBadge(linkedTrade)}
         </div>
         <h3>${escapeHtml(entry.name || entry.ticker || "자산 미지정")}</h3>
         <p class="journal-meta">
@@ -1656,6 +1713,7 @@ function renderJournal() {
       </div>
       <div class="journal-actions">
         <button class="table-action quiet-action" type="button" data-journal-action="copy-ai" data-id="${entry.id}">AI 질문 복사</button>
+        ${linkedTrade ? `<button class="table-action quiet-action" type="button" data-journal-action="view-realized" data-id="${entry.id}">손익 보기</button>` : ""}
         <button class="table-action quiet-action" type="button" data-journal-action="edit" data-id="${entry.id}">수정</button>
         <button class="table-action danger-action" type="button" data-journal-action="delete" data-id="${entry.id}">삭제</button>
       </div>
@@ -1701,6 +1759,7 @@ function resetJournalForm() {
 
 function showJournalForm(entry = null) {
   if (!els.journalFormPanel || !els.journalForm) return;
+  setInvestmentRecordTab("JOURNAL");
   resetAssetForm();
   resetSellForm();
   els.journalFormPanel.hidden = false;
@@ -1791,17 +1850,21 @@ function journalEntryFromForm() {
 }
 
 function createJournalEntryFromTrade(asset, trade) {
+  return createJournalEntryFromRealizedTrade(trade, asset);
+}
+
+function createJournalEntryFromRealizedTrade(trade, asset = null) {
   const gainText = `${trade.realizedGain > 0 ? "+" : ""}${money(trade.realizedGain)}`;
   return normalizeTradeJournalEntry({
     id: uid(),
-    assetId: asset.id,
+    assetId: asset?.id || trade.assetId || "",
     realizedTradeId: trade.id,
     date: trade.soldAt,
-    name: trade.name || asset.name,
-    ticker: trade.ticker || asset.ticker,
+    name: trade.name || asset?.name || "",
+    ticker: trade.ticker || asset?.ticker || "",
     type: trade.type,
     region: regionCodeForType(trade.type),
-    account: trade.account || asset.account || "",
+    account: trade.account || asset?.account || "",
     action: "SELL",
     status: "REVIEW",
     quantity: trade.quantity,
@@ -1832,6 +1895,22 @@ function aiPromptForJournal(entry) {
     "2. 놓친 리스크나 확인해야 할 데이터를 정리해줘.",
     "3. 다음 매매 전에 체크리스트로 바꿔줘."
   ].join("\n");
+}
+
+function openRealizedTradeFromJournal(entry) {
+  const trade = realizedTradeForJournal(entry);
+  if (!trade) return;
+  uiState.realizedYear = tradeYear(trade) || "ALL";
+  if (els.realizedYearFilter) els.realizedYearFilter.value = uiState.realizedYear;
+  render(false);
+  setInvestmentRecordTab("REALIZED", { scroll: true });
+}
+
+function openJournalForRealizedTrade(trade) {
+  const linkedJournal = journalForRealizedTrade(trade);
+  uiState.journalFilter = "ALL";
+  if (els.journalFilter) els.journalFilter.value = "ALL";
+  showJournalForm(linkedJournal || createJournalEntryFromRealizedTrade(trade));
 }
 
 function renderRealized() {
@@ -1925,9 +2004,13 @@ function renderRealizedRows(trades) {
   }
 
   trades.forEach((trade) => {
+    const linkedJournal = journalForRealizedTrade(trade);
     const rate = Number.isFinite(trade.realizedGainRate) ? trade.realizedGainRate : null;
     const tone = trade.realizedGain > 0 ? "positive" : trade.realizedGain < 0 ? "negative" : "";
     const price = trade.type === "US" ? usd(trade.sellPrice) : formatPlainNumber(trade.sellPrice);
+    const journalAction = linkedJournal
+      ? `<button class="table-action quiet-action" type="button" data-realized-action="view-journal" data-id="${trade.id}">일지 보기</button>`
+      : `<button class="table-action quiet-action" type="button" data-realized-action="create-journal" data-id="${trade.id}">일지 작성</button>`;
     const row = document.createElement("tr");
     row.innerHTML = `
       <td>${escapeHtml(formatTradeDate(trade.soldAt))}</td>
@@ -1940,6 +2023,7 @@ function renderRealizedRows(trades) {
       <td class="number">${money(trade.fees + trade.tax)}</td>
       <td class="number ${tone}">${trade.realizedGain > 0 ? "+" : ""}${money(trade.realizedGain)}${rate === null ? "" : `<small class="sub-value">${rate > 0 ? "+" : ""}${percent(rate)}</small>`}</td>
       <td>${escapeHtml(trade.memo || "")}</td>
+      <td><div class="row-actions">${journalAction}</div></td>
     `;
     els.realizedRows.append(row);
   });
@@ -2679,7 +2763,8 @@ els.sellForm?.addEventListener("submit", (event) => {
   if (index < 0) return;
 
   state.realizedTrades.push(trade);
-  if (els.sellJournalEnabled?.checked) {
+  const journalCreated = Boolean(els.sellJournalEnabled?.checked);
+  if (journalCreated) {
     state.tradeJournalEntries.push(createJournalEntryFromTrade(asset, trade));
   }
   if (remainingQuantity <= 0.0000001) {
@@ -2694,8 +2779,9 @@ els.sellForm?.addEventListener("submit", (event) => {
 
   applyPricesToAssets();
   resetSellForm();
+  uiState.investmentRecordTab = "REALIZED";
   render();
-  showUndoNotice(`${asset.name} 매도를 기록했습니다.`, () => {
+  showUndoNotice(journalCreated ? "매도 기록과 매매일지를 함께 저장했습니다." : "매도 기록을 저장했습니다. 실현손익에서 일지를 연결할 수 있습니다.", () => {
     state.assets = previousAssets.map(normalizeAsset);
     state.realizedTrades = previousTrades.map(normalizeRealizedTrade);
     state.tradeJournalEntries = previousJournalEntries.map(normalizeTradeJournalEntry);
@@ -2766,6 +2852,14 @@ els.assetCards?.addEventListener("click", (event) => {
   handleAssetAction(button);
 });
 
+els.investmentJournalTab?.addEventListener("click", () => {
+  setInvestmentRecordTab("JOURNAL");
+});
+
+els.investmentRealizedTab?.addEventListener("click", () => {
+  setInvestmentRecordTab("REALIZED");
+});
+
 els.toggleJournalFormBtn?.addEventListener("click", () => {
   if (els.journalFormPanel?.hidden) showJournalForm();
   else resetJournalForm();
@@ -2808,6 +2902,11 @@ els.journalList?.addEventListener("click", async (event) => {
     return;
   }
 
+  if (button.dataset.journalAction === "view-realized") {
+    openRealizedTradeFromJournal(entry);
+    return;
+  }
+
   if (button.dataset.journalAction === "delete") {
     if (!confirm(`${entry.name || entry.ticker || "매매일지"} 기록을 삭제할까요?`)) return;
     const before = state.tradeJournalEntries.map((item) => ({ ...item }));
@@ -2832,6 +2931,14 @@ els.journalList?.addEventListener("click", async (event) => {
       window.prompt("AI에게 붙여넣을 질문입니다.", prompt);
     }
   }
+});
+
+els.realizedRows?.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-realized-action]");
+  if (!button) return;
+  const trade = state.realizedTrades.find((item) => item.id === button.dataset.id);
+  if (!trade) return;
+  openJournalForRealizedTrade(trade);
 });
 
 [

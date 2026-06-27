@@ -260,7 +260,16 @@ window.document
 const savedAfterSell = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
 assert.equal(savedAfterSell.realizedTrades.length, 1);
 assert.equal(savedAfterSell.realizedTrades[0].realizedGain, 24500);
+assert.equal(savedAfterSell.tradeJournalEntries.length, 1);
+assert.equal(savedAfterSell.tradeJournalEntries[0].realizedTradeId, savedAfterSell.realizedTrades[0].id);
 assert.equal(savedAfterSell.assets.find((asset) => asset.ticker === "AAPL").quantity, 1);
+assert.equal(window.document.querySelector("#realizedTabPanel").hidden, false);
+assert.equal(window.document.querySelector("#journalTabPanel").hidden, true);
 assert.match(window.document.querySelector("#realizedSummary").textContent, /누적 실현손익\s+₩24,500/);
 assert.match(window.document.querySelector("#realizedRows").textContent, /Apple Inc\./);
 assert.match(window.document.querySelector("#realizedRows").textContent, /\+₩24,500/);
+assert.match(window.document.querySelector("#realizedRows").textContent, /일지 보기/);
+window.document.querySelector('[data-realized-action="view-journal"]').click();
+assert.equal(window.document.querySelector("#journalTabPanel").hidden, false);
+assert.equal(window.document.querySelector("#journalRealizedTradeId").value, savedAfterSell.realizedTrades[0].id);
+assert.match(window.document.querySelector("#journalReview").value, /실현손익 \+₩24,500/);
