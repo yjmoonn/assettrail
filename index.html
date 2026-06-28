@@ -6,15 +6,15 @@
     <meta http-equiv="Cache-Control" content="no-store">
     <meta http-equiv="Pragma" content="no-cache">
     <title>자산 히스토리 & 은퇴 플래너</title>
-    <link rel="stylesheet" href="styles.css?v=20260628-journal">
+    <link rel="stylesheet" href="styles.css?v=20260628-uxfix">
   </head>
   <body>
     <div class="app">
       <header class="topbar">
         <div class="brand-block">
           <p class="eyebrow">AssetTrail</p>
-          <h1>나의 자산 대시보드</h1>
-          <p class="topbar-copy">가격, 포트폴리오, 매매일지, 은퇴 목표를 가볍게 훑어보세요.</p>
+          <h1 id="pageTitle">나의 자산 대시보드</h1>
+          <p class="topbar-copy" id="pageSubtitle">가격, 포트폴리오, 매매일지, 은퇴 목표를 가볍게 훑어보세요.</p>
         </div>
         <div class="top-actions" aria-label="앱 상태 및 작업">
           <div class="status-cluster">
@@ -45,7 +45,7 @@
             <span class="hero-kicker">현재 총자산</span>
             <strong id="totalAsset" class="hero-total">₩0</strong>
             <div class="hero-change-row">
-              <span class="hero-chip" id="lastDeltaChip"><span class="hero-chip-label">오늘</span><strong id="lastDeltaRate">0.00%</strong><small id="lastDelta">₩0</small></span>
+              <span class="hero-chip" id="lastDeltaChip"><span class="hero-chip-label">직전 대비</span><strong id="lastDeltaRate">0.00%</strong><small id="lastDelta">₩0</small></span>
               <span class="hero-chip" id="firstDeltaChip"><span class="hero-chip-label">첫 조회 대비</span><strong id="firstDeltaRate">0.00%</strong></span>
               <small id="firstDelta" class="sr-only">₩0</small>
               <small id="assetCount" class="hero-count">0개 자산</small>
@@ -293,6 +293,10 @@
                 검색
                 <input id="assetSearch" type="search" placeholder="자산명, 티커, 계좌, 메모">
               </label>
+              <button class="ghost-button filter-toggle" id="ledgerFilterToggle" type="button" aria-expanded="false" aria-controls="ledgerAdvancedFilters">필터</button>
+              <span class="toolbar-count" id="visibleAssetCount">전체 0개</span>
+            </div>
+            <div class="ledger-advanced" id="ledgerAdvancedFilters" hidden>
               <label class="toolbar-field type-filter-field">
                 유형
                 <select id="assetTypeFilter">
@@ -337,7 +341,6 @@
                   <option value="ACCOUNT_ASC">계좌명순</option>
                 </select>
               </label>
-              <span class="toolbar-count" id="visibleAssetCount">전체 0개</span>
             </div>
             <div class="region-segment" id="assetRegionSegment" aria-label="국내 해외 자산 구분">
               <button type="button" class="segment-button active" data-region-filter="ALL">전체</button>
@@ -762,6 +765,6 @@
     </template>
 
     <script src="firebase-config.js?v=20260519-auth-result"></script>
-    <script type="module" src="app.js?v=20260628-journal"></script>
+    <script type="module" src="app.js?v=20260628-uxfix"></script>
   </body>
 </html>

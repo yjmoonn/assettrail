@@ -547,6 +547,15 @@ h3 {
   font-weight: 700;
 }
 
+/* 목표 비중 차이는 손익(초록/빨강)과 의미가 달라 별도 톤을 쓴다. */
+.composition-value.off-target {
+  color: var(--amber);
+}
+
+.composition-value.on-target {
+  color: var(--muted);
+}
+
 .composition-track {
   background: rgba(226, 232, 240, 0.78);
   border-radius: 999px;
@@ -926,8 +935,28 @@ textarea {
   align-items: end;
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(240px, 1.5fr) repeat(5, minmax(122px, 1fr)) auto;
+  grid-template-columns: minmax(240px, 1fr) auto auto;
   margin-bottom: 14px;
+}
+
+/* 고급필터(유형·계좌·상태·손익·정렬)는 필터 토글로 펼침 */
+.ledger-advanced {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin-bottom: 14px;
+}
+
+.filter-toggle {
+  align-self: end;
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.filter-toggle[aria-expanded="true"],
+.filter-toggle.has-active {
+  border-color: var(--blue);
+  color: var(--blue);
 }
 
 .ledger-toolbar,
@@ -2053,7 +2082,6 @@ tbody tr:last-child td {
   .buy-form,
   .sell-form,
   .journal-form,
-  .ledger-toolbar,
   .breakdown,
   .retirement-grid,
   .scenario-toolbar,
@@ -2231,7 +2259,6 @@ tbody tr:last-child td {
   .realized-summary,
   .journal-summary,
   .history-toolbar,
-  .ledger-toolbar,
   .retirement-grid,
   .result-grid,
   .scenario-toolbar,
@@ -2272,30 +2299,32 @@ tbody tr:last-child td {
   }
 
   .ledger-toolbar {
+    align-items: center;
     background: var(--surface-2);
     border: 1px solid var(--line);
     border-radius: var(--radius-md);
     display: flex;
+    flex-wrap: wrap;
     gap: 10px;
-    overflow-x: auto;
     padding: 12px;
-    scroll-snap-type: x proximity;
-  }
-
-  .ledger-toolbar .toolbar-field {
-    flex: 0 0 168px;
-    scroll-snap-align: start;
   }
 
   .ledger-toolbar .search-field {
-    flex-basis: 240px;
+    flex: 1 1 200px;
+  }
+
+  .ledger-toolbar .filter-toggle {
+    flex: 0 0 auto;
+  }
+
+  .ledger-advanced {
+    grid-template-columns: 1fr 1fr;
   }
 
   .toolbar-count {
     flex: 0 0 auto;
     justify-content: center;
-    min-width: 100px;
-    scroll-snap-align: start;
+    min-width: 90px;
   }
 
   .asset-table-wrap {

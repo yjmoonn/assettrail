@@ -64,6 +64,15 @@ const VIEW_LABELS = {
   GOALS: "목표",
   SETTINGS: "설정",
 };
+// 상단바 제목/부제 — 뷰마다 갱신(고정 "대시보드" 표기 방지)
+const VIEW_HEADINGS = {
+  DASHBOARD: { title: "나의 자산 대시보드", subtitle: "가격, 포트폴리오, 매매일지, 은퇴 목표를 가볍게 훑어보세요." },
+  ASSETS: { title: "자산", subtitle: "보유 자산과 매수·매도를 한 곳에서 관리해요." },
+  JOURNAL: { title: "투자 기록", subtitle: "매매 판단과 매도 결과를 기록하고 복기해요." },
+  PORTFOLIO: { title: "포트폴리오", subtitle: "계좌·상품·국내외 배분과 목표 비중 차이를 봐요." },
+  GOALS: { title: "목표", subtitle: "자산 추이와 은퇴 계획을 함께 점검해요." },
+  SETTINGS: { title: "설정", subtitle: "동기화, 가격표, 데이터, 운영 작업을 관리해요." },
+};
 
 function viewHash(view) {
   return "#" + String(view).toLowerCase();
@@ -101,6 +110,8 @@ let priceBook = {
 let activePriceFileUrl = PRICE_FILE_PATH;
 
 const els = {
+  pageTitle: document.querySelector("#pageTitle"),
+  pageSubtitle: document.querySelector("#pageSubtitle"),
   totalAsset: document.querySelector("#totalAsset"),
   assetCount: document.querySelector("#assetCount"),
   lastDelta: document.querySelector("#lastDelta"),
@@ -232,6 +243,8 @@ const els = {
   assetStatusFilter: document.querySelector("#assetStatusFilter"),
   assetGainFilter: document.querySelector("#assetGainFilter"),
   assetSort: document.querySelector("#assetSort"),
+  ledgerFilterToggle: document.querySelector("#ledgerFilterToggle"),
+  ledgerAdvancedFilters: document.querySelector("#ledgerAdvancedFilters"),
   assetRegionSegment: document.querySelector("#assetRegionSegment"),
   opsStatus: document.querySelector("#opsStatus"),
   targetDomestic: document.querySelector("#targetDomestic"),
@@ -1527,6 +1540,9 @@ function renderSettingsSummary() {
 function setActiveView(view, options = {}) {
   const nextView = APP_VIEWS.has(view) ? view : "DASHBOARD";
   uiState.activeView = nextView;
+  const heading = VIEW_HEADINGS[nextView] || VIEW_HEADINGS.DASHBOARD;
+  if (els.pageTitle) els.pageTitle.textContent = heading.title;
+  if (els.pageSubtitle) els.pageSubtitle.textContent = heading.subtitle;
   let activeSection = null;
   els.appSections.forEach((section) => {
     const selected = section.dataset.appSection === nextView;
@@ -1564,6 +1580,7 @@ function renderAssets() {
   if (els.assetCards) els.assetCards.textContent = "";
   renderAccountFilterOptions();
   renderRegionSegment();
+  updateLedgerFilterIndicator();
   updateVisibleAssetCount(state.assets.length, state.assets.length);
   if (!state.assets.length) {
     els.assetRows.append(els.emptyAssetTemplate.content.cloneNode(true));
@@ -1615,8 +1632,7 @@ function renderAssets() {
           ${buyButton}
           ${sellButton}
           ${journalButton}
-          <button class="table-action quiet-action" type="button" title="수정" aria-label="${escapeHtml(asset.name)} 수정" data-action="edit" data-id="${asset.id}">수정</button>
-          <button class="table-action danger-action" type="button" title="삭제" aria-label="${escapeHtml(asset.name)} 삭제" data-action="delete" data-id="${asset.id}">삭제</button>
+          <button class="table-action quiet-action" type="button" title="상세 · 수정 · 삭제" aria-label="${escapeHtml(asset.name)} 상세" data-action="detail" data-id="${asset.id}">상세</button>
         </div>
       </td>
     `;
@@ -1654,11 +1670,22 @@ function renderAssetCard(asset, gain, gainRate, valueDetail, buyButton, sellButt
     <div class="asset-card-actions">
       ${isMarketType(type) ? `${buyButton}${sellButton || `<button class="text-icon-button disabled-action" type="button" disabled>매도</button>`}` : `<button class="text-icon-button disabled-action" type="button" disabled>잠금</button>`}
       ${journalButton}
-      <button class="table-action quiet-action" type="button" data-action="edit" data-id="${asset.id}">수정</button>
-      <button class="table-action danger-action" type="button" data-action="delete" data-id="${asset.id}">삭제</button>
+      <button class="table-action quiet-action" type="button" data-action="detail" data-id="${asset.id}">상세</button>
     </div>
   `;
   els.assetCards.append(card);
+}
+
+function updateLedgerFilterIndicator() {
+  if (!els.ledgerFilterToggle) return;
+  const activeCount = [
+    uiState.assetType !== "ALL",
+    uiState.accountFilter !== "ALL",
+    uiState.statusFilter !== "ALL",
+    uiState.gainFilter !== "ALL"
+  ].filter(Boolean).length;
+  els.ledgerFilterToggle.textContent = activeCount ? `필터 · ${activeCount}` : "필터";
+  els.ledgerFilterToggle.classList.toggle("has-active", activeCount > 0);
 }
 
 function renderAssetCardEmpty(message) {
@@ -1975,7 +2002,8 @@ function renderRebalanceSummary() {
     const gap = targetValue - value;
     const rateDiff = currentRate - targetRate;
     const onTarget = Math.abs(rateDiff) < 0.005;
-    const tone = onTarget ? "" : gap > 0 ? "positive" : "negative";
+    // 목표 대비 차이는 손익(초록/빨강)과 다른 의미이므로 중립/앰버 톤을 쓴다.
+    const tone = onTarget ? "on-target" : "off-target";
     const action = onTarget ? "목표 충족" : `${gap > 0 ? "부족" : "초과"} ${money(Math.abs(gap))}`;
     const width = Math.max(0, Math.min(100, currentRate * 100));
     const markerPos = Math.max(0, Math.min(100, targetRate * 100));
@@ -3370,6 +3398,10 @@ function handleAssetAction(button) {
   const asset = state.assets.find((item) => item.id === button.dataset.id);
   if (!asset) return;
 
+  if (button.dataset.action === "detail") {
+    openAssetDetail(asset.id);
+  }
+
   if (button.dataset.action === "buy") {
     showBuyForm(asset);
   }
@@ -3745,6 +3777,14 @@ els.assetGainFilter.addEventListener("change", () => {
 els.assetSort.addEventListener("change", () => {
   uiState.assetSort = els.assetSort.value;
   render(false);
+});
+
+els.ledgerFilterToggle?.addEventListener("click", () => {
+  const panel = els.ledgerAdvancedFilters;
+  if (!panel) return;
+  const open = panel.hidden;
+  panel.hidden = !open;
+  els.ledgerFilterToggle.setAttribute("aria-expanded", String(open));
 });
 
 els.priceRefreshBtn?.addEventListener("click", () => {
