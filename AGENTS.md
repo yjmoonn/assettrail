@@ -55,6 +55,7 @@ AssetTrail은 개인 자산, 포트폴리오 변화, 투자 판단, 히스토리
 - 가격 생성 로직은 `scripts/generate_prices.py`에 둔다.
 - 테스트는 `tests/`에 둔다.
 - 배포 자동화는 `.github/workflows/`에 둔다.
+- 코드 변경은 `dev` 브랜치에서 작업하고 PR로 `main`에 머지한다. `main`에 직접 푸시하지 않는다 — `main` push/머지는 GitHub Pages 운영에 즉시 배포된다. `deploy-pages.yml`의 테스트 게이트가 PR에서는 검사만, `main`에서는 검사 통과 후 배포한다(`deploy`는 `test` 통과를 요구).
 - 기존 사용자 데이터는 오래 유지되는 데이터로 본다. 데이터 구조를 바꿀 때는 기본값과 호환 처리를 함께 둔다.
 
 ## 필수 검증
