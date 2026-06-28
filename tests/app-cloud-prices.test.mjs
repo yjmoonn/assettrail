@@ -25,7 +25,12 @@ window.HTMLCanvasElement.prototype.getContext = () => ({
   lineTo() {},
   measureText: (text) => ({ width: String(text).length * 7 }),
   moveTo() {},
+  rect() {},
+  restore() {},
+  roundRect() {},
+  save() {},
   setLineDash() {},
+  setTransform() {},
   stroke() {},
   strokeRect() {}
 });
@@ -107,5 +112,5 @@ const rowText = window.document.querySelector("#assetRows").textContent.replace(
 
 assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드: alice@example.com");
 assert.equal(window.document.querySelector("#totalAsset").textContent, "₩39,290");
-assert.match(rowText, /SOL한국원자력SMR 0092B0 KRX 국내 2 ₩39,290종가 19,645 · 5월 19일 \+₩3,290/);
+assert.match(rowText, /SOL한국원자력SMR 0092B0 KRX 국내 2 ₩39,290종가 19,645 · 5월 19일 ▲ \+₩3,290/);
 assert.doesNotMatch(rowText, /가격 대기/);

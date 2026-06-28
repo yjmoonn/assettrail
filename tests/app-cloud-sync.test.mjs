@@ -26,7 +26,12 @@ window.HTMLCanvasElement.prototype.getContext = () => ({
   lineTo() {},
   measureText: (text) => ({ width: String(text).length * 7 }),
   moveTo() {},
+  rect() {},
+  restore() {},
+  roundRect() {},
+  save() {},
   setLineDash() {},
+  setTransform() {},
   stroke() {},
   strokeRect() {}
 });

@@ -25,7 +25,12 @@ window.HTMLCanvasElement.prototype.getContext = () => ({
   lineTo() {},
   measureText: (text) => ({ width: String(text).length * 7 }),
   moveTo() {},
+  rect() {},
+  restore() {},
+  roundRect() {},
+  save() {},
   setLineDash() {},
+  setTransform() {},
   stroke() {},
   strokeRect() {}
 });
@@ -223,15 +228,15 @@ assert.match(window.document.querySelector("#retirementProgressLabel").textConte
 
 assert.equal(window.document.querySelector("#priceStatus").textContent, "가격 5/19 09:00");
 assert.equal(window.document.querySelector("#totalAsset").textContent, "₩6,493,645");
-assert.match(rows.join("\n"), /삼성전자 삼성증권 005930 KRX 국내 15 ₩1,110,000종가 74,000 · 5월 18일 \+₩10,000/);
-assert.match(rows.join("\n"), /삼성전자 미래에셋 005930 KRX 국내 5 ₩370,000종가 74,000 · 5월 18일 \+₩10,000/);
-assert.match(rows.join("\n"), /SOL 한국원자력SMR 연금저축 0092B0 KRX 국내 1 ₩19,645종가 19,645 · 5월 19일 \+₩9,645/);
-assert.match(rows.join("\n"), /Apple Inc\. AAPL US 미국 2 ₩494,000종가 \$190\.00 · 환율 1,300원 · 5월 18일 \+₩26,000/);
+assert.match(rows.join("\n"), /삼성전자 005930 KRX 국내 삼성증권 15 ₩1,110,000종가 74,000 · 5월 18일 ▲ \+₩10,000/);
+assert.match(rows.join("\n"), /삼성전자 005930 KRX 국내 미래에셋 5 ₩370,000종가 74,000 · 5월 18일 ▲ \+₩10,000/);
+assert.match(rows.join("\n"), /SOL 한국원자력SMR 0092B0 KRX 국내 연금저축 1 ₩19,645종가 19,645 · 5월 19일 ▲ \+₩9,645/);
+assert.match(rows.join("\n"), /Apple Inc\. AAPL US 미국 2 ₩494,000종가 \$190\.00 · 환율 1,300원 · 5월 18일 ▲ \+₩26,000/);
 assert.match(rows.join("\n"), /현금 CASH 현금 - ₩1,000,000/);
-assert.match(rows.join("\n"), /청년 적금 적금 계좌 MANUAL 수동 - ₩2,000,000/);
-assert.match(rows.join("\n"), /주택청약저축 청약 계좌 MANUAL 수동 - ₩300,000/);
-assert.match(rows.join("\n"), /IRP 대기자산 IRP MANUAL 수동 - ₩500,000/);
-assert.match(rows.join("\n"), /DC 대기자산 DC MANUAL 수동 - ₩700,000/);
+assert.match(rows.join("\n"), /청년 적금 MANUAL 수동 적금 계좌 - ₩2,000,000/);
+assert.match(rows.join("\n"), /주택청약저축 MANUAL 수동 청약 계좌 - ₩300,000/);
+assert.match(rows.join("\n"), /IRP 대기자산 MANUAL 수동 IRP - ₩500,000/);
+assert.match(rows.join("\n"), /DC 대기자산 MANUAL 수동 DC - ₩700,000/);
 assert.match(window.document.querySelector("#categoryBreakdown").textContent, /계좌 분석/);
 assert.match(window.document.querySelector("#categoryBreakdown").textContent, /연금계좌/);
 assert.match(window.document.querySelector("#categoryBreakdown").textContent, /적금/);
