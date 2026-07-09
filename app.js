@@ -3796,7 +3796,8 @@ els.dashboardSnapshotBtn?.addEventListener("click", () => {
 });
 
 [els.targetDomestic, els.targetOverseas, els.targetCash, els.targetManual].forEach((input) => {
-  input?.addEventListener("input", render);
+  input?.addEventListener("input", () => render(false));
+  input?.addEventListener("change", () => render());
 });
 
 els.historyRange.addEventListener("change", () => {
@@ -3857,7 +3858,8 @@ els.clearHistoryBtn.addEventListener("click", () => {
   }
 });
 
-els.retirementForm.addEventListener("input", render);
+els.retirementForm.addEventListener("input", () => render(false));
+els.retirementForm.addEventListener("change", () => render());
 
 els.retirementForm.addEventListener("focusout", (event) => {
   formatRetirementMoneyInput(event.target);
