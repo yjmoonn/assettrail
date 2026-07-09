@@ -2031,7 +2031,6 @@ function savePortfolioTargets() {
 
 function renderRebalanceSummary() {
   if (!els.rebalanceSummary) return;
-  savePortfolioTargets();
   const total = totalAssets();
   if (!total) {
     els.rebalanceSummary.innerHTML = `<div class="empty small-empty">목표 비중은 자산 등록 후 비교됩니다.</div>`;
@@ -2813,7 +2812,6 @@ function drawChartBadge(ctx, x, y, label, value, color, width, height, palette =
 }
 
 function renderRetirement() {
-  saveRetirementInputs();
   const result = calculateRetirement(state.retirement);
 
   els.requiredNestEgg.textContent = result.error ? "계산 불가" : money(result.nestEgg);
@@ -2937,7 +2935,6 @@ function renderRetirementScenarioOptions() {
 }
 
 function currentRetirementScenarioInput() {
-  saveRetirementInputs();
   return { ...state.retirement };
 }
 
@@ -3859,8 +3856,14 @@ els.dashboardSnapshotBtn?.addEventListener("click", () => {
 });
 
 [els.targetDomestic, els.targetOverseas, els.targetCash, els.targetManual].forEach((input) => {
-  input?.addEventListener("input", () => render(false));
-  input?.addEventListener("change", () => render());
+  input?.addEventListener("input", () => {
+    savePortfolioTargets();
+    render(false);
+  });
+  input?.addEventListener("change", () => {
+    savePortfolioTargets();
+    render();
+  });
 });
 
 els.historyRange.addEventListener("change", () => {
@@ -3921,8 +3924,14 @@ els.clearHistoryBtn.addEventListener("click", () => {
   }
 });
 
-els.retirementForm.addEventListener("input", () => render(false));
-els.retirementForm.addEventListener("change", () => render());
+els.retirementForm.addEventListener("input", () => {
+  saveRetirementInputs();
+  render(false);
+});
+els.retirementForm.addEventListener("change", () => {
+  saveRetirementInputs();
+  render();
+});
 
 els.retirementForm.addEventListener("focusout", (event) => {
   formatRetirementMoneyInput(event.target);
@@ -3930,6 +3939,7 @@ els.retirementForm.addEventListener("focusout", (event) => {
 
 els.syncAssetsBtn.addEventListener("click", () => {
   els.currentInvestable.value = formatIntegerNumber(Math.ceil(totalAssets()));
+  saveRetirementInputs();
   render();
 });
 
