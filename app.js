@@ -89,7 +89,9 @@ let cloud = {
   docRef: null,
   enabled: false,
   ready: false,
-  user: null
+  user: null,
+  lastPushedFingerprint: null,
+  lastSyncedPriceTickers: null
 };
 let activeStorageKey = STORAGE_KEY;
 
@@ -581,8 +583,11 @@ async function completeCloudSignIn(user) {
   if (cloud.user?.uid === user?.uid && cloud.docRef) return;
 
   persist();
+  cancelCloudPush();
   cloud.user = user;
   cloud.docRef = null;
+  cloud.lastPushedFingerprint = null;
+  cloud.lastSyncedPriceTickers = null;
   activeStorageKey = storageKeyForUser(user);
   replaceState(loadState(activeStorageKey));
   render(false);
@@ -630,6 +635,7 @@ async function pullCloudData() {
     }
     replaceState(cloudData);
     state.meta.lastSyncDirection = "download";
+    cloud.lastPushedFingerprint = dataFingerprint(storageSafeState());
     render(false);
     await syncPriceRequests();
   } else {
@@ -644,14 +650,61 @@ async function pullCloudData() {
 
 async function pushCloudData(direction = "save") {
   if (!cloud.docRef) return;
+  const fingerprint = dataFingerprint(storageSafeState());
+  if (direction !== "upload" && fingerprint === cloud.lastPushedFingerprint) {
+    updateAuthUi();
+    return;
+  }
   setSyncStatus("클라우드 저장중", true);
   const payload = cloudSafeState();
   await cloud.setDoc(cloud.docRef, payload, { merge: true });
+  cloud.lastPushedFingerprint = fingerprint;
   state.meta.cloudUpdatedAt = payload.updatedAt;
   state.meta.lastSyncDirection = direction;
   persist();
   await syncPriceRequests();
   updateAuthUi();
+}
+
+let cloudPushTimer = null;
+let cloudPushPending = false;
+
+function cloudPushDelayMs() {
+  const value = window.assetTrailCloudPushDelayMs;
+  return Number.isFinite(value) ? value : 2000;
+}
+
+function scheduleCloudPush() {
+  if (!cloud.docRef) return;
+  cloudPushPending = true;
+  if (cloudPushTimer !== null) window.clearTimeout(cloudPushTimer);
+  cloudPushTimer = window.setTimeout(() => {
+    cloudPushTimer = null;
+    flushCloudPush();
+  }, cloudPushDelayMs());
+}
+
+async function flushCloudPush() {
+  if (cloudPushTimer !== null) {
+    window.clearTimeout(cloudPushTimer);
+    cloudPushTimer = null;
+  }
+  if (!cloudPushPending || !cloud.docRef) return;
+  cloudPushPending = false;
+  try {
+    await pushCloudData();
+  } catch (error) {
+    console.error(error);
+    setSyncStatus("저장 실패");
+  }
+}
+
+function cancelCloudPush() {
+  cloudPushPending = false;
+  if (cloudPushTimer !== null) {
+    window.clearTimeout(cloudPushTimer);
+    cloudPushTimer = null;
+  }
 }
 
 function shouldWarnCloudConflict(cloudData) {
@@ -691,6 +744,8 @@ async function syncPriceRequests() {
   if (!cloud.db || !cloud.user || !cloud.doc || !cloud.setDoc) return;
   const tickers = usTickersInState();
   if (!tickers.length) return;
+  const tickerKey = tickers.join(",");
+  if (tickerKey === cloud.lastSyncedPriceTickers) return;
 
   const ref = cloud.doc(cloud.db, "priceRequests", "us");
   const tickerValue = typeof cloud.arrayUnion === "function" ? cloud.arrayUnion(...tickers) : tickers;
@@ -698,6 +753,7 @@ async function syncPriceRequests() {
     tickers: tickerValue,
     updatedAt: new Date().toISOString()
   }, { merge: true });
+  cloud.lastSyncedPriceTickers = tickerKey;
 }
 
 function usTickersInState() {
@@ -710,32 +766,61 @@ function usTickersInState() {
   )].sort();
 }
 
+const KRW_FORMATTER = new Intl.NumberFormat("ko-KR", {
+  style: "currency",
+  currency: "KRW",
+  maximumFractionDigits: 0
+});
+const USD_FORMATTER = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 2
+});
+const PLAIN_NUMBER_FORMATTER = new Intl.NumberFormat("ko-KR", {
+  maximumFractionDigits: 6
+});
+const INTEGER_NUMBER_FORMATTER = new Intl.NumberFormat("ko-KR", {
+  maximumFractionDigits: 0
+});
+const KO_COLLATOR = new Intl.Collator("ko-KR", { numeric: true, sensitivity: "base" });
+const TRADE_DATE_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
+  year: "numeric",
+  month: "short",
+  day: "numeric"
+});
+const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
+  dateStyle: "medium",
+  timeStyle: "short"
+});
+const SHORT_DATE_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
+  month: "short",
+  day: "numeric"
+});
+const CHART_DATE_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
+  month: "numeric",
+  day: "numeric"
+});
+const SHORT_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit"
+});
+
 function money(value) {
-  return new Intl.NumberFormat("ko-KR", {
-    style: "currency",
-    currency: "KRW",
-    maximumFractionDigits: 0
-  }).format(Number.isFinite(value) ? value : 0);
+  return KRW_FORMATTER.format(Number.isFinite(value) ? value : 0);
 }
 
 function usd(value) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2
-  }).format(Number.isFinite(value) ? value : 0);
+  return USD_FORMATTER.format(Number.isFinite(value) ? value : 0);
 }
 
 function formatPlainNumber(value) {
-  return new Intl.NumberFormat("ko-KR", {
-    maximumFractionDigits: 6
-  }).format(Number(value || 0));
+  return PLAIN_NUMBER_FORMATTER.format(Number(value || 0));
 }
 
 function formatIntegerNumber(value) {
-  return new Intl.NumberFormat("ko-KR", {
-    maximumFractionDigits: 0
-  }).format(Number(value || 0));
+  return INTEGER_NUMBER_FORMATTER.format(Number(value || 0));
 }
 
 function percent(value) {
@@ -1233,25 +1318,57 @@ function formatRetirementMoneyInput(input) {
   input.value = formatIntegerNumber(parseAmount(input.value));
 }
 
+const VIEW_RENDERERS = {
+  DASHBOARD: () => {
+    renderSummary();
+    renderDashboard();
+  },
+  ASSETS: () => {
+    renderAssets();
+    renderPriceNotice();
+  },
+  JOURNAL: () => {
+    renderJournal();
+    renderRealized();
+    renderInvestmentRecordTabs();
+  },
+  PORTFOLIO: () => {
+    renderBreakdown();
+  },
+  GOALS: () => {
+    renderHistory();
+    renderRetirement();
+  },
+  SETTINGS: () => {
+    renderSettingsSummary();
+  }
+};
+
+const dirtyViews = new Set();
+
+function markAllViewsDirty() {
+  APP_VIEWS.forEach((view) => dirtyViews.add(view));
+}
+
+function renderView(view) {
+  VIEW_RENDERERS[view]?.();
+  dirtyViews.delete(view);
+}
+
+function renderAllViews() {
+  markAllViewsDirty();
+  APP_VIEWS.forEach((view) => renderView(view));
+  setActiveView(uiState.activeView, { scroll: false });
+  persist();
+}
+
 function render(syncCloud = true) {
-  renderAssets();
-  renderJournal();
-  renderBreakdown();
-  renderRealized();
-  renderInvestmentRecordTabs();
-  renderPriceNotice();
-  renderHistory();
-  renderRetirement();
-  renderSummary();
-  renderDashboard();
-  renderSettingsSummary();
+  markAllViewsDirty();
+  renderView(uiState.activeView);
   setActiveView(uiState.activeView, { scroll: false });
   persist();
   if (syncCloud && cloud.docRef) {
-    pushCloudData().catch((error) => {
-      console.error(error);
-      setSyncStatus("저장 실패");
-    });
+    scheduleCloudPush();
   }
 }
 
@@ -1388,6 +1505,23 @@ function renderDashboard() {
   renderDashboardRecentList();
 }
 
+const PORTFOLIO_BUCKETS = [
+  { key: "domestic", label: "국내", type: "KRX" },
+  { key: "overseas", label: "해외", type: "US" },
+  { key: "cash", label: "현금", type: "CASH" },
+  { key: "manual", label: "수동", type: "MANUAL" }
+];
+
+function bucketTotals() {
+  const totals = { domestic: 0, overseas: 0, cash: 0, manual: 0 };
+  const keyByType = { KRX: "domestic", US: "overseas", CASH: "cash", MANUAL: "manual" };
+  state.assets.forEach((asset) => {
+    const key = keyByType[assetType(asset)];
+    if (key) totals[key] += assetValue(asset);
+  });
+  return totals;
+}
+
 function renderDashboardComposition() {
   if (!els.dashboardComposition) return;
   const total = totalAssets();
@@ -1396,18 +1530,10 @@ function renderDashboardComposition() {
     return;
   }
 
-  const buckets = [
-    { key: "domestic", label: "국내", type: "KRX" },
-    { key: "overseas", label: "해외", type: "US" },
-    { key: "cash", label: "현금", type: "CASH" },
-    { key: "manual", label: "수동", type: "MANUAL" }
-  ];
-
-  els.dashboardComposition.innerHTML = buckets
+  const totals = bucketTotals();
+  els.dashboardComposition.innerHTML = PORTFOLIO_BUCKETS
     .map((bucket) => {
-      const value = state.assets
-        .filter((asset) => assetType(asset) === bucket.type)
-        .reduce((sum, asset) => sum + assetValue(asset), 0);
+      const value = totals[bucket.key];
       const currentRate = total ? value / total : 0;
       const targetRate = Math.max(0, Number(state.portfolioTargets?.[bucket.key] || 0)) / 100;
       const diff = currentRate - targetRate;
@@ -1511,15 +1637,9 @@ function dashboardTasks() {
 function largestTargetGap() {
   const total = totalAssets();
   if (!total) return null;
-  const current = {
-    domestic: state.assets.filter((asset) => assetType(asset) === "KRX").reduce((sum, asset) => sum + assetValue(asset), 0),
-    overseas: state.assets.filter((asset) => assetType(asset) === "US").reduce((sum, asset) => sum + assetValue(asset), 0),
-    cash: state.assets.filter((asset) => assetType(asset) === "CASH").reduce((sum, asset) => sum + assetValue(asset), 0),
-    manual: state.assets.filter((asset) => assetType(asset) === "MANUAL").reduce((sum, asset) => sum + assetValue(asset), 0)
-  };
-  const labels = { domestic: "국내", overseas: "해외", cash: "현금", manual: "수동" };
-  return Object.entries(labels)
-    .map(([key, label]) => {
+  const current = bucketTotals();
+  return PORTFOLIO_BUCKETS
+    .map(({ key, label }) => {
       const currentRate = current[key] / total;
       const targetRate = Math.max(0, Number(state.portfolioTargets?.[key] || 0)) / 100;
       const rate = currentRate - targetRate;
@@ -1539,6 +1659,7 @@ function renderSettingsSummary() {
 
 function setActiveView(view, options = {}) {
   const nextView = APP_VIEWS.has(view) ? view : "DASHBOARD";
+  if (dirtyViews.has(nextView)) renderView(nextView);
   uiState.activeView = nextView;
   const heading = VIEW_HEADINGS[nextView] || VIEW_HEADINGS.DASHBOARD;
   if (els.pageTitle) els.pageTitle.textContent = heading.title;
@@ -1732,13 +1853,12 @@ function renderRegionSegment() {
 }
 
 function sortAssets(assets) {
-  const collator = new Intl.Collator("ko-KR", { numeric: true, sensitivity: "base" });
   return assets.sort((a, b) => {
     if (uiState.assetSort === "VALUE_ASC") return assetValue(a) - assetValue(b);
     if (uiState.assetSort === "GAIN_DESC") return (assetGain(b) ?? -Infinity) - (assetGain(a) ?? -Infinity);
     if (uiState.assetSort === "GAIN_ASC") return (assetGain(a) ?? Infinity) - (assetGain(b) ?? Infinity);
-    if (uiState.assetSort === "NAME_ASC") return collator.compare(a.name || "", b.name || "");
-    if (uiState.assetSort === "ACCOUNT_ASC") return collator.compare(a.account || "", b.account || "") || collator.compare(a.name || "", b.name || "");
+    if (uiState.assetSort === "NAME_ASC") return KO_COLLATOR.compare(a.name || "", b.name || "");
+    if (uiState.assetSort === "ACCOUNT_ASC") return KO_COLLATOR.compare(a.account || "", b.account || "") || KO_COLLATOR.compare(a.name || "", b.name || "");
     return assetValue(b) - assetValue(a);
   });
 }
@@ -1978,24 +2098,15 @@ function savePortfolioTargets() {
 
 function renderRebalanceSummary() {
   if (!els.rebalanceSummary) return;
-  savePortfolioTargets();
   const total = totalAssets();
   if (!total) {
     els.rebalanceSummary.innerHTML = `<div class="empty small-empty">목표 비중은 자산 등록 후 비교됩니다.</div>`;
     return;
   }
 
-  const buckets = [
-    { key: "domestic", label: "국내", type: "KRX" },
-    { key: "overseas", label: "해외", type: "US" },
-    { key: "cash", label: "현금", type: "CASH" },
-    { key: "manual", label: "수동", type: "MANUAL" }
-  ];
-
-  els.rebalanceSummary.innerHTML = buckets.map((bucket) => {
-    const value = state.assets
-      .filter((asset) => assetType(asset) === bucket.type)
-      .reduce((sum, asset) => sum + assetValue(asset), 0);
+  const totals = bucketTotals();
+  els.rebalanceSummary.innerHTML = PORTFOLIO_BUCKETS.map((bucket) => {
+    const value = totals[bucket.key];
     const currentRate = total ? value / total : 0;
     const targetRate = Math.max(0, Number(state.portfolioTargets[bucket.key] || 0)) / 100;
     const targetValue = total * targetRate;
@@ -2760,7 +2871,6 @@ function drawChartBadge(ctx, x, y, label, value, color, width, height, palette =
 }
 
 function renderRetirement() {
-  saveRetirementInputs();
   const result = calculateRetirement(state.retirement);
 
   els.requiredNestEgg.textContent = result.error ? "계산 불가" : money(result.nestEgg);
@@ -2884,7 +2994,6 @@ function renderRetirementScenarioOptions() {
 }
 
 function currentRetirementScenarioInput() {
-  saveRetirementInputs();
   return { ...state.retirement };
 }
 
@@ -2912,72 +3021,53 @@ function localDateInputValue(date = new Date()) {
   return local.toISOString().slice(0, 10);
 }
 
+function toDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatWithDateFormatter(formatter, value) {
+  if (!value) return "";
+  const date = toDate(value);
+  return date ? formatter.format(date) : String(value);
+}
+
 function formatTradeDate(value) {
   if (!value) return "";
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("ko-KR", {
-    year: "numeric",
-    month: "short",
-    day: "numeric"
-  }).format(date);
+  const date = toDate(`${value}T00:00:00`);
+  return date ? TRADE_DATE_FORMATTER.format(date) : String(value);
 }
 
 function formatDate(value) {
   if (!value) return "없음";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("ko-KR", {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(date);
+  return formatWithDateFormatter(DATE_TIME_FORMATTER, value);
 }
 
 function shortDay(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
+  const date = toDate(value);
+  if (!date) return "";
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${m}.${d}`;
 }
 
 function shortDate(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("ko-KR", {
-    month: "short",
-    day: "numeric"
-  }).format(date);
+  return formatWithDateFormatter(SHORT_DATE_FORMATTER, value);
 }
 
 function chartDateLabel(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("ko-KR", {
-    month: "numeric",
-    day: "numeric"
-  }).format(date);
+  return formatWithDateFormatter(CHART_DATE_FORMATTER, value);
 }
 
 function shortDateTime(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("ko-KR", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(date);
+  return formatWithDateFormatter(SHORT_DATE_TIME_FORMATTER, value);
 }
 
 function compactDateTime(value) {
   if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
+  const date = toDate(value);
+  if (!date) return String(value);
   const month = date.getMonth() + 1;
   const day = date.getDate();
   const hours = String(date.getHours()).padStart(2, "0");
@@ -3034,12 +3124,16 @@ function hideAssetForm() {
   }
 }
 
+function resetTradeForm({ form, idInput, preview, panel }) {
+  if (!form) return;
+  form.reset();
+  if (idInput) idInput.value = "";
+  if (preview) preview.textContent = "";
+  if (panel) panel.hidden = true;
+}
+
 function resetSellForm() {
-  if (!els.sellForm) return;
-  els.sellForm.reset();
-  if (els.sellAssetId) els.sellAssetId.value = "";
-  if (els.sellPreview) els.sellPreview.textContent = "";
-  hideSellForm();
+  resetTradeForm({ form: els.sellForm, idInput: els.sellAssetId, preview: els.sellPreview, panel: els.sellFormPanel });
 }
 
 function hideSellForm() {
@@ -3047,11 +3141,7 @@ function hideSellForm() {
 }
 
 function resetBuyForm() {
-  if (!els.buyForm) return;
-  els.buyForm.reset();
-  if (els.buyAssetId) els.buyAssetId.value = "";
-  if (els.buyPreview) els.buyPreview.textContent = "";
-  hideBuyForm();
+  resetTradeForm({ form: els.buyForm, idInput: els.buyAssetId, preview: els.buyPreview, panel: els.buyFormPanel });
 }
 
 function hideBuyForm() {
@@ -3565,7 +3655,7 @@ els.journalAssetId?.addEventListener("change", () => {
 
 els.journalFilter?.addEventListener("change", () => {
   uiState.journalFilter = els.journalFilter.value;
-  render(false);
+  renderJournal();
 });
 
 els.journalForm?.addEventListener("submit", (event) => {
@@ -3698,6 +3788,7 @@ els.loginBtn.addEventListener("click", async () => {
 
 els.logoutBtn.addEventListener("click", async () => {
   if (!cloud.enabled) return;
+  await flushCloudPush();
   await cloud.signOut(cloud.auth);
   await completeCloudSignIn(null);
 });
@@ -3705,12 +3796,21 @@ els.logoutBtn.addEventListener("click", async () => {
 els.cloudSyncBtn.addEventListener("click", async () => {
   if (!cloud.docRef) return;
   try {
+    await flushCloudPush();
     await pullCloudData();
     setSyncStatus("동기화 완료", true);
   } catch (error) {
     console.error(error);
     setSyncStatus("동기화 실패");
   }
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushCloudPush();
+});
+
+window.addEventListener("pagehide", () => {
+  flushCloudPush();
 });
 
 document.addEventListener("click", (event) => {
@@ -3743,40 +3843,40 @@ els.assetTicker.addEventListener("change", fillAssetNameFromTicker);
 
 els.assetSearch.addEventListener("input", () => {
   uiState.assetSearch = els.assetSearch.value;
-  render(false);
+  renderAssets();
 });
 
 els.assetTypeFilter.addEventListener("change", () => {
   uiState.assetType = normalizeAssetType(els.assetTypeFilter.value);
   if (els.assetTypeFilter.value === "ALL") uiState.assetType = "ALL";
-  render(false);
+  renderAssets();
 });
 
 els.assetRegionSegment?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-region-filter]");
   if (!button) return;
   uiState.regionFilter = button.dataset.regionFilter || "ALL";
-  render(false);
+  renderAssets();
 });
 
 els.assetAccountFilter.addEventListener("change", () => {
   uiState.accountFilter = els.assetAccountFilter.value;
-  render(false);
+  renderAssets();
 });
 
 els.assetStatusFilter.addEventListener("change", () => {
   uiState.statusFilter = els.assetStatusFilter.value;
-  render(false);
+  renderAssets();
 });
 
 els.assetGainFilter.addEventListener("change", () => {
   uiState.gainFilter = els.assetGainFilter.value;
-  render(false);
+  renderAssets();
 });
 
 els.assetSort.addEventListener("change", () => {
   uiState.assetSort = els.assetSort.value;
-  render(false);
+  renderAssets();
 });
 
 els.ledgerFilterToggle?.addEventListener("click", () => {
@@ -3796,17 +3896,24 @@ els.dashboardSnapshotBtn?.addEventListener("click", () => {
 });
 
 [els.targetDomestic, els.targetOverseas, els.targetCash, els.targetManual].forEach((input) => {
-  input?.addEventListener("input", render);
+  input?.addEventListener("input", () => {
+    savePortfolioTargets();
+    render(false);
+  });
+  input?.addEventListener("change", () => {
+    savePortfolioTargets();
+    render();
+  });
 });
 
 els.historyRange.addEventListener("change", () => {
   uiState.historyRange = els.historyRange.value;
-  render(false);
+  renderHistory();
 });
 
 els.realizedYearFilter?.addEventListener("change", () => {
   uiState.realizedYear = els.realizedYearFilter.value;
-  render(false);
+  renderRealized();
 });
 
 els.snapshotBtn.addEventListener("click", () => {
@@ -3857,7 +3964,14 @@ els.clearHistoryBtn.addEventListener("click", () => {
   }
 });
 
-els.retirementForm.addEventListener("input", render);
+els.retirementForm.addEventListener("input", () => {
+  saveRetirementInputs();
+  render(false);
+});
+els.retirementForm.addEventListener("change", () => {
+  saveRetirementInputs();
+  render();
+});
 
 els.retirementForm.addEventListener("focusout", (event) => {
   formatRetirementMoneyInput(event.target);
@@ -3865,6 +3979,7 @@ els.retirementForm.addEventListener("focusout", (event) => {
 
 els.syncAssetsBtn.addEventListener("click", () => {
   els.currentInvestable.value = formatIntegerNumber(Math.ceil(totalAssets()));
+  saveRetirementInputs();
   render();
 });
 
@@ -3985,7 +4100,7 @@ window.addEventListener("resize", () => {
   cancelAnimationFrame(heroSparkResizeRaf);
   heroSparkResizeRaf = requestAnimationFrame(() => drawHeroSparkline());
 });
-render();
+renderAllViews();
 updateAuthUi();
 initPrices();
 initFirebase();

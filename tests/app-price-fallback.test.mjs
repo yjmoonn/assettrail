@@ -30,6 +30,8 @@ window.HTMLCanvasElement.prototype.getContext = () => ({
   strokeRect() {}
 });
 
+window.HTMLElement.prototype.scrollIntoView = () => {};
+
 window.alert = (message) => {
   throw new Error(`Unexpected alert: ${message}`);
 };
@@ -101,6 +103,7 @@ assert.match(fetchCalls[0], /^prices\.json\?v=/);
 assert.match(fetchCalls[1], /^https:\/\/yjmoonn\.github\.io\/assettrail\/prices\.json\?v=/);
 assert.equal(window.document.querySelector("#priceStatus").textContent, "가격 5/19 09:00");
 assert.equal(window.document.querySelector("#totalAsset").textContent, "₩247,048");
+window.document.querySelector('[data-nav-view="ASSETS"]').click();
 assert.match(window.document.querySelector("#assetRows").textContent, /종가 \$190\.00 · 환율 1,300\.25원/);
 
 window.document.querySelector("#syncAssetsBtn").click();

@@ -15,6 +15,30 @@
 - React/Tailwind 대전환은 단계적 검토 후. 변경은 작은 단위로.
 - 수정 후 `npm run check:js` + `npm run test:prices` (가능하면 `npm test`) 실행. `npm test`의 firestore `PERMISSION_DENIED` 로그는 규칙 검증의 정상 출력.
 
+## 방금 완료한 수정 (성능·Firestore 비용 최적화 8단계, 커밋 e94de0b~2bb0782, 미푸시)
+- **키 입력당 클라우드 저장 버그 수정 (e94de0b)** — `addEventListener("input", render)`로 InputEvent가 `syncCloud` 인자에 들어가 은퇴·목표 비중 입력의 키 입력 1회 = setDoc 1회이던 버그. input→`render(false)`, change→`render()`로 분리.
+- **pushCloudData dirty-check (46047ee)** — `dataFingerprint` 비교로 동일 데이터면 setDoc 스킵(`upload` 방향은 강제). `syncPriceRequests`도 티커 목록 비교 스킵. 캐시는 `cloud.lastPushedFingerprint`/`lastSyncedPriceTickers`, 로그인 전환 시 리셋·pull 후 세팅.
+- **push debounce 2초 + flush (dce302e)** — `render`의 즉시 push → `scheduleCloudPush()`. `window.assetTrailCloudPushDelayMs`로 테스트 오버라이드(cloud-sync 테스트에 0 설정). visibilitychange(hidden)·pagehide·로그아웃·수동 동기화 직전 `flushCloudPush()`, 계정 전환 시 `cancelCloudPush()`. localStorage `persist()`는 즉시 유지.
+- **렌더-저장 분리 (aa3a977)** — `renderRetirement`→`saveRetirementInputs`, `renderRebalanceSummary`→`savePortfolioTargets` 호출 제거, 입력 핸들러에서 명시 호출. `syncAssetsBtn`도 값 변경 후 명시 저장. `currentRetirementScenarioInput`은 state만 읽음.
+- **필터/검색 뷰 단위 렌더 (85a2fde)** — 자산 검색·필터 7종→`renderAssets()`, historyRange→`renderHistory()`, realizedYear→`renderRealized()`, journalFilter→`renderJournal()`. persist 불필요(uiState는 저장 대상 아님).
+- **지연 렌더링 (dab6ddf)** — `VIEW_RENDERERS` 맵 + `dirtyViews` Set. `render()`는 활성 뷰만 즉시, 나머지는 `setActiveView` 진입 시. 부팅은 `renderAllViews()` 전체 1회. **테스트 계약 변경**: 숨겨진 뷰 DOM 검증엔 해당 뷰 전환 클릭 필요 — 4개 jsdom 테스트에 `[data-nav-view="X"].click()` 추가 + `HTMLElement.prototype.scrollIntoView` 목(jsdom 미구현).
+- **Intl 포매터 호이스팅 (e07ff7b)** — `money` 등 10곳의 매 호출 `new Intl.*` → 모듈 상수 10종(KRW_FORMATTER 등).
+- **중복 통합 (d307196, ac66c00, 2bb0782)** — `bucketTotals()`+`PORTFOLIO_BUCKETS`(합산 3곳→1곳, 순회 12→1회), 날짜 함수 7종의 검사 로직→`toDate`/`formatWithDateFormatter`, 매도·추가매수 폼 리셋→`resetTradeForm`.
+- **검증**: 각 단계마다 관련 테스트 + 최종 `npm test` 전체(7종) 통과. 브라우저 육안 검증(1440/1280/390/430)은 미실시 — 다음 확인 권장.
+- **스킵**: Phase 9(chartPalette getComputedStyle 캐시) — 지연 렌더링 후 효과 미미로 계획대로 생략.
+- **커밋 분리 주의**: 이번 8커밋은 `app.js`+`tests/`만. 기존 미커밋 변경(AGENTS.md·CLAUDE.md·이 문서·prompts/)은 의도적으로 미포함, 푸시도 안 함.
+
+## 방금 완료한 수정 (UI/UX 다듬기 5건, 커밋 4ae7cd2 배포됨)
+- **뷰별 상단 제목/부제** — 모든 화면이 "나의 자산 대시보드"로 고정되던 문제. `index.html` H1/부제에 `#pageTitle`/`#pageSubtitle` 부여, `app.js` `VIEW_HEADINGS` 맵 추가 + `setActiveView`에서 갱신. `render()`→`setActiveView` 경로라 초기·딥링크·뒤로가기 모두 반영.
+- **히어로 "오늘"→"직전 대비"** — `index.html` `hero-chip-label`. 계산(`renderSummary`, 현재 총액 − 마지막 스냅샷)은 불변, 라벨만 정정(조회 히스토리 표 "직전 대비"와 용어 일치).
+- **자산 행/카드 액션 정리** — `renderAssets`(표 행)·`renderAssetCard`에서 수정·삭제 인라인 제거하고 `data-action="detail"` "상세" 버튼으로 통합(상시 노출 빨강 삭제 제거). `handleAssetAction`에 `detail`→`openAssetDetail` 분기 추가(상세 드로어에 추가매수·매도·일지·수정·삭제 5액션 이미 존재). 시장자산=추가매수·매도·일지·상세, 현금/수동=일지·상세.
+- **포트폴리오 목표 차이 색 분리** — `renderRebalanceSummary` tone을 `positive/negative`(초록/빨강) → `on-target`/`off-target`로. `styles.css` `.composition-value.off-target`(앰버 `--amber`)/`.on-target`(`--muted`) 추가. 부족/초과 모두 앰버라 손익 색(초록/빨강)과 분리. 대시보드 `renderDashboardComposition`은 원래 무색이라 변경 없음.
+- **자산 고급필터 접기** — `index.html` `ledger-toolbar`를 검색+`#ledgerFilterToggle`("필터")+카운트 / `#ledgerAdvancedFilters`(유형·계좌·상태·손익·정렬 5 selects, `hidden`)로 분리. `styles.css` `.ledger-toolbar` 3칸 그리드 + `.ledger-advanced`(auto-fit) + `.filter-toggle`(펼침/적용 시 파란 강조), 중간폭 그리드 오버라이드(1100/900)에서 `.ledger-toolbar` 제외, 모바일(720) flex-wrap + `.ledger-advanced` 2칸. `app.js` els 2개 + 토글 핸들러(hidden/aria-expanded) + `updateLedgerFilterIndicator`("필터 · N", `renderAssets`에서 호출).
+- 캐시버스터 `20260628-journal`→`20260628-uxfix`(`styles.css`, `app.js` 두 곳).
+- **검증**: `check:js` + `test:prices`/`test:price-fallback`/`test:cloud`/`test:cloud-prices`/`test:price-requests` 통과. 시드 데모 + 헤드리스 Chrome로 데스크톱 1440 / 모바일 390(CDP `Emulation.setDeviceMetricsOverride`) 재캡처 육안 확인 — 자산(제목·액션·필터 접힘/펼침), 포트폴리오(제목·앰버), 대시보드(직전 대비).
+- **실행 못한 검증**: `test:firestore` 생략(Rules·데이터 범위 미변경 + 에뮬레이터/Java 필요). 빈 상태·로그인 후 상태는 시드 데모로만 봐서 별도 미검증.
+- **커밋 분리 주의**: 이 커밋은 `app.js`/`index.html`/`styles.css`만. 작업 중 `deploy-pages.yml`·`AGENTS.md`·`CLAUDE.md`·`tests/app-cloud-prices`·`tests/app-cloud-sync`·`tests/app-prices`·`prompts/`가 다른 손(동시 도구/이전 세션)으로 미커밋 변경되어 있었고, 의도적으로 미포함.
+
 ## 방금 완료한 수정 (투자기록 개편 + 대시보드 박스 넘침, 커밋 7e89616 배포됨)
 - **매매일지 카드 개편** — 좌측 색 띠 제거(`.journal-card.review/.done` border-left 규칙 삭제, padding 16px 18px). 상태 배지를 `.journal-badge.status` 단일 → `.status-open`(파랑)/`.status-review`(주황)/`.status-done`(초록)로 분리. `renderJournal`이 `status-${status.toLowerCase()}` 클래스 출력. 매수/매도 배지는 중립(`--surface-3`). 이유·리스크·복기는 `<p><strong>` → `.journal-note > .journal-note-label + p`(키커+본문, 3줄 clamp). 빈 상태는 `.empty-state`(아이콘+안내+작성 유도)로 교체.
 - **실현손익 표 11→5열 통합** — `index.html` thead 5개(매도일·종목 / 수량·매도가 / 매도금액 / 실현손익 / 일지), `emptyRealizedTemplate` colspan 11→5. `renderRealizedRows`가 5 `<td>` 출력(종목+`.realized-sub`로 날짜·티커·계좌 묶음, 실현손익 ▲/▼ 부호·색). `styles.css` 끝에 `.journal-note*`/`.realized-sub`/`.realized-date`/`.realized-account`/`.realized-table table{min-width:640px}` 추가.
@@ -53,5 +77,13 @@
 - ~~비-자산 뷰 빈 `.workspace` 죽은 여백~~ — 완료. `.workspace`는 ASSETS 패널만 감싸는 단일 래퍼인데 `display:grid`라 안쪽 패널만 `hidden`되면 래퍼의 `margin-bottom:20px`가 남았음. `data-app-section="ASSETS"`를 안쪽 `.panel.ledger-panel` → `.workspace` 래퍼로 이동해, 비-자산 뷰에서 전역 `[hidden]{display:none!important}`로 래퍼째 제거. 포커스 타깃은 래퍼 하위 `자산 원장` h2를 그대로 탐색. `index.html` ~124.
 - ~~포트폴리오 목표 비중 막대화~~ — 완료(사용자 결정: 목표 비교만 막대로, 도넛 4개는 유지). 검토 결론: PORTFOLIO 도넛 4개는 계좌 분류/계좌별/상품 유형/국내·해외의 **다차원 분석**이라 막대로 통째 교체하면 정보 손실. 문서 권고 "가로 막대+목표 대비 차이"는 목표-실제 비교에 해당하므로, 목표 입력 아래 `renderRebalanceSummary`를 대시보드와 동일한 `.composition-*` 막대(현재%바 + 목표 마커 + 초과/부족 금액 톤 라벨 + "현재%·목표%·평가액" 메타)로 전환. 도넛 4종은 그대로. dead `.rebalance-row` CSS 제거(`.sensitivity-item`와 분리), `.rebalance-summary` gap 14px. 임시 prices.json + 4버킷 시드로 1280 헤드리스 검증(국내 초과/해외 부족 등 톤·마커·너비 확인).
 
+### 시각 부채 (다음에 정리)
+- "포트 분석" → "포트폴리오 분석" 카피(`index.html` PORTFOLIO 패널 h2).
+- 자산 화면 알림 배너 2개(US 가격 대기 + 가격표 상태)를 한 줄 상태바로 통합.
+- 모바일 목표 화면 조회 히스토리 표: 값 열(총자산·직전 대비·변동률)이 가로 스크롤 뒤로 숨어 날짜만 먼저 보임.
+- 모바일 자산 카드 길이 압축(종목당 카드가 길어 9종목 리스트가 매우 김).
+
 ### 디자인 검토 방식 (Figma 금지)
 시드 데이터 + Chrome 헤드리스 스크린샷으로 PC(1440/1280)/모바일(390/430) 실화면 검토. 큰 변경 전엔 정적 preview HTML로 먼저 시안.
+
+**모바일 폭 함정**: 헤드리스 `--window-size 390 ...`은 폭을 **500px로 강제 레이아웃한 뒤 390으로 잘라** 캡처한다 → 가짜 우측 클리핑·"하단 내비 탭 누락"처럼 보인다. 진짜 모바일 폭은 CDP `Emulation.setDeviceMetricsOverride({width:390, mobile:true, deviceScaleFactor:2})` + `Page.captureScreenshot({captureBeyondViewport:true})`로 봐야 정확하다.

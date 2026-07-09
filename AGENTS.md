@@ -45,6 +45,7 @@ AssetTrail은 개인 자산, 포트폴리오 변화, 투자 판단, 히스토리
 - 제품 결정 없이 Alpha Vantage, 수동 환율 입력, 통화 필드, 대량등록 흐름을 되살리지 않는다.
 - `.env`, 서비스 계정 JSON, private key, Firebase Admin 인증 정보, 로컬 백업, 생성 로그, `prices.json`, 의존성 폴더를 커밋하지 않는다.
 - 명시적인 마이그레이션 계획 없이 정적 GitHub Pages 구조를 바꾸지 않는다.
+- React·Tailwind·빌드도구·프레임워크를 제안하거나 도입하지 않는다. UI 제안은 항상 바닐라 HTML/CSS/JS로 한정한다.
 
 ## 변경 방식
 
