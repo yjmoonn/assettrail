@@ -36,6 +36,8 @@ window.HTMLCanvasElement.prototype.getContext = () => ({
   strokeRect() {}
 });
 
+window.HTMLElement.prototype.scrollIntoView = () => {};
+
 window.alert = (message) => {
   throw new Error(`Unexpected alert: ${message}`);
 };
@@ -150,6 +152,7 @@ function submitAsset() {
 
 assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드: alice@example.com");
 assert.equal(writes.filter((write) => write.path === "users/alice/financeData/primary").length, 0);
+window.document.querySelector('[data-nav-view="ASSETS"]').click();
 assert.doesNotMatch(window.document.querySelector("#assetRows").textContent, /게스트 로컬 자산/);
 assert.doesNotMatch(window.document.querySelector("#assetRows").textContent, /이전 계정 캐시/);
 

@@ -35,6 +35,8 @@ window.HTMLCanvasElement.prototype.getContext = () => ({
   strokeRect() {}
 });
 
+window.HTMLElement.prototype.scrollIntoView = () => {};
+
 window.alert = (message) => {
   throw new Error(`Unexpected alert: ${message}`);
 };
@@ -108,6 +110,7 @@ window.assetTrailFirebaseModules = {
 window.eval(appCode);
 await new Promise((resolve) => window.setTimeout(resolve, 30));
 
+window.document.querySelector('[data-nav-view="ASSETS"]').click();
 const rowText = window.document.querySelector("#assetRows").textContent.replace(/\s+/g, " ").trim();
 
 assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드: alice@example.com");

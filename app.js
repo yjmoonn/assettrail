@@ -1289,18 +1289,53 @@ function formatRetirementMoneyInput(input) {
   input.value = formatIntegerNumber(parseAmount(input.value));
 }
 
+const VIEW_RENDERERS = {
+  DASHBOARD: () => {
+    renderSummary();
+    renderDashboard();
+  },
+  ASSETS: () => {
+    renderAssets();
+    renderPriceNotice();
+  },
+  JOURNAL: () => {
+    renderJournal();
+    renderRealized();
+    renderInvestmentRecordTabs();
+  },
+  PORTFOLIO: () => {
+    renderBreakdown();
+  },
+  GOALS: () => {
+    renderHistory();
+    renderRetirement();
+  },
+  SETTINGS: () => {
+    renderSettingsSummary();
+  }
+};
+
+const dirtyViews = new Set();
+
+function markAllViewsDirty() {
+  APP_VIEWS.forEach((view) => dirtyViews.add(view));
+}
+
+function renderView(view) {
+  VIEW_RENDERERS[view]?.();
+  dirtyViews.delete(view);
+}
+
+function renderAllViews() {
+  markAllViewsDirty();
+  APP_VIEWS.forEach((view) => renderView(view));
+  setActiveView(uiState.activeView, { scroll: false });
+  persist();
+}
+
 function render(syncCloud = true) {
-  renderAssets();
-  renderJournal();
-  renderBreakdown();
-  renderRealized();
-  renderInvestmentRecordTabs();
-  renderPriceNotice();
-  renderHistory();
-  renderRetirement();
-  renderSummary();
-  renderDashboard();
-  renderSettingsSummary();
+  markAllViewsDirty();
+  renderView(uiState.activeView);
   setActiveView(uiState.activeView, { scroll: false });
   persist();
   if (syncCloud && cloud.docRef) {
@@ -1592,6 +1627,7 @@ function renderSettingsSummary() {
 
 function setActiveView(view, options = {}) {
   const nextView = APP_VIEWS.has(view) ? view : "DASHBOARD";
+  if (dirtyViews.has(nextView)) renderView(nextView);
   uiState.activeView = nextView;
   const heading = VIEW_HEADINGS[nextView] || VIEW_HEADINGS.DASHBOARD;
   if (els.pageTitle) els.pageTitle.textContent = heading.title;
@@ -4060,7 +4096,7 @@ window.addEventListener("resize", () => {
   cancelAnimationFrame(heroSparkResizeRaf);
   heroSparkResizeRaf = requestAnimationFrame(() => drawHeroSparkline());
 });
-render();
+renderAllViews();
 updateAuthUi();
 initPrices();
 initFirebase();

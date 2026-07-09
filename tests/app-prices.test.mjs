@@ -35,6 +35,8 @@ window.HTMLCanvasElement.prototype.getContext = () => ({
   strokeRect() {}
 });
 
+window.HTMLElement.prototype.scrollIntoView = () => {};
+
 window.alert = (message) => {
   throw new Error(`Unexpected alert: ${message}`);
 };
@@ -92,6 +94,8 @@ window.fetch = async () => ({
 
 window.eval(appCode);
 await new Promise((resolve) => window.setTimeout(resolve, 10));
+
+window.document.querySelector('[data-nav-view="ASSETS"]').click();
 
 function setValue(selector, value) {
   const element = window.document.querySelector(selector);
@@ -216,6 +220,7 @@ assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "1
 assert.match(window.document.querySelector("#assetRows").textContent, /현금/);
 setValue("#assetTypeFilter", "ALL");
 
+window.document.querySelector('[data-nav-view="GOALS"]').click();
 assert.match(window.document.querySelector("#historySummary").textContent, /기록 상태/);
 window.document.querySelector("#snapshotBtn").click();
 assert.match(window.document.querySelector("#historySummary").textContent, /기록 수/);
@@ -226,6 +231,7 @@ assert.equal(window.document.querySelector("#monthlyInvest").value, "1,500,000")
 assert.equal(window.document.querySelector("#postReturnRate").value, "4.5");
 assert.match(window.document.querySelector("#retirementProgressLabel").textContent, /%/);
 
+window.document.querySelector('[data-nav-view="DASHBOARD"]').click();
 assert.equal(window.document.querySelector("#priceStatus").textContent, "가격 5/19 09:00");
 assert.equal(window.document.querySelector("#totalAsset").textContent, "₩6,493,645");
 assert.match(rows.join("\n"), /삼성전자 005930 KRX 국내 삼성증권 15 ₩1,110,000종가 74,000 · 5월 18일 ▲ \+₩10,000/);
@@ -237,6 +243,7 @@ assert.match(rows.join("\n"), /청년 적금 MANUAL 수동 적금 계좌 - ₩2,
 assert.match(rows.join("\n"), /주택청약저축 MANUAL 수동 청약 계좌 - ₩300,000/);
 assert.match(rows.join("\n"), /IRP 대기자산 MANUAL 수동 IRP - ₩500,000/);
 assert.match(rows.join("\n"), /DC 대기자산 MANUAL 수동 DC - ₩700,000/);
+window.document.querySelector('[data-nav-view="PORTFOLIO"]').click();
 assert.match(window.document.querySelector("#categoryBreakdown").textContent, /계좌 분석/);
 assert.match(window.document.querySelector("#categoryBreakdown").textContent, /연금계좌/);
 assert.match(window.document.querySelector("#categoryBreakdown").textContent, /적금/);
@@ -269,6 +276,7 @@ assert.deepEqual(
   ]
 );
 
+window.document.querySelector('[data-nav-view="ASSETS"]').click();
 const appleRow = [...window.document.querySelectorAll("#assetRows tr")].find((row) =>
   row.textContent.includes("Apple Inc.")
 );
@@ -294,6 +302,7 @@ assert.equal(
   true
 );
 assert.equal(savedAfterSell.assets.find((asset) => asset.ticker === "AAPL").quantity, 1);
+window.document.querySelector('[data-nav-view="JOURNAL"]').click();
 assert.equal(window.document.querySelector("#realizedTabPanel").hidden, false);
 assert.equal(window.document.querySelector("#journalTabPanel").hidden, true);
 assert.match(window.document.querySelector("#realizedSummary").textContent, /누적 실현손익\s+₩24,500/);
