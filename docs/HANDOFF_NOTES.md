@@ -15,6 +15,13 @@
 - React/Tailwind 대전환은 단계적 검토 후. 변경은 작은 단위로.
 - 수정 후 `npm run check:js` + `npm run test:prices` (가능하면 `npm test`) 실행. `npm test`의 firestore `PERMISSION_DENIED` 로그는 규칙 검증의 정상 출력.
 
+## 방금 완료한 수정 (공식 프롬프트 자산 추가)
+- `prompts/`를 공식 프로젝트 자산으로 보고, AssetTrail 내보내기 JSON과 함께 쓰는 프롬프트 2개를 추가.
+- `prompts/포트폴리오-리뷰.md`: 자산배분, 집중도, 보유 자산 역할, 투자 행동과 성과 연결, 리밸런싱 우선순위 점검.
+- `prompts/은퇴가정-점검.md`: FIRE 관점의 은퇴 시점, 월 지출, 기대수익률, 물가, 인출률, 현금흐름 취약점 점검.
+- `prompts/README.md` 목록에 두 프롬프트를 공식 항목으로 추가.
+- 검증: `npm run check:js` 통과. 앱 코드 변경이 아니라 전체 테스트는 생략.
+
 ## 방금 완료한 수정 (성능·Firestore 비용 최적화 8단계, 커밋 e94de0b~2bb0782, 미푸시)
 - **키 입력당 클라우드 저장 버그 수정 (e94de0b)** — `addEventListener("input", render)`로 InputEvent가 `syncCloud` 인자에 들어가 은퇴·목표 비중 입력의 키 입력 1회 = setDoc 1회이던 버그. input→`render(false)`, change→`render()`로 분리.
 - **pushCloudData dirty-check (46047ee)** — `dataFingerprint` 비교로 동일 데이터면 setDoc 스킵(`upload` 방향은 강제). `syncPriceRequests`도 티커 목록 비교 스킵. 캐시는 `cloud.lastPushedFingerprint`/`lastSyncedPriceTickers`, 로그인 전환 시 리셋·pull 후 세팅.
