@@ -3615,7 +3615,7 @@ els.journalAssetId?.addEventListener("change", () => {
 
 els.journalFilter?.addEventListener("change", () => {
   uiState.journalFilter = els.journalFilter.value;
-  render(false);
+  renderJournal();
 });
 
 els.journalForm?.addEventListener("submit", (event) => {
@@ -3803,40 +3803,40 @@ els.assetTicker.addEventListener("change", fillAssetNameFromTicker);
 
 els.assetSearch.addEventListener("input", () => {
   uiState.assetSearch = els.assetSearch.value;
-  render(false);
+  renderAssets();
 });
 
 els.assetTypeFilter.addEventListener("change", () => {
   uiState.assetType = normalizeAssetType(els.assetTypeFilter.value);
   if (els.assetTypeFilter.value === "ALL") uiState.assetType = "ALL";
-  render(false);
+  renderAssets();
 });
 
 els.assetRegionSegment?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-region-filter]");
   if (!button) return;
   uiState.regionFilter = button.dataset.regionFilter || "ALL";
-  render(false);
+  renderAssets();
 });
 
 els.assetAccountFilter.addEventListener("change", () => {
   uiState.accountFilter = els.assetAccountFilter.value;
-  render(false);
+  renderAssets();
 });
 
 els.assetStatusFilter.addEventListener("change", () => {
   uiState.statusFilter = els.assetStatusFilter.value;
-  render(false);
+  renderAssets();
 });
 
 els.assetGainFilter.addEventListener("change", () => {
   uiState.gainFilter = els.assetGainFilter.value;
-  render(false);
+  renderAssets();
 });
 
 els.assetSort.addEventListener("change", () => {
   uiState.assetSort = els.assetSort.value;
-  render(false);
+  renderAssets();
 });
 
 els.ledgerFilterToggle?.addEventListener("click", () => {
@@ -3868,12 +3868,12 @@ els.dashboardSnapshotBtn?.addEventListener("click", () => {
 
 els.historyRange.addEventListener("change", () => {
   uiState.historyRange = els.historyRange.value;
-  render(false);
+  renderHistory();
 });
 
 els.realizedYearFilter?.addEventListener("change", () => {
   uiState.realizedYear = els.realizedYearFilter.value;
-  render(false);
+  renderRealized();
 });
 
 els.snapshotBtn.addEventListener("click", () => {
