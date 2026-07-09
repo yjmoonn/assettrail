@@ -3124,12 +3124,16 @@ function hideAssetForm() {
   }
 }
 
+function resetTradeForm({ form, idInput, preview, panel }) {
+  if (!form) return;
+  form.reset();
+  if (idInput) idInput.value = "";
+  if (preview) preview.textContent = "";
+  if (panel) panel.hidden = true;
+}
+
 function resetSellForm() {
-  if (!els.sellForm) return;
-  els.sellForm.reset();
-  if (els.sellAssetId) els.sellAssetId.value = "";
-  if (els.sellPreview) els.sellPreview.textContent = "";
-  hideSellForm();
+  resetTradeForm({ form: els.sellForm, idInput: els.sellAssetId, preview: els.sellPreview, panel: els.sellFormPanel });
 }
 
 function hideSellForm() {
@@ -3137,11 +3141,7 @@ function hideSellForm() {
 }
 
 function resetBuyForm() {
-  if (!els.buyForm) return;
-  els.buyForm.reset();
-  if (els.buyAssetId) els.buyAssetId.value = "";
-  if (els.buyPreview) els.buyPreview.textContent = "";
-  hideBuyForm();
+  resetTradeForm({ form: els.buyForm, idInput: els.buyAssetId, preview: els.buyPreview, panel: els.buyFormPanel });
 }
 
 function hideBuyForm() {
