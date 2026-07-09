@@ -89,7 +89,9 @@ let cloud = {
   docRef: null,
   enabled: false,
   ready: false,
-  user: null
+  user: null,
+  lastPushedFingerprint: null,
+  lastSyncedPriceTickers: null
 };
 let activeStorageKey = STORAGE_KEY;
 
@@ -583,6 +585,8 @@ async function completeCloudSignIn(user) {
   persist();
   cloud.user = user;
   cloud.docRef = null;
+  cloud.lastPushedFingerprint = null;
+  cloud.lastSyncedPriceTickers = null;
   activeStorageKey = storageKeyForUser(user);
   replaceState(loadState(activeStorageKey));
   render(false);
@@ -630,6 +634,7 @@ async function pullCloudData() {
     }
     replaceState(cloudData);
     state.meta.lastSyncDirection = "download";
+    cloud.lastPushedFingerprint = dataFingerprint(storageSafeState());
     render(false);
     await syncPriceRequests();
   } else {
@@ -644,9 +649,15 @@ async function pullCloudData() {
 
 async function pushCloudData(direction = "save") {
   if (!cloud.docRef) return;
+  const fingerprint = dataFingerprint(storageSafeState());
+  if (direction !== "upload" && fingerprint === cloud.lastPushedFingerprint) {
+    updateAuthUi();
+    return;
+  }
   setSyncStatus("클라우드 저장중", true);
   const payload = cloudSafeState();
   await cloud.setDoc(cloud.docRef, payload, { merge: true });
+  cloud.lastPushedFingerprint = fingerprint;
   state.meta.cloudUpdatedAt = payload.updatedAt;
   state.meta.lastSyncDirection = direction;
   persist();
@@ -691,6 +702,8 @@ async function syncPriceRequests() {
   if (!cloud.db || !cloud.user || !cloud.doc || !cloud.setDoc) return;
   const tickers = usTickersInState();
   if (!tickers.length) return;
+  const tickerKey = tickers.join(",");
+  if (tickerKey === cloud.lastSyncedPriceTickers) return;
 
   const ref = cloud.doc(cloud.db, "priceRequests", "us");
   const tickerValue = typeof cloud.arrayUnion === "function" ? cloud.arrayUnion(...tickers) : tickers;
@@ -698,6 +711,7 @@ async function syncPriceRequests() {
     tickers: tickerValue,
     updatedAt: new Date().toISOString()
   }, { merge: true });
+  cloud.lastSyncedPriceTickers = tickerKey;
 }
 
 function usTickersInState() {
