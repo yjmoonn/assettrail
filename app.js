@@ -1505,6 +1505,23 @@ function renderDashboard() {
   renderDashboardRecentList();
 }
 
+const PORTFOLIO_BUCKETS = [
+  { key: "domestic", label: "국내", type: "KRX" },
+  { key: "overseas", label: "해외", type: "US" },
+  { key: "cash", label: "현금", type: "CASH" },
+  { key: "manual", label: "수동", type: "MANUAL" }
+];
+
+function bucketTotals() {
+  const totals = { domestic: 0, overseas: 0, cash: 0, manual: 0 };
+  const keyByType = { KRX: "domestic", US: "overseas", CASH: "cash", MANUAL: "manual" };
+  state.assets.forEach((asset) => {
+    const key = keyByType[assetType(asset)];
+    if (key) totals[key] += assetValue(asset);
+  });
+  return totals;
+}
+
 function renderDashboardComposition() {
   if (!els.dashboardComposition) return;
   const total = totalAssets();
@@ -1513,18 +1530,10 @@ function renderDashboardComposition() {
     return;
   }
 
-  const buckets = [
-    { key: "domestic", label: "국내", type: "KRX" },
-    { key: "overseas", label: "해외", type: "US" },
-    { key: "cash", label: "현금", type: "CASH" },
-    { key: "manual", label: "수동", type: "MANUAL" }
-  ];
-
-  els.dashboardComposition.innerHTML = buckets
+  const totals = bucketTotals();
+  els.dashboardComposition.innerHTML = PORTFOLIO_BUCKETS
     .map((bucket) => {
-      const value = state.assets
-        .filter((asset) => assetType(asset) === bucket.type)
-        .reduce((sum, asset) => sum + assetValue(asset), 0);
+      const value = totals[bucket.key];
       const currentRate = total ? value / total : 0;
       const targetRate = Math.max(0, Number(state.portfolioTargets?.[bucket.key] || 0)) / 100;
       const diff = currentRate - targetRate;
@@ -1628,15 +1637,9 @@ function dashboardTasks() {
 function largestTargetGap() {
   const total = totalAssets();
   if (!total) return null;
-  const current = {
-    domestic: state.assets.filter((asset) => assetType(asset) === "KRX").reduce((sum, asset) => sum + assetValue(asset), 0),
-    overseas: state.assets.filter((asset) => assetType(asset) === "US").reduce((sum, asset) => sum + assetValue(asset), 0),
-    cash: state.assets.filter((asset) => assetType(asset) === "CASH").reduce((sum, asset) => sum + assetValue(asset), 0),
-    manual: state.assets.filter((asset) => assetType(asset) === "MANUAL").reduce((sum, asset) => sum + assetValue(asset), 0)
-  };
-  const labels = { domestic: "국내", overseas: "해외", cash: "현금", manual: "수동" };
-  return Object.entries(labels)
-    .map(([key, label]) => {
+  const current = bucketTotals();
+  return PORTFOLIO_BUCKETS
+    .map(({ key, label }) => {
       const currentRate = current[key] / total;
       const targetRate = Math.max(0, Number(state.portfolioTargets?.[key] || 0)) / 100;
       const rate = currentRate - targetRate;
@@ -2101,17 +2104,9 @@ function renderRebalanceSummary() {
     return;
   }
 
-  const buckets = [
-    { key: "domestic", label: "국내", type: "KRX" },
-    { key: "overseas", label: "해외", type: "US" },
-    { key: "cash", label: "현금", type: "CASH" },
-    { key: "manual", label: "수동", type: "MANUAL" }
-  ];
-
-  els.rebalanceSummary.innerHTML = buckets.map((bucket) => {
-    const value = state.assets
-      .filter((asset) => assetType(asset) === bucket.type)
-      .reduce((sum, asset) => sum + assetValue(asset), 0);
+  const totals = bucketTotals();
+  els.rebalanceSummary.innerHTML = PORTFOLIO_BUCKETS.map((bucket) => {
+    const value = totals[bucket.key];
     const currentRate = total ? value / total : 0;
     const targetRate = Math.max(0, Number(state.portfolioTargets[bucket.key] || 0)) / 100;
     const targetValue = total * targetRate;
