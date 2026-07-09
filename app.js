@@ -3021,54 +3021,53 @@ function localDateInputValue(date = new Date()) {
   return local.toISOString().slice(0, 10);
 }
 
+function toDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatWithDateFormatter(formatter, value) {
+  if (!value) return "";
+  const date = toDate(value);
+  return date ? formatter.format(date) : String(value);
+}
+
 function formatTradeDate(value) {
   if (!value) return "";
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return TRADE_DATE_FORMATTER.format(date);
+  const date = toDate(`${value}T00:00:00`);
+  return date ? TRADE_DATE_FORMATTER.format(date) : String(value);
 }
 
 function formatDate(value) {
   if (!value) return "없음";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return DATE_TIME_FORMATTER.format(date);
+  return formatWithDateFormatter(DATE_TIME_FORMATTER, value);
 }
 
 function shortDay(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
+  const date = toDate(value);
+  if (!date) return "";
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${m}.${d}`;
 }
 
 function shortDate(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return SHORT_DATE_FORMATTER.format(date);
+  return formatWithDateFormatter(SHORT_DATE_FORMATTER, value);
 }
 
 function chartDateLabel(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return CHART_DATE_FORMATTER.format(date);
+  return formatWithDateFormatter(CHART_DATE_FORMATTER, value);
 }
 
 function shortDateTime(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return SHORT_DATE_TIME_FORMATTER.format(date);
+  return formatWithDateFormatter(SHORT_DATE_TIME_FORMATTER, value);
 }
 
 function compactDateTime(value) {
   if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
+  const date = toDate(value);
+  if (!date) return String(value);
   const month = date.getMonth() + 1;
   const day = date.getDate();
   const hours = String(date.getHours()).padStart(2, "0");
