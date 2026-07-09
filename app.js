@@ -766,32 +766,61 @@ function usTickersInState() {
   )].sort();
 }
 
+const KRW_FORMATTER = new Intl.NumberFormat("ko-KR", {
+  style: "currency",
+  currency: "KRW",
+  maximumFractionDigits: 0
+});
+const USD_FORMATTER = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 2
+});
+const PLAIN_NUMBER_FORMATTER = new Intl.NumberFormat("ko-KR", {
+  maximumFractionDigits: 6
+});
+const INTEGER_NUMBER_FORMATTER = new Intl.NumberFormat("ko-KR", {
+  maximumFractionDigits: 0
+});
+const KO_COLLATOR = new Intl.Collator("ko-KR", { numeric: true, sensitivity: "base" });
+const TRADE_DATE_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
+  year: "numeric",
+  month: "short",
+  day: "numeric"
+});
+const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
+  dateStyle: "medium",
+  timeStyle: "short"
+});
+const SHORT_DATE_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
+  month: "short",
+  day: "numeric"
+});
+const CHART_DATE_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
+  month: "numeric",
+  day: "numeric"
+});
+const SHORT_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit"
+});
+
 function money(value) {
-  return new Intl.NumberFormat("ko-KR", {
-    style: "currency",
-    currency: "KRW",
-    maximumFractionDigits: 0
-  }).format(Number.isFinite(value) ? value : 0);
+  return KRW_FORMATTER.format(Number.isFinite(value) ? value : 0);
 }
 
 function usd(value) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2
-  }).format(Number.isFinite(value) ? value : 0);
+  return USD_FORMATTER.format(Number.isFinite(value) ? value : 0);
 }
 
 function formatPlainNumber(value) {
-  return new Intl.NumberFormat("ko-KR", {
-    maximumFractionDigits: 6
-  }).format(Number(value || 0));
+  return PLAIN_NUMBER_FORMATTER.format(Number(value || 0));
 }
 
 function formatIntegerNumber(value) {
-  return new Intl.NumberFormat("ko-KR", {
-    maximumFractionDigits: 0
-  }).format(Number(value || 0));
+  return INTEGER_NUMBER_FORMATTER.format(Number(value || 0));
 }
 
 function percent(value) {
@@ -1821,13 +1850,12 @@ function renderRegionSegment() {
 }
 
 function sortAssets(assets) {
-  const collator = new Intl.Collator("ko-KR", { numeric: true, sensitivity: "base" });
   return assets.sort((a, b) => {
     if (uiState.assetSort === "VALUE_ASC") return assetValue(a) - assetValue(b);
     if (uiState.assetSort === "GAIN_DESC") return (assetGain(b) ?? -Infinity) - (assetGain(a) ?? -Infinity);
     if (uiState.assetSort === "GAIN_ASC") return (assetGain(a) ?? Infinity) - (assetGain(b) ?? Infinity);
-    if (uiState.assetSort === "NAME_ASC") return collator.compare(a.name || "", b.name || "");
-    if (uiState.assetSort === "ACCOUNT_ASC") return collator.compare(a.account || "", b.account || "") || collator.compare(a.name || "", b.name || "");
+    if (uiState.assetSort === "NAME_ASC") return KO_COLLATOR.compare(a.name || "", b.name || "");
+    if (uiState.assetSort === "ACCOUNT_ASC") return KO_COLLATOR.compare(a.account || "", b.account || "") || KO_COLLATOR.compare(a.name || "", b.name || "");
     return assetValue(b) - assetValue(a);
   });
 }
@@ -3002,21 +3030,14 @@ function formatTradeDate(value) {
   if (!value) return "";
   const date = new Date(`${value}T00:00:00`);
   if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("ko-KR", {
-    year: "numeric",
-    month: "short",
-    day: "numeric"
-  }).format(date);
+  return TRADE_DATE_FORMATTER.format(date);
 }
 
 function formatDate(value) {
   if (!value) return "없음";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("ko-KR", {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(date);
+  return DATE_TIME_FORMATTER.format(date);
 }
 
 function shortDay(value) {
@@ -3032,32 +3053,21 @@ function shortDate(value) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("ko-KR", {
-    month: "short",
-    day: "numeric"
-  }).format(date);
+  return SHORT_DATE_FORMATTER.format(date);
 }
 
 function chartDateLabel(value) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("ko-KR", {
-    month: "numeric",
-    day: "numeric"
-  }).format(date);
+  return CHART_DATE_FORMATTER.format(date);
 }
 
 function shortDateTime(value) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("ko-KR", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(date);
+  return SHORT_DATE_TIME_FORMATTER.format(date);
 }
 
 function compactDateTime(value) {
