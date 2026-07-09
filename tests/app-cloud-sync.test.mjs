@@ -131,6 +131,7 @@ window.localStorage.setItem(
   })
 );
 
+window.assetTrailCloudPushDelayMs = 0;
 window.eval(appCode);
 await new Promise((resolve) => window.setTimeout(resolve, 20));
 

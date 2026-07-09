@@ -583,6 +583,7 @@ async function completeCloudSignIn(user) {
   if (cloud.user?.uid === user?.uid && cloud.docRef) return;
 
   persist();
+  cancelCloudPush();
   cloud.user = user;
   cloud.docRef = null;
   cloud.lastPushedFingerprint = null;
@@ -663,6 +664,47 @@ async function pushCloudData(direction = "save") {
   persist();
   await syncPriceRequests();
   updateAuthUi();
+}
+
+let cloudPushTimer = null;
+let cloudPushPending = false;
+
+function cloudPushDelayMs() {
+  const value = window.assetTrailCloudPushDelayMs;
+  return Number.isFinite(value) ? value : 2000;
+}
+
+function scheduleCloudPush() {
+  if (!cloud.docRef) return;
+  cloudPushPending = true;
+  if (cloudPushTimer !== null) window.clearTimeout(cloudPushTimer);
+  cloudPushTimer = window.setTimeout(() => {
+    cloudPushTimer = null;
+    flushCloudPush();
+  }, cloudPushDelayMs());
+}
+
+async function flushCloudPush() {
+  if (cloudPushTimer !== null) {
+    window.clearTimeout(cloudPushTimer);
+    cloudPushTimer = null;
+  }
+  if (!cloudPushPending || !cloud.docRef) return;
+  cloudPushPending = false;
+  try {
+    await pushCloudData();
+  } catch (error) {
+    console.error(error);
+    setSyncStatus("저장 실패");
+  }
+}
+
+function cancelCloudPush() {
+  cloudPushPending = false;
+  if (cloudPushTimer !== null) {
+    window.clearTimeout(cloudPushTimer);
+    cloudPushTimer = null;
+  }
 }
 
 function shouldWarnCloudConflict(cloudData) {
@@ -1262,10 +1304,7 @@ function render(syncCloud = true) {
   setActiveView(uiState.activeView, { scroll: false });
   persist();
   if (syncCloud && cloud.docRef) {
-    pushCloudData().catch((error) => {
-      console.error(error);
-      setSyncStatus("저장 실패");
-    });
+    scheduleCloudPush();
   }
 }
 
@@ -3712,6 +3751,7 @@ els.loginBtn.addEventListener("click", async () => {
 
 els.logoutBtn.addEventListener("click", async () => {
   if (!cloud.enabled) return;
+  await flushCloudPush();
   await cloud.signOut(cloud.auth);
   await completeCloudSignIn(null);
 });
@@ -3719,12 +3759,21 @@ els.logoutBtn.addEventListener("click", async () => {
 els.cloudSyncBtn.addEventListener("click", async () => {
   if (!cloud.docRef) return;
   try {
+    await flushCloudPush();
     await pullCloudData();
     setSyncStatus("동기화 완료", true);
   } catch (error) {
     console.error(error);
     setSyncStatus("동기화 실패");
   }
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushCloudPush();
+});
+
+window.addEventListener("pagehide", () => {
+  flushCloudPush();
 });
 
 document.addEventListener("click", (event) => {
