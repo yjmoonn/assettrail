@@ -2218,41 +2218,43 @@ tbody tr:last-child td {
     flex: 1 1 150px;
   }
 
+  /* 모바일 상단바 압축: 부제 숨김, 상태·버튼을 가로 배치해 첫 화면 점유 최소화 */
   .topbar {
-    gap: 18px;
+    gap: 10px;
     border-radius: var(--radius-lg);
-    padding: 20px;
+    padding: 16px;
   }
 
   .eyebrow {
-    font-size: 20px;
-    margin-bottom: 10px;
+    font-size: 13px;
+    margin-bottom: 2px;
   }
 
   h1 {
-    font-size: 32px;
+    font-size: 24px;
     white-space: normal;
   }
 
+  .topbar-copy {
+    display: none;
+  }
+
   .status-cluster {
-    display: grid;
+    display: flex;
+    flex-wrap: wrap;
     gap: 0;
-    grid-template-columns: 1fr;
-    padding: 8px 12px;
+    padding: 4px 10px;
     width: 100%;
   }
 
   .sync-status {
+    flex: 1 1 0;
     justify-content: center;
     max-width: none;
-    min-height: 28px;
-    padding: 4px 8px;
+    min-height: 26px;
+    min-width: 0;
+    padding: 3px 6px;
     text-align: center;
-  }
-
-  .sync-status + .sync-status {
-    border-left: 0;
-    border-top: 1px solid var(--line);
   }
 
   .action-cluster > * {
@@ -2268,9 +2270,9 @@ tbody tr:last-child td {
 
   .topbar .ghost-button,
   .topbar .import-label {
-    font-size: 14px;
-    height: 42px;
-    min-height: 42px;
+    font-size: 13.5px;
+    height: 38px;
+    min-height: 38px;
   }
 
   .status-cluster,
