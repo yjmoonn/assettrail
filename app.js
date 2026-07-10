@@ -1233,7 +1233,7 @@ function regionLabel(asset) {
   const type = assetType(asset);
   if (type === "KRX") return "국내";
   if (type === "US") return "해외";
-  return "기타";
+  return "현금·수동";
 }
 
 function regionCodeForType(type) {
@@ -2269,7 +2269,7 @@ function renderJournal() {
         <button class="table-action quiet-action" type="button" data-journal-action="copy-ai" data-id="${entry.id}">AI 질문 복사</button>
         ${linkedTrade ? `<button class="table-action quiet-action" type="button" data-journal-action="view-realized" data-id="${entry.id}">손익 보기</button>` : ""}
         <button class="table-action quiet-action" type="button" data-journal-action="edit" data-id="${entry.id}">수정</button>
-        <button class="table-action danger-action" type="button" data-journal-action="delete" data-id="${entry.id}">삭제</button>
+        <button class="table-action quiet-action" type="button" data-journal-action="delete" data-id="${entry.id}">삭제</button>
       </div>
     `;
     els.journalList.append(card);
@@ -2633,9 +2633,10 @@ function renderHistory() {
       const previous = reversed[index + 1];
       const change = previous ? snapshot.total - previous.total : 0;
       const rate = previous ? deltaRate(snapshot.total, previous.total) : 0;
+      const when = historyDateParts(snapshot.createdAt);
       const row = document.createElement("tr");
       row.innerHTML = `
-        <td>${formatDate(snapshot.createdAt)}</td>
+        <td class="history-when">${escapeHtml(when.day)}${when.time ? `<small>${escapeHtml(when.time)}</small>` : ""}</td>
         <td class="number">${money(snapshot.total)}</td>
         <td class="number ${change > 0 ? "positive" : change < 0 ? "negative" : ""}">${change > 0 ? "+" : ""}${money(change)}</td>
         <td class="number ${rate > 0 ? "positive" : rate < 0 ? "negative" : ""}">${rate > 0 ? "+" : ""}${percent(rate)}</td>
@@ -2646,6 +2647,15 @@ function renderHistory() {
     });
   }
   drawChart(snapshots);
+}
+
+function historyDateParts(value) {
+  const date = toDate(value);
+  if (!date) return { day: String(value || ""), time: "" };
+  const day = `${date.getFullYear()}. ${date.getMonth() + 1}. ${date.getDate()}.`;
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return { day, time: `${hours}:${minutes}` };
 }
 
 function filteredHistorySnapshots() {
