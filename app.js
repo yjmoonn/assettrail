@@ -1769,6 +1769,12 @@ function renderAssetCard(asset, gain, gainRate, valueDetail, buyButton, sellButt
   const card = document.createElement("article");
   card.className = "asset-card";
   card.dataset.id = asset.id;
+  const gainText = gain === null
+    ? ""
+    : `${gain > 0 ? "+" : ""}${money(gain)}${gainRate ? ` (${gainRate > 0 ? "+" : ""}${percent(gainRate)})` : ""}`;
+  const metaParts = [];
+  if (asset.ticker) metaParts.push(`<span><b>${escapeHtml(asset.ticker)}</b></span>`);
+  if (asset.quantity) metaParts.push(`<span>수량 ${formatPlainNumber(asset.quantity)}</span>`);
   card.innerHTML = `
     <div class="asset-card-head">
       <div>
@@ -1778,18 +1784,16 @@ function renderAssetCard(asset, gain, gainRate, valueDetail, buyButton, sellButt
       <span class="badge">${escapeHtml(assetTypeLabel(asset))}</span>
     </div>
     <div class="asset-card-value">
-      <span>평가금액</span>
-      <strong>${money(assetValue(asset))}</strong>
+      <div class="asset-card-value-row">
+        <strong>${money(assetValue(asset))}</strong>
+        ${gainText ? `<span class="asset-card-gain ${gainTone}">${gainText}</span>` : ""}
+      </div>
       ${valueDetail}
     </div>
-    <div class="asset-card-meta">
-      <span>${asset.ticker ? `<b>${escapeHtml(asset.ticker)}</b>` : "티커 없음"}</span>
-      <span>수량 ${asset.quantity ? formatPlainNumber(asset.quantity) : "-"}</span>
-      <span class="${gainTone}">손익 ${gain === null ? "-" : `${gain > 0 ? "+" : ""}${money(gain)}${gainRate ? ` (${gainRate > 0 ? "+" : ""}${percent(gainRate)})` : ""}`}</span>
-    </div>
+    ${metaParts.length ? `<div class="asset-card-meta">${metaParts.join("")}</div>` : ""}
     ${asset.note ? `<p class="asset-card-note">${escapeHtml(asset.note)}</p>` : ""}
     <div class="asset-card-actions">
-      ${isMarketType(type) ? `${buyButton}${sellButton || `<button class="text-icon-button disabled-action" type="button" disabled>매도</button>`}` : `<button class="text-icon-button disabled-action" type="button" disabled>잠금</button>`}
+      ${isMarketType(type) ? `${buyButton}${sellButton}` : ""}
       ${journalButton}
       <button class="table-action quiet-action" type="button" data-action="detail" data-id="${asset.id}">상세</button>
     </div>
