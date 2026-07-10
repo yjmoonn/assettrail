@@ -1028,6 +1028,21 @@ textarea {
   padding: 11px 12px;
 }
 
+/* 가격표 상태 줄: 정상은 조용한 회색, 문제(오류·오래된 가격)일 때만 경고색 */
+.ops-status {
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.ops-status.has-issues {
+  background: var(--amber-2);
+  border-color: #fde68a;
+  color: #92400e;
+  font-weight: 700;
+}
+
 .app-notice {
   align-items: center;
   display: flex;

@@ -1947,12 +1947,20 @@ function renderOpsStatus() {
   }
   const errorCount = Array.isArray(priceBook.errors) ? priceBook.errors.length : 0;
   const fx = priceBook.fx?.USDKRW;
+  const staleDays = daysSince(priceBook.generatedAt);
+  const fxDays = daysSince(fx?.date);
+  const hasIssues = errorCount > 0
+    || !priceBook.generatedAt
+    || (Number.isFinite(staleDays) && staleDays > PRICE_STALE_DAYS)
+    || !fx?.rate
+    || (Number.isFinite(fxDays) && fxDays > PRICE_STALE_DAYS);
   const items = [
     `가격표 ${priceBook.generatedAt ? shortDateTime(priceBook.generatedAt) : "생성일 없음"}`,
     `오류 ${errorCount}건`,
     fx?.rate ? `환율 ${formatPlainNumber(fx.rate)}원${fx.date ? ` · ${shortDate(fx.date)}` : ""}` : "환율 없음"
   ];
   els.opsStatus.hidden = false;
+  els.opsStatus.classList.toggle("has-issues", hasIssues);
   els.opsStatus.textContent = items.join(" · ");
 }
 
