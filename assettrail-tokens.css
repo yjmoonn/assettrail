@@ -32,9 +32,9 @@
   --slate-950: #020617;
 
   /* ---- Semantic — 상승 / 하락 / 주의 / 정보 / 보조강조 ---- */
-  --up-50:   #ecfdf5;   --up-100: #d1fae5;   --up-600: #059669;   --up-700: #047857;   /* 상승·긍정 */
-  --down-50: #fef2f2;   --down-100:#fee2e2;  --down-600:#dc2626;   --down-700:#b91c1c;   /* 하락·위험 */
-  --warn-50: #fffbeb;   --warn-100:#fef3c7;  --warn-600:#d97706;   --warn-700:#b45309;   /* 주의 */
+  --up-50:   #ecfdf5;   --up-100: #d1fae5;   --up-200: #a7f3d0;   --up-600: #059669;   --up-700: #047857;   /* 상승·긍정 */
+  --down-50: #fef2f2;   --down-100:#fee2e2;  --down-200:#fecaca;  --down-600:#dc2626;   --down-700:#b91c1c;   /* 하락·위험 */
+  --warn-50: #fffbeb;   --warn-100:#fef3c7;  --warn-200:#fde68a;  --warn-600:#d97706;   --warn-700:#b45309;  --warn-800:#92400e;   /* 주의 */
   --info-50: #eff6ff;   --info-100:#dbeafe;  --info-600:#2563eb;   --info-700:#1d4ed8;   /* 정보 = 브랜드 블루 */
   --accent2-50:#f5f3ff; --accent2-100:#ede9fe;--accent2-600:#8b5cf6;--accent2-700:#7c3aed;/* 보조 강조 */
 

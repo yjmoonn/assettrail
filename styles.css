@@ -19,7 +19,7 @@ body {
   margin: 0;
   background:
     radial-gradient(circle at 18% 0%, rgba(37, 99, 235, 0.08), transparent 34%),
-    linear-gradient(180deg, #fbfdff 0%, var(--bg) 360px),
+    linear-gradient(180deg, var(--surface-2) 0%, var(--bg) 360px),
     var(--bg);
   color: var(--ink);
   font-family: "Pretendard Variable", Pretendard, "Segoe UI", "Malgun Gothic", Arial, sans-serif;
@@ -170,7 +170,7 @@ h3 {
 
 .status-cluster {
   align-items: center;
-  background: #f8fbff;
+  background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 18px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
@@ -241,12 +241,12 @@ h3 {
 
 .primary-button {
   background: var(--blue);
-  color: #fff;
+  color: var(--surface);
   box-shadow: 0 14px 28px rgba(37, 99, 235, 0.20);
 }
 
 .primary-button:hover {
-  background: #1d4ed8;
+  background: var(--brand-hover);
   transform: translateY(-1px);
 }
 
@@ -254,14 +254,14 @@ h3 {
 .icon-button,
 .text-icon-button,
 .table-action {
-  background: #fff;
+  background: var(--surface);
   border-color: var(--line);
   color: var(--ink);
   box-shadow: none;
 }
 
 .topbar .ghost-button {
-  background: #fff;
+  background: var(--surface);
   border-color: var(--line);
   color: var(--slate);
   cursor: pointer;
@@ -283,7 +283,7 @@ h3 {
 .icon-button:hover,
 .text-icon-button:hover,
 .table-action:hover {
-  background: #f7fbff;
+  background: var(--surface-2);
   transform: translateY(-1px);
 }
 
@@ -351,7 +351,7 @@ h3 {
 .settings-button.active {
   background: var(--ink);
   border-color: var(--ink);
-  color: #fff;
+  color: var(--surface);
 }
 
 .app-nav-item:hover {
@@ -362,7 +362,7 @@ h3 {
 .app-nav-item.active {
   background: var(--ink);
   box-shadow: 0 16px 28px rgba(15, 23, 42, 0.14);
-  color: #fff;
+  color: var(--surface);
 }
 
 .dashboard-panel {
@@ -388,8 +388,8 @@ h3 {
 }
 
 .attention-card {
-  background: #fff7ed;
-  border-color: #fed7aa;
+  background: var(--warn-50);
+  border-color: var(--warn-200);
 }
 
 .card-kicker,
@@ -688,12 +688,12 @@ h3 {
 .primary-metric {
   background: var(--ink);
   border-color: var(--ink);
-  color: #fff;
+  color: var(--surface);
 }
 
 .primary-metric span,
 .primary-metric small {
-  color: #c7d3df;
+  color: var(--slate-300);
 }
 
 .metric span,
@@ -765,7 +765,7 @@ h3 {
 .panel h2::before {
   align-items: center;
   background: var(--blue-2);
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--blue-100);
   border-radius: 12px;
   content: "";
   display: inline-flex;
@@ -841,7 +841,7 @@ h3 {
 .buy-preview,
 .sell-preview {
   align-self: end;
-  background: #ffffff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 16px;
   color: var(--muted);
@@ -863,7 +863,7 @@ h3 {
 
 .checkbox-field {
   align-items: center;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 16px;
   color: var(--slate);
@@ -898,7 +898,7 @@ label {
 input,
 select,
 textarea {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 14px;
   color: var(--ink);
@@ -916,7 +916,7 @@ textarea:focus {
 }
 
 input:disabled {
-  background: #eef2f5;
+  background: var(--surface-3);
   color: var(--muted);
 }
 
@@ -994,7 +994,7 @@ textarea {
 .segment-button.active {
   background: var(--blue);
   box-shadow: 0 10px 22px rgba(37, 99, 235, 0.16);
-  color: #fff;
+  color: var(--surface);
 }
 
 .toolbar-field {
@@ -1018,9 +1018,9 @@ textarea {
 
 .notice {
   background: var(--amber-2);
-  border: 1px solid #fde68a;
+  border: 1px solid var(--warn-200);
   border-radius: 16px;
-  color: #92400e;
+  color: var(--warn-800);
   font-size: 13px;
   font-weight: 700;
   line-height: 1.45;
@@ -1038,8 +1038,8 @@ textarea {
 
 .ops-status.has-issues {
   background: var(--amber-2);
-  border-color: #fde68a;
-  color: #92400e;
+  border-color: var(--warn-200);
+  color: var(--warn-800);
   font-weight: 700;
 }
 
@@ -1055,7 +1055,7 @@ textarea {
 }
 
 .table-wrap {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 20px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
@@ -1099,7 +1099,7 @@ th {
 }
 
 tbody tr:hover {
-  background: #f8fafc;
+  background: var(--surface-2);
 }
 
 tbody tr:last-child td {
@@ -1156,7 +1156,7 @@ tbody tr:last-child td {
 
 .text-icon-button {
   background: var(--blue-2);
-  border-color: #dbeafe;
+  border-color: var(--blue-100);
   color: var(--blue);
   font-size: 13px;
   height: 36px;
@@ -1166,8 +1166,8 @@ tbody tr:last-child td {
 }
 
 .text-icon-button.buy-action {
-  background: #ecfdf5;
-  border-color: #bbf7d0;
+  background: var(--up-50);
+  border-color: var(--up-200);
   color: var(--green);
 }
 
@@ -1180,19 +1180,19 @@ tbody tr:last-child td {
 }
 
 .quiet-action {
-  background: #fff;
+  background: var(--surface);
   border-color: var(--line);
   color: var(--slate);
 }
 
 .danger-action {
   background: var(--red-2);
-  border-color: #fecaca;
+  border-color: var(--down-200);
   color: var(--red);
 }
 
 .disabled-action {
-  background: #f5f7fa;
+  background: var(--surface-2);
   border-color: var(--line);
   color: var(--muted);
 }
@@ -1335,7 +1335,7 @@ tbody tr:last-child td {
 
 .badge {
   background: var(--blue-2);
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--blue-100);
   border-radius: 999px;
   color: var(--blue);
   display: inline-flex;
@@ -1401,7 +1401,7 @@ tbody tr:last-child td {
 }
 
 .record-tab.active {
-  background: #fff;
+  background: var(--surface);
   box-shadow: var(--shadow-flat);
   color: var(--blue);
 }
@@ -1436,7 +1436,7 @@ tbody tr:last-child td {
 
 .journal-list,
 .realized-table {
-  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-color: var(--slate-300) transparent;
   scrollbar-width: thin;
 }
 
@@ -1448,7 +1448,7 @@ tbody tr:last-child td {
 
 .journal-list::-webkit-scrollbar-thumb,
 .realized-table::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--slate-300);
   background-clip: padding-box;
   border: 3px solid transparent;
   border-radius: 999px;
@@ -1587,7 +1587,7 @@ tbody tr:last-child td {
 }
 
 .journal-tags span {
-  background: #f8fbff;
+  background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--muted);
@@ -1650,7 +1650,7 @@ tbody tr:last-child td {
 .breakdown-icon {
   align-items: center;
   background: var(--blue-2);
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--blue-100);
   border-radius: 14px;
   color: var(--blue);
   display: inline-flex;
@@ -1864,7 +1864,7 @@ tbody tr:last-child td {
 }
 
 .realized-chart {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   display: grid;
@@ -1946,7 +1946,7 @@ tbody tr:last-child td {
 }
 
 .retirement-progress {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   display: grid;
@@ -1966,7 +1966,7 @@ tbody tr:last-child td {
 }
 
 .progress-track {
-  background: #e5edf7;
+  background: var(--surface-3);
   border-radius: 999px;
   height: 12px;
   overflow: hidden;
@@ -1993,7 +1993,7 @@ tbody tr:last-child td {
 }
 
 .target-panel {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   display: grid;
@@ -2014,7 +2014,7 @@ tbody tr:last-child td {
 }
 
 .sensitivity-item {
-  background: #f8fbff;
+  background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 16px;
   display: grid;
@@ -2052,7 +2052,7 @@ tbody tr:last-child td {
 }
 
 .result {
-  background: #fff;
+  background: var(--surface);
   min-width: 0;
   padding: 16px;
 }
