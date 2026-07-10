@@ -2690,6 +2690,10 @@ h3 { font-weight: 700; }
 .today-card .dashboard-checklist { grid-template-columns: 1fr 1fr; }
 
 .goal-card { gap: 10px; }
+.goal-empty-guide { color: var(--muted); font-size: 13px; font-weight: 600; line-height: 1.5; }
+.goal-card.goal-unset .goal-progress-value,
+.goal-card.goal-unset .goal-progress-track,
+.goal-card.goal-unset .goal-stats { display: none; }
 .goal-progress-value { font-size: 30px; font-weight: 800; line-height: 1.1; color: var(--ink); font-variant-numeric: tabular-nums; }
 .goal-progress-track { height: 10px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
 .goal-progress-fill { display: block; height: 100%; width: 0%; border-radius: 999px; background: var(--blue); transition: width 360ms cubic-bezier(0.16, 1, 0.3, 1); }

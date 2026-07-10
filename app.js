@@ -138,6 +138,8 @@ const els = {
   dashboardPortfolioFocus: document.querySelector("#dashboardPortfolioFocus"),
   dashboardGoalProgress: document.querySelector("#dashboardGoalProgress"),
   dashboardGoalBar: document.querySelector("#dashboardGoalBar"),
+  dashboardGoalCard: document.querySelector("#dashboardGoalCard"),
+  dashboardGoalGuide: document.querySelector("#dashboardGoalGuide"),
   dashboardComposition: document.querySelector("#dashboardComposition"),
   dashboardRecentList: document.querySelector("#dashboardRecentList"),
   settingsCloudStatus: document.querySelector("#settingsCloudStatus"),
@@ -1491,6 +1493,10 @@ function renderDashboard() {
         .join("")
     : `<li class="check-card check-card-ok"><span class="check-icon kind-ok" aria-hidden="true">✓</span><div class="check-text"><strong>모두 정상이에요</strong><span>가격, 목표 비중, 복기 기록이 안정적인 상태예요.</span></div></li>`;
 
+  const configured = retirementConfigured();
+  if (els.dashboardGoalCard) els.dashboardGoalCard.classList.toggle("goal-unset", !configured);
+  if (els.dashboardGoalGuide) els.dashboardGoalGuide.hidden = configured;
+
   const retirement = calculateRetirement(state.retirement);
   if (retirement?.nestEgg) {
     const progress = Math.max(0, Math.min(1, Number(state.retirement.currentInvestable || 0) / retirement.nestEgg));
@@ -1503,6 +1509,12 @@ function renderDashboard() {
 
   renderDashboardComposition();
   renderDashboardRecentList();
+}
+
+function retirementConfigured() {
+  const defaults = defaultState().retirement;
+  const current = state.retirement || {};
+  return Object.keys(defaults).some((key) => Number(current[key]) !== Number(defaults[key]));
 }
 
 const PORTFOLIO_BUCKETS = [
