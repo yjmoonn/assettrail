@@ -15,6 +15,12 @@
 - React/Tailwind 대전환은 단계적 검토 후. 변경은 작은 단위로.
 - 수정 후 `npm run check:js` + `npm run test:prices` (가능하면 `npm test`) 실행. `npm test`의 firestore `PERMISSION_DENIED` 로그는 규칙 검증의 정상 출력.
 
+## 방금 완료한 수정 (디자인 3차: 색·크기 토큰 일원화, 커밋 8682441·ed7b402, dev 미푸시)
+- **색상 (8682441)** — styles.css의 hex 42곳(20종)을 전부 토큰 참조로 치환, 잔여 hex 0. 흰색 계열 7종→surface 토큰 수렴. 토큰 신설: `--up-200`(#a7f3d0)·`--down-200`(#fecaca)·`--warn-200`(#fde68a)·`--warn-800`(#92400e). 근사 치환(±색조 미세): #fed7aa→warn-200, #f8fbff류→surface-2, #eef2f5/#e5edf7→surface-3, #c7d3df→slate-300. rgba/그라디언트는 범위 제외.
+- **크기 (ed7b402)** — font-size 98곳 토큰화. 신설 `--fs-caption-sm`(12px), `--fs-h2` 24→20px(방향 B 기준으로 토큰을 현실에 맞춤). 임의 half값(10.5/11.5/12.5/13.5/14.5)과 10px·16px은 최근접 토큰으로 정규화(최대 1px). **잔여**: 22/24/26/30px 통계 숫자 + hero clamp 2곳 — 통계 스케일 토큰은 추후. font-weight 650/750 비표준 2곳, spacing(--space-*) 일원화도 미착수.
+- **캐시 주의**: styles.css의 `@import "./assettrail-tokens.css?v=..."`에 버전 쿼리 추가 — 토큰 파일 갱신 시 이 버전도 같이 올려야 함(index.html의 ?v=와 별개). 현재 `20260710-tokens`.
+- **검증**: npm test 전체 통과 + 전 화면 재캡처 육안 비교(시각 회귀 없음).
+
 ## 방금 완료한 수정 (디자인 2차: P1 + 데스크톱 밀도 1단계, 커밋 53b6b31~615d0dc, dev 미푸시)
 - **모바일 상단바 압축 (53b6b31)** — 720px 이하에서 제목 32→24px, 장식 부제(`.topbar-copy`) 숨김, 상태 표시 세로 쌓기→가로 배치, 버튼 42→38px. 상단바 점유 약 절반으로.
 - **조회 기록 날짜 분리 (45091e7)** — `historyDateParts()`로 날짜(YYYY. M. D.)와 시간(HH:MM)을 `.history-when`+`small`로 분리. 데스크톱 한 줄, 모바일은 시간 숨김. 3줄 줄바꿈 해소.
