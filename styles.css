@@ -120,8 +120,8 @@ h1 {
 h2 {
   align-items: center;
   display: inline-flex;
-  font-size: 23px;
-  gap: 9px;
+  font-size: 20px;
+  gap: 8px;
   line-height: 1.2;
 }
 
@@ -384,7 +384,7 @@ h3 {
   display: grid;
   gap: 10px;
   min-width: 0;
-  padding: 18px;
+  padding: 16px;
 }
 
 .attention-card {
@@ -677,7 +677,7 @@ h3 {
   box-shadow: var(--shadow-flat);
   min-width: 0;
   overflow: hidden;
-  padding: 22px;
+  padding: 18px;
   position: relative;
 }
 
@@ -740,7 +740,7 @@ h3 {
   box-shadow: var(--shadow-soft);
   min-width: 0;
   overflow: hidden;
-  padding: 24px;
+  padding: 20px;
 }
 
 .workspace > * {
@@ -1083,7 +1083,7 @@ table {
 th,
 td {
   border-bottom: 1px solid rgba(220, 232, 246, 0.78);
-  padding: 15px 16px;
+  padding: 12px 14px;
   text-align: left;
   vertical-align: middle;
 }
@@ -2667,7 +2667,7 @@ h3 { font-weight: 700; }
   border: 1px solid var(--line);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-soft);
-  padding: 26px 28px;
+  padding: 22px 24px;
   margin-bottom: 14px;
 }
 .hero-main { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
