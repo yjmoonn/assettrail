@@ -1800,6 +1800,16 @@ tbody tr:last-child td {
   overflow: auto;
 }
 
+.history-when {
+  white-space: nowrap;
+}
+
+.history-when small {
+  color: var(--muted);
+  font-weight: 600;
+  margin-left: 6px;
+}
+
 .history-summary {
   display: grid;
   gap: 12px;
@@ -2391,6 +2401,10 @@ tbody tr:last-child td {
   .history-table td {
     font-size: 12.5px;
     padding: 10px 8px;
+  }
+
+  .history-when small {
+    display: none;
   }
 
   .asset-form-panel,
