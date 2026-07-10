@@ -1233,7 +1233,7 @@ function regionLabel(asset) {
   const type = assetType(asset);
   if (type === "KRX") return "국내";
   if (type === "US") return "해외";
-  return "기타";
+  return "현금·수동";
 }
 
 function regionCodeForType(type) {
@@ -2269,7 +2269,7 @@ function renderJournal() {
         <button class="table-action quiet-action" type="button" data-journal-action="copy-ai" data-id="${entry.id}">AI 질문 복사</button>
         ${linkedTrade ? `<button class="table-action quiet-action" type="button" data-journal-action="view-realized" data-id="${entry.id}">손익 보기</button>` : ""}
         <button class="table-action quiet-action" type="button" data-journal-action="edit" data-id="${entry.id}">수정</button>
-        <button class="table-action danger-action" type="button" data-journal-action="delete" data-id="${entry.id}">삭제</button>
+        <button class="table-action quiet-action" type="button" data-journal-action="delete" data-id="${entry.id}">삭제</button>
       </div>
     `;
     els.journalList.append(card);
