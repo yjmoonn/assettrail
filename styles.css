@@ -1,6 +1,6 @@
 /* 폰트 + AssetTrail 디자인 토큰. @import 는 반드시 파일 최상단에 위치해야 합니다. */
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css");
-@import url("./assettrail-tokens.css");
+@import url("./assettrail-tokens.css?v=20260710-tokens");
 
 /* 토큰은 assettrail-tokens.css 가 정의합니다.
    기존 변수(--blue, --ink, --green …)는 그 파일의 'Legacy aliases' 블록이
@@ -111,7 +111,7 @@ p {
 }
 
 h1 {
-  font-size: clamp(34px, 2.6vw, 48px);
+  font-size: clamp(var(--fs-h1), 2.6vw, var(--fs-display));
   letter-spacing: 0;
   line-height: 1.08;
   white-space: nowrap;
@@ -120,20 +120,20 @@ h1 {
 h2 {
   align-items: center;
   display: inline-flex;
-  font-size: 20px;
+  font-size: var(--fs-h2);
   gap: 8px;
   line-height: 1.2;
 }
 
 h3 {
-  font-size: 15px;
+  font-size: var(--fs-body);
   line-height: 1.2;
   margin: 0;
 }
 
 .topbar-copy {
   color: var(--muted);
-  font-size: 16px;
+  font-size: var(--fs-body);
   line-height: 1.5;
   margin-top: 12px;
 }
@@ -191,7 +191,7 @@ h3 {
   border-radius: 0;
   color: var(--slate);
   display: inline-flex;
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 600;
   box-shadow: none;
   line-height: 1.25;
@@ -265,7 +265,7 @@ h3 {
   border-color: var(--line);
   color: var(--slate);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--fs-body-sm);
   font-weight: 600;
   height: 40px;
   line-height: 1;
@@ -274,7 +274,7 @@ h3 {
 }
 
 .import-label {
-  font-size: 14px;
+  font-size: var(--fs-body-sm);
   font-weight: 600;
   line-height: 1;
 }
@@ -315,7 +315,7 @@ h3 {
   color: var(--muted);
   display: inline-flex;
   flex: 1 1 0;
-  font-size: 14px;
+  font-size: var(--fs-body-sm);
   font-weight: 700;
   gap: 8px;
   justify-content: center;
@@ -395,7 +395,7 @@ h3 {
 .card-kicker,
 .settings-card > span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-label);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -403,7 +403,7 @@ h3 {
 
 .journey-card h3 {
   color: var(--ink);
-  font-size: 15px;
+  font-size: var(--fs-body);
 }
 
 .journey-card strong,
@@ -418,7 +418,7 @@ h3 {
 .journey-card small,
 .settings-card p {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-caption);
   font-weight: 750;
   line-height: 1.45;
 }
@@ -451,7 +451,7 @@ h3 {
   border-radius: 11px;
   display: inline-flex;
   flex: 0 0 auto;
-  font-size: 15px;
+  font-size: var(--fs-body);
   font-weight: 800;
   height: 34px;
   justify-content: center;
@@ -467,12 +467,12 @@ h3 {
 .dashboard-checklist .check-text { display: grid; gap: 3px; min-width: 0; }
 
 .dashboard-checklist strong {
-  font-size: 13px;
+  font-size: var(--fs-caption);
 }
 
 .dashboard-checklist span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 750;
   line-height: 1.35;
 }
@@ -481,7 +481,7 @@ h3 {
   background: transparent;
   border: 0;
   color: var(--blue);
-  font-size: 13px;
+  font-size: var(--fs-caption);
   font-weight: 700;
   justify-self: start;
   min-height: 32px;
@@ -514,7 +514,7 @@ h3 {
 .dashboard-module-empty,
 .recent-record-empty span {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-caption);
   font-weight: 750;
   line-height: 1.45;
 }
@@ -537,13 +537,13 @@ h3 {
 
 .composition-label {
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--fs-caption);
   font-weight: 600;
 }
 
 .composition-value {
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--fs-caption);
   font-weight: 700;
 }
 
@@ -583,7 +583,7 @@ h3 {
 
 .composition-meta {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 750;
 }
 
@@ -616,7 +616,7 @@ h3 {
   border-radius: 9px;
   display: inline-flex;
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 700;
   justify-content: center;
   min-width: 42px;
@@ -635,16 +635,16 @@ h3 {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.recent-day { color: var(--muted); flex: 0 0 auto; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.recent-day { color: var(--muted); flex: 0 0 auto; font-size: var(--fs-caption-sm); font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .recent-record-list strong {
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--fs-caption);
 }
 
 .recent-record-list span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 750;
   line-height: 1.35;
 }
@@ -700,7 +700,7 @@ h3 {
 .result span {
   color: var(--muted);
   display: block;
-  font-size: 13px;
+  font-size: var(--fs-caption);
   font-weight: 600;
   margin-bottom: 8px;
 }
@@ -714,7 +714,7 @@ h3 {
 }
 
 .primary-metric strong {
-  font-size: clamp(34px, 3vw, 48px);
+  font-size: clamp(var(--fs-h1), 3vw, var(--fs-display));
   letter-spacing: 0;
 }
 
@@ -757,7 +757,7 @@ h3 {
 
 .panel-header p {
   color: var(--muted);
-  font-size: 14.5px;
+  font-size: var(--fs-body-sm);
   font-weight: 650;
   margin-top: 7px;
 }
@@ -813,7 +813,7 @@ h3 {
 
 .form-panel-header p {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-caption);
   font-weight: 650;
   margin-top: 4px;
 }
@@ -845,7 +845,7 @@ h3 {
   border: 1px solid var(--line);
   border-radius: 16px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 600;
   min-height: 42px;
   padding: 10px 12px;
@@ -868,7 +868,7 @@ h3 {
   border-radius: 16px;
   color: var(--slate);
   display: flex;
-  font-size: 13px;
+  font-size: var(--fs-caption);
   gap: 10px;
   min-height: 42px;
   padding: 0 12px;
@@ -883,14 +883,14 @@ h3 {
 label {
   color: var(--muted);
   display: grid;
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 600;
   gap: 6px;
 }
 
 .field-help {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-label);
   font-weight: 700;
   line-height: 1.35;
 }
@@ -984,7 +984,7 @@ textarea {
   border: 0;
   border-radius: 999px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-caption);
   font-weight: 700;
   min-height: 34px;
   padding: 0 14px;
@@ -1008,7 +1008,7 @@ textarea {
   border-radius: 999px;
   color: var(--blue);
   display: inline-flex;
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 700;
   justify-content: center;
   min-height: 42px;
@@ -1021,7 +1021,7 @@ textarea {
   border: 1px solid var(--warn-200);
   border-radius: 16px;
   color: var(--warn-800);
-  font-size: 13px;
+  font-size: var(--fs-caption);
   font-weight: 700;
   line-height: 1.45;
   margin-bottom: 12px;
@@ -1091,7 +1091,7 @@ td {
 th {
   background: var(--surface-2);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 700;
   position: sticky;
   top: 0;
@@ -1158,7 +1158,7 @@ tbody tr:last-child td {
   background: var(--blue-2);
   border-color: var(--blue-100);
   color: var(--blue);
-  font-size: 13px;
+  font-size: var(--fs-caption);
   height: 36px;
   min-height: 36px;
   padding: 0 14px;
@@ -1172,7 +1172,7 @@ tbody tr:last-child td {
 }
 
 .table-action {
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   height: 36px;
   min-height: 36px;
   padding: 0 12px;
@@ -1230,7 +1230,7 @@ tbody tr:last-child td {
 
 .asset-card-head strong {
   display: block;
-  font-size: 18px;
+  font-size: var(--fs-h3);
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
@@ -1238,7 +1238,7 @@ tbody tr:last-child td {
 .asset-card-head span:not(.badge) {
   color: var(--muted);
   display: block;
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 700;
   margin-top: 4px;
 }
@@ -1262,7 +1262,7 @@ tbody tr:last-child td {
 }
 
 .asset-card-gain {
-  font-size: 13px;
+  font-size: var(--fs-caption);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -1285,7 +1285,7 @@ tbody tr:last-child td {
   background: var(--surface-2);
   border-radius: 12px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 600;
   min-width: 0;
   overflow-wrap: anywhere;
@@ -1306,7 +1306,7 @@ tbody tr:last-child td {
 
 .asset-card-note {
   color: var(--slate);
-  font-size: 13px;
+  font-size: var(--fs-caption);
   font-weight: 750;
   line-height: 1.45;
 }
@@ -1339,7 +1339,7 @@ tbody tr:last-child td {
   border-radius: 999px;
   color: var(--blue);
   display: inline-flex;
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 700;
   min-height: 24px;
   padding: 4px 9px;
@@ -1357,7 +1357,7 @@ tbody tr:last-child td {
 .sub-value {
   color: var(--muted);
   display: block;
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 700;
   margin-top: 4px;
 }
@@ -1384,7 +1384,7 @@ tbody tr:last-child td {
   border-radius: 999px;
   color: var(--muted);
   display: inline-flex;
-  font-size: 13px;
+  font-size: var(--fs-caption);
   font-weight: 700;
   gap: 8px;
   min-height: 38px;
@@ -1396,7 +1396,7 @@ tbody tr:last-child td {
   background: rgba(100, 116, 139, 0.10);
   border-radius: 999px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-label);
   padding: 3px 7px;
 }
 
@@ -1494,7 +1494,7 @@ tbody tr:last-child td {
 
 .journal-date {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-label);
   font-weight: 700;
 }
 
@@ -1502,7 +1502,7 @@ tbody tr:last-child td {
   background: var(--surface-3);
   border-radius: 8px;
   color: var(--slate);
-  font-size: 10px;
+  font-size: var(--fs-label);
   font-weight: 700;
   padding: 3px 8px;
 }
@@ -1543,7 +1543,7 @@ tbody tr:last-child td {
 }
 
 .journal-card h3 {
-  font-size: 15px;
+  font-size: var(--fs-body);
   line-height: 1.25;
   margin-bottom: 4px;
   overflow-wrap: anywhere;
@@ -1551,7 +1551,7 @@ tbody tr:last-child td {
 
 .journal-meta {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-label);
   font-weight: 600;
   margin-bottom: 5px;
 }
@@ -1565,7 +1565,7 @@ tbody tr:last-child td {
 .journal-card p {
   color: var(--slate);
   display: -webkit-box;
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 700;
   line-height: 1.4;
   margin-top: 4px;
@@ -1578,7 +1578,7 @@ tbody tr:last-child td {
 .journal-card p strong {
   color: var(--ink);
   display: inline-block;
-  font-size: 11px;
+  font-size: var(--fs-label);
   margin-right: 6px;
 }
 
@@ -1591,7 +1591,7 @@ tbody tr:last-child td {
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-label);
   font-weight: 600;
   padding: 3px 7px;
 }
@@ -1639,7 +1639,7 @@ tbody tr:last-child td {
   align-items: center;
   color: var(--ink);
   display: flex;
-  font-size: 15px;
+  font-size: var(--fs-body);
   font-weight: 700;
   gap: 9px;
   letter-spacing: 0;
@@ -1699,7 +1699,7 @@ tbody tr:last-child td {
 .donut-center {
   color: var(--muted);
   display: grid;
-  font-size: 10px;
+  font-size: var(--fs-label);
   font-weight: 600;
   gap: 2px;
   line-height: 1.05;
@@ -1711,7 +1711,7 @@ tbody tr:last-child td {
 
 .donut-center strong {
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--fs-caption);
   font-weight: 700;
   letter-spacing: 0;
   white-space: nowrap;
@@ -1740,7 +1740,7 @@ tbody tr:last-child td {
 
 .breakdown-name {
   color: var(--ink);
-  font-size: 14px;
+  font-size: var(--fs-body-sm);
   font-weight: 700;
   line-height: 1.25;
   min-width: 0;
@@ -1749,7 +1749,7 @@ tbody tr:last-child td {
 
 .breakdown-value {
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--fs-caption);
   font-weight: 700;
   text-align: right;
   white-space: nowrap;
@@ -1757,7 +1757,7 @@ tbody tr:last-child td {
 
 .breakdown-percent {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 700;
   text-align: right;
   white-space: nowrap;
@@ -1830,13 +1830,13 @@ tbody tr:last-child td {
 .retirement-progress span {
   color: var(--muted);
   display: block;
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 700;
 }
 
 .history-summary-item strong {
   display: block;
-  font-size: 17px;
+  font-size: var(--fs-body-lg);
   line-height: 1.2;
   margin-top: 5px;
   overflow-wrap: anywhere;
@@ -1882,12 +1882,12 @@ tbody tr:last-child td {
 }
 
 .realized-chart-title strong {
-  font-size: 15px;
+  font-size: var(--fs-body);
 }
 
 .realized-chart-title span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 600;
 }
 
@@ -1935,7 +1935,7 @@ tbody tr:last-child td {
 
 .realized-bar-wrap small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-label);
   font-weight: 600;
   text-align: center;
 }
@@ -1962,7 +1962,7 @@ tbody tr:last-child td {
 }
 
 .retirement-progress strong {
-  font-size: 20px;
+  font-size: var(--fs-h2);
 }
 
 .progress-track {
@@ -2024,12 +2024,12 @@ tbody tr:last-child td {
 
 .sensitivity-item span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   font-weight: 700;
 }
 
 .sensitivity-item strong {
-  font-size: 14px;
+  font-size: var(--fs-body-sm);
 }
 
 .small-empty {
@@ -2171,7 +2171,7 @@ tbody tr:last-child td {
   .app-nav-item {
     border-radius: 14px;
     flex-direction: column;
-    font-size: 11px;
+    font-size: var(--fs-label);
     font-weight: 700;
     gap: 4px;
     letter-spacing: -0.01em;
@@ -2236,7 +2236,7 @@ tbody tr:last-child td {
   }
 
   .eyebrow {
-    font-size: 13px;
+    font-size: var(--fs-caption);
     margin-bottom: 2px;
   }
 
@@ -2280,7 +2280,7 @@ tbody tr:last-child td {
 
   .topbar .ghost-button,
   .topbar .import-label {
-    font-size: 13.5px;
+    font-size: var(--fs-caption);
     height: 38px;
     min-height: 38px;
   }
@@ -2327,11 +2327,11 @@ tbody tr:last-child td {
   }
 
   .journey-card strong {
-    font-size: 18px;
+    font-size: var(--fs-h3);
   }
 
   .journey-card small {
-    font-size: 12px;
+    font-size: var(--fs-caption-sm);
   }
 
   .metric {
@@ -2339,7 +2339,7 @@ tbody tr:last-child td {
   }
 
   .primary-metric strong {
-    font-size: 34px;
+    font-size: var(--fs-h1);
   }
 
   .ledger-toolbar {
@@ -2381,7 +2381,7 @@ tbody tr:last-child td {
   }
 
   .asset-card-actions button {
-    font-size: 12.5px;
+    font-size: var(--fs-caption-sm);
     min-height: 40px;
   }
 
@@ -2399,7 +2399,7 @@ tbody tr:last-child td {
 
   .history-table th,
   .history-table td {
-    font-size: 12.5px;
+    font-size: var(--fs-caption-sm);
     padding: 10px 8px;
   }
 
@@ -2533,10 +2533,10 @@ h3 { font-weight: 700; }
    자산 원장 표 통합 (PC 줄바뀜 해소) · 빈 상태 · 로딩 스켈레톤
    ============================================================ */
 .asset-table-wrap table { min-width: 720px; }
-.asset-cell strong { display: block; font-size: 14px; font-weight: 700; color: var(--ink); }
+.asset-cell strong { display: block; font-size: var(--fs-body-sm); font-weight: 700; color: var(--ink); }
 .asset-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 5px; }
 .asset-sub .badge, .asset-sub .ticker { white-space: nowrap; }
-.asset-account { color: var(--muted); font-size: 12px; font-weight: 600; }
+.asset-account { color: var(--muted); font-size: var(--fs-caption-sm); font-weight: 600; }
 .asset-note-line {
   display: block;
   margin-top: 6px;
@@ -2545,13 +2545,13 @@ h3 { font-weight: 700; }
   white-space: nowrap;
   text-overflow: ellipsis;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-caption-sm);
   line-height: 1.4;
 }
 .asset-table-wrap .actions-col { width: 1%; white-space: nowrap; }
 .asset-table-wrap .row-actions { flex-wrap: nowrap; justify-content: flex-end; min-width: max-content; }
 .asset-table-wrap .table-action,
-.asset-table-wrap .text-icon-button { font-size: 12px; min-height: 32px; padding: 0 10px; white-space: nowrap; }
+.asset-table-wrap .text-icon-button { font-size: var(--fs-caption-sm); min-height: 32px; padding: 0 10px; white-space: nowrap; }
 
 /* 빈 상태 */
 .empty-state {
@@ -2573,8 +2573,8 @@ h3 { font-weight: 700; }
   color: var(--blue);
 }
 .empty-icon svg { width: 28px; height: 28px; }
-.empty-state strong { font-size: 15px; font-weight: 700; color: var(--ink); }
-.empty-state p { margin: 0; max-width: 360px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.empty-state strong { font-size: var(--fs-body); font-weight: 700; color: var(--ink); }
+.empty-state p { margin: 0; max-width: 360px; color: var(--muted); font-size: var(--fs-caption); line-height: 1.55; }
 
 /* 로딩 스켈레톤 */
 .skeleton {
@@ -2622,11 +2622,11 @@ h3 { font-weight: 700; }
   padding: 22px 22px 16px;
   border-bottom: 1px solid var(--line);
 }
-.detail-id strong { display: block; font-size: 18px; font-weight: 800; color: var(--ink); }
+.detail-id strong { display: block; font-size: var(--fs-h3); font-weight: 800; color: var(--ink); }
 .detail-id .asset-sub { margin-top: 7px; }
-.detail-close { width: 34px; padding: 0; font-size: 14px; }
+.detail-close { width: 34px; padding: 0; font-size: var(--fs-body-sm); }
 .detail-body { flex: 1; overflow: auto; padding: 20px 22px; display: flex; flex-direction: column; gap: 16px; }
-.detail-kicker { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.detail-kicker { font-size: var(--fs-label); font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
 .detail-value-card { padding: 18px; border-radius: 16px; background: var(--surface-2); border: 1px solid var(--line); }
 .detail-value { display: block; margin: 8px 0; font-size: 26px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
 .detail-gain {
@@ -2637,7 +2637,7 @@ h3 { font-weight: 700; }
   border-radius: 999px;
   background: var(--surface-3);
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--fs-caption-sm);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -2645,9 +2645,9 @@ h3 { font-weight: 700; }
 .detail-gain.negative { background: var(--red-2); color: var(--red); }
 .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .detail-grid > div { padding: 13px 15px; border: 1px solid var(--line); border-radius: 12px; }
-.detail-grid span { font-size: 11px; font-weight: 700; color: var(--muted); }
-.detail-grid strong { display: block; margin-top: 5px; font-size: 15px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
-.detail-note p { margin: 8px 0 0; padding: 13px 15px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); font-size: 13px; line-height: 1.55; color: var(--slate); }
+.detail-grid span { font-size: var(--fs-label); font-weight: 700; color: var(--muted); }
+.detail-grid strong { display: block; margin-top: 5px; font-size: var(--fs-body); font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.detail-note p { margin: 8px 0 0; padding: 13px 15px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); font-size: var(--fs-caption); line-height: 1.55; color: var(--slate); }
 .detail-note .detail-empty { color: var(--muted); }
 .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px 22px; border-top: 1px solid var(--line); }
 .detail-actions > button { flex: 1 1 auto; min-width: 72px; min-height: 42px; }
@@ -2671,7 +2671,7 @@ h3 { font-weight: 700; }
   margin-bottom: 14px;
 }
 .hero-main { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
-.hero-kicker { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.hero-kicker { font-size: var(--fs-label); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .hero-total {
   display: block;
   margin: 6px 0 14px;
@@ -2692,10 +2692,10 @@ h3 { font-weight: 700; }
   background: var(--surface-3);
   font-variant-numeric: tabular-nums;
 }
-.hero-chip-label { font-size: 12px; font-weight: 700; color: var(--muted); }
+.hero-chip-label { font-size: var(--fs-caption-sm); font-weight: 700; color: var(--muted); }
 .hero-chip, .hero-chip-label { white-space: nowrap; }
-.hero-chip strong { font-size: 14px; font-weight: 700; color: var(--ink); }
-.hero-chip small { font-size: 12.5px; font-weight: 700; color: var(--muted); }
+.hero-chip strong { font-size: var(--fs-body-sm); font-weight: 700; color: var(--ink); }
+.hero-chip small { font-size: var(--fs-caption-sm); font-weight: 700; color: var(--muted); }
 .hero-chip.chip-up { background: var(--green-2); }
 .hero-chip.chip-up .hero-chip-label,
 .hero-chip.chip-up strong,
@@ -2704,28 +2704,28 @@ h3 { font-weight: 700; }
 .hero-chip.chip-down .hero-chip-label,
 .hero-chip.chip-down strong,
 .hero-chip.chip-down small { color: var(--red); }
-.hero-count { color: var(--muted); font-size: 13px; font-weight: 600; }
+.hero-count { color: var(--muted); font-size: var(--fs-caption); font-weight: 600; }
 
 .hero-trend { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .hero-trend-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.hero-trend-title { font-size: 13px; font-weight: 700; color: var(--muted); align-self: center; }
+.hero-trend-title { font-size: var(--fs-caption); font-weight: 700; color: var(--muted); align-self: center; }
 .hero-actions { display: flex; flex-direction: row; gap: 8px; }
 .hero-actions > button { white-space: nowrap; }
 .hero-spark-wrap { position: relative; flex: 1 1 auto; min-width: 0; min-height: 132px; overflow: hidden; border-radius: 12px; }
 .hero-sparkline { display: block; width: 100%; max-width: 100%; height: 132px; }
-.hero-spark-empty { display: grid; place-items: center; height: 132px; margin: 0; color: var(--muted); font-size: 13px; font-weight: 600; text-align: center; }
+.hero-spark-empty { display: grid; place-items: center; height: 132px; margin: 0; color: var(--muted); font-size: var(--fs-caption); font-weight: 600; text-align: center; }
 
 .dashboard-focus { display: grid; grid-template-columns: 1.7fr 1fr; gap: 14px; margin-bottom: 14px; }
 .today-card { gap: 14px; }
 .today-head { display: flex; align-items: center; justify-content: space-between; }
-.today-title { margin: 0; font-size: 18px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+.today-title { margin: 0; font-size: var(--fs-h3); font-weight: 700; color: var(--ink); white-space: nowrap; }
 .dashboard-module-head h3 { white-space: nowrap; }
 .dashboard-module-head .text-link-button { white-space: nowrap; flex-shrink: 0; }
-.today-count { font-size: 13px; font-weight: 700; color: var(--amber); background: var(--amber-2); padding: 3px 10px; border-radius: 999px; }
+.today-count { font-size: var(--fs-caption); font-weight: 700; color: var(--amber); background: var(--amber-2); padding: 3px 10px; border-radius: 999px; }
 .today-card .dashboard-checklist { grid-template-columns: 1fr 1fr; }
 
 .goal-card { gap: 10px; }
-.goal-empty-guide { color: var(--muted); font-size: 13px; font-weight: 600; line-height: 1.5; }
+.goal-empty-guide { color: var(--muted); font-size: var(--fs-caption); font-weight: 600; line-height: 1.5; }
 .goal-card.goal-unset .goal-progress-value,
 .goal-card.goal-unset .goal-progress-track,
 .goal-card.goal-unset .goal-stats { display: none; }
@@ -2734,8 +2734,8 @@ h3 { font-weight: 700; }
 .goal-progress-fill { display: block; height: 100%; width: 0%; border-radius: 999px; background: var(--blue); transition: width 360ms cubic-bezier(0.16, 1, 0.3, 1); }
 .goal-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
 .goal-stats > div { display: flex; flex-direction: column; gap: 3px; }
-.goal-stats span { font-size: 12px; font-weight: 600; color: var(--muted); }
-.goal-stats strong { font-size: 15px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.goal-stats span { font-size: var(--fs-caption-sm); font-weight: 600; color: var(--muted); }
+.goal-stats strong { font-size: var(--fs-body); font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
 
 @media (max-width: 900px) {
   .dashboard-hero { grid-template-columns: 1fr; }
@@ -2751,11 +2751,11 @@ h3 { font-weight: 700; }
    투자기록 개편 — 일지 추론 가독성 / 실현손익 표 통합
    ============================================================ */
 .journal-note { margin-top: 10px; }
-.journal-note-label { display: block; margin-bottom: 3px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.journal-note-label { display: block; margin-bottom: 3px; font-size: var(--fs-label); font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
 .journal-card .journal-note p {
   margin: 0;
   color: var(--slate);
-  font-size: 13px;
+  font-size: var(--fs-caption);
   font-weight: 500;
   line-height: 1.55;
   display: -webkit-box;
@@ -2768,5 +2768,5 @@ h3 { font-weight: 700; }
 .realized-table table { min-width: 640px; }
 .realized-table .actions-col { width: 120px; }
 .realized-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
-.realized-date { font-size: 11.5px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
-.realized-account { font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.realized-date { font-size: var(--fs-caption-sm); font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.realized-account { font-size: var(--fs-caption-sm); font-weight: 600; color: var(--muted); }
