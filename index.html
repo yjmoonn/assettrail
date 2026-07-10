@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-store">
     <meta http-equiv="Pragma" content="no-cache">
     <title>자산 히스토리 & 은퇴 플래너</title>
-    <link rel="stylesheet" href="styles.css?v=20260628-uxfix">
+    <link rel="stylesheet" href="styles.css?v=20260710-mobile">
   </head>
   <body>
     <div class="app">
@@ -36,6 +36,7 @@
         <button class="app-nav-item" type="button" data-nav-view="JOURNAL"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4a2 2 0 0 1 2-2h11a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6a2 2 0 0 1-2-2z"></path><path d="M4 4v16"></path><path d="M9 7h5M9 11h5"></path></svg><span class="nav-label">투자기록</span></button>
         <button class="app-nav-item" type="button" data-nav-view="PORTFOLIO"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-9z"></path><path d="M12 3v9"></path><path d="M12 3a9 9 0 0 1 7.5 4"></path></svg><span class="nav-label">포트폴리오</span></button>
         <button class="app-nav-item" type="button" data-nav-view="GOALS"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"></circle></svg><span class="nav-label">목표</span></button>
+        <button class="app-nav-item" type="button" data-nav-view="SETTINGS"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15H4.5a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 6 9.4l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 11 4.6V4.5a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 2.82 1.17l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 11h.1a2 2 0 0 1 0 4h-.1z"></path></svg><span class="nav-label">설정</span></button>
       </nav>
 
       <main>
@@ -75,11 +76,12 @@
               </div>
               <ul class="dashboard-checklist" id="dashboardChecklist"></ul>
             </article>
-            <article class="journey-card goal-card">
+            <article class="journey-card goal-card" id="dashboardGoalCard">
               <div class="dashboard-module-head">
                 <h3>목표 진행</h3>
                 <button class="text-link-button" type="button" data-go-view="GOALS">목표 점검</button>
               </div>
+              <p class="goal-empty-guide" id="dashboardGoalGuide" hidden>아직 은퇴 계획을 입력하지 않았어요. 목표 화면에서 나이와 월 지출을 입력하면 여기에 진행률이 표시됩니다.</p>
               <strong id="dashboardGoalProgress" class="goal-progress-value">계산 대기</strong>
               <div class="goal-progress-track"><span class="goal-progress-fill" id="dashboardGoalBar"></span></div>
               <div class="goal-stats">
@@ -765,6 +767,6 @@
     </template>
 
     <script src="firebase-config.js?v=20260519-auth-result"></script>
-    <script type="module" src="app.js?v=20260628-uxfix"></script>
+    <script type="module" src="app.js?v=20260710-mobile"></script>
   </body>
 </html>

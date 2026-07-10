@@ -138,6 +138,8 @@ const els = {
   dashboardPortfolioFocus: document.querySelector("#dashboardPortfolioFocus"),
   dashboardGoalProgress: document.querySelector("#dashboardGoalProgress"),
   dashboardGoalBar: document.querySelector("#dashboardGoalBar"),
+  dashboardGoalCard: document.querySelector("#dashboardGoalCard"),
+  dashboardGoalGuide: document.querySelector("#dashboardGoalGuide"),
   dashboardComposition: document.querySelector("#dashboardComposition"),
   dashboardRecentList: document.querySelector("#dashboardRecentList"),
   settingsCloudStatus: document.querySelector("#settingsCloudStatus"),
@@ -1491,6 +1493,10 @@ function renderDashboard() {
         .join("")
     : `<li class="check-card check-card-ok"><span class="check-icon kind-ok" aria-hidden="true">✓</span><div class="check-text"><strong>모두 정상이에요</strong><span>가격, 목표 비중, 복기 기록이 안정적인 상태예요.</span></div></li>`;
 
+  const configured = retirementConfigured();
+  if (els.dashboardGoalCard) els.dashboardGoalCard.classList.toggle("goal-unset", !configured);
+  if (els.dashboardGoalGuide) els.dashboardGoalGuide.hidden = configured;
+
   const retirement = calculateRetirement(state.retirement);
   if (retirement?.nestEgg) {
     const progress = Math.max(0, Math.min(1, Number(state.retirement.currentInvestable || 0) / retirement.nestEgg));
@@ -1503,6 +1509,12 @@ function renderDashboard() {
 
   renderDashboardComposition();
   renderDashboardRecentList();
+}
+
+function retirementConfigured() {
+  const defaults = defaultState().retirement;
+  const current = state.retirement || {};
+  return Object.keys(defaults).some((key) => Number(current[key]) !== Number(defaults[key]));
 }
 
 const PORTFOLIO_BUCKETS = [
@@ -1769,6 +1781,12 @@ function renderAssetCard(asset, gain, gainRate, valueDetail, buyButton, sellButt
   const card = document.createElement("article");
   card.className = "asset-card";
   card.dataset.id = asset.id;
+  const gainText = gain === null
+    ? ""
+    : `${gain > 0 ? "+" : ""}${money(gain)}${gainRate ? ` (${gainRate > 0 ? "+" : ""}${percent(gainRate)})` : ""}`;
+  const metaParts = [];
+  if (asset.ticker) metaParts.push(`<span><b>${escapeHtml(asset.ticker)}</b></span>`);
+  if (asset.quantity) metaParts.push(`<span>수량 ${formatPlainNumber(asset.quantity)}</span>`);
   card.innerHTML = `
     <div class="asset-card-head">
       <div>
@@ -1778,18 +1796,16 @@ function renderAssetCard(asset, gain, gainRate, valueDetail, buyButton, sellButt
       <span class="badge">${escapeHtml(assetTypeLabel(asset))}</span>
     </div>
     <div class="asset-card-value">
-      <span>평가금액</span>
-      <strong>${money(assetValue(asset))}</strong>
+      <div class="asset-card-value-row">
+        <strong>${money(assetValue(asset))}</strong>
+        ${gainText ? `<span class="asset-card-gain ${gainTone}">${gainText}</span>` : ""}
+      </div>
       ${valueDetail}
     </div>
-    <div class="asset-card-meta">
-      <span>${asset.ticker ? `<b>${escapeHtml(asset.ticker)}</b>` : "티커 없음"}</span>
-      <span>수량 ${asset.quantity ? formatPlainNumber(asset.quantity) : "-"}</span>
-      <span class="${gainTone}">손익 ${gain === null ? "-" : `${gain > 0 ? "+" : ""}${money(gain)}${gainRate ? ` (${gainRate > 0 ? "+" : ""}${percent(gainRate)})` : ""}`}</span>
-    </div>
+    ${metaParts.length ? `<div class="asset-card-meta">${metaParts.join("")}</div>` : ""}
     ${asset.note ? `<p class="asset-card-note">${escapeHtml(asset.note)}</p>` : ""}
     <div class="asset-card-actions">
-      ${isMarketType(type) ? `${buyButton}${sellButton || `<button class="text-icon-button disabled-action" type="button" disabled>매도</button>`}` : `<button class="text-icon-button disabled-action" type="button" disabled>잠금</button>`}
+      ${isMarketType(type) ? `${buyButton}${sellButton}` : ""}
       ${journalButton}
       <button class="table-action quiet-action" type="button" data-action="detail" data-id="${asset.id}">상세</button>
     </div>
@@ -1931,12 +1947,20 @@ function renderOpsStatus() {
   }
   const errorCount = Array.isArray(priceBook.errors) ? priceBook.errors.length : 0;
   const fx = priceBook.fx?.USDKRW;
+  const staleDays = daysSince(priceBook.generatedAt);
+  const fxDays = daysSince(fx?.date);
+  const hasIssues = errorCount > 0
+    || !priceBook.generatedAt
+    || (Number.isFinite(staleDays) && staleDays > PRICE_STALE_DAYS)
+    || !fx?.rate
+    || (Number.isFinite(fxDays) && fxDays > PRICE_STALE_DAYS);
   const items = [
     `가격표 ${priceBook.generatedAt ? shortDateTime(priceBook.generatedAt) : "생성일 없음"}`,
     `오류 ${errorCount}건`,
     fx?.rate ? `환율 ${formatPlainNumber(fx.rate)}원${fx.date ? ` · ${shortDate(fx.date)}` : ""}` : "환율 없음"
   ];
   els.opsStatus.hidden = false;
+  els.opsStatus.classList.toggle("has-issues", hasIssues);
   els.opsStatus.textContent = items.join(" · ");
 }
 

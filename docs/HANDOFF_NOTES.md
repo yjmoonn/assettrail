@@ -15,6 +15,16 @@
 - React/Tailwind 대전환은 단계적 검토 후. 변경은 작은 단위로.
 - 수정 후 `npm run check:js` + `npm run test:prices` (가능하면 `npm test`) 실행. `npm test`의 firestore `PERMISSION_DENIED` 로그는 규칙 검증의 정상 출력.
 
+## 방금 완료한 수정 (디자인 1차: 모바일 P0 + 결정 2건, 커밋 fb34ba4~449a70c, dev 미푸시)
+- **디자인 방향 결정(사용자)**: B(데이터 밀도형) 채택, 다크모드 보류, 가격 상태 줄은 정상 시 회색 유지, 설정은 내비 탭으로.
+- **모바일 자산 카드 압축 (fb34ba4)** — `renderAssetCard` 재구성: 값 없는 항목(티커/수량/손익)과 비활성 잠금 버튼 제거, 손익을 평가금액 옆 인라인(`.asset-card-gain`), 메타는 칩 flex, 버튼 4개 가로 1줄(flex). 카드 gap 14→10, padding 16→14. 자산 화면 전체 높이 6,482→4,446px.
+- **모바일 조회 기록 표 (d56922f + 449a70c)** — 720px 이하에서 직전 대비·메모 열 숨김(nth-child 3·5), 글자 12.5px. **주의: 전역 `table { min-width: 1120px }`(styles.css ~1077)가 모든 표를 밀어내는 원인이었음** — `.history-table table { min-width: 0 }`으로 해제해야 열이 보임. 남은 다듬기: 날짜가 3줄로 줄바꿈됨(시간 부분을 span으로 분리해 모바일에서 숨기면 해결).
+- **빈 상태 목표 모듈 (3df39c8)** — `retirementConfigured()`(기본값과 숫자 비교)가 false면 goal-card에 `.goal-unset` 클래스 + 안내 문구(`#dashboardGoalGuide`) 표시, 진행률·남은 금액 숨김. 기본값과 동일하게 입력한 사용자는 미입력으로 간주되는 한계 있음.
+- **설정 탭 추가 (d52866a)** — `.app-nav`에 6번째 버튼(data-nav-view="SETTINGS"). `els.appNavButtons`가 `[data-nav-view]` 전체 수집이라 자동 배선. 상단 톱니는 지름길로 유지.
+- **가격 상태 줄 회색화 (c7f5e1d)** — `renderOpsStatus`에 has-issues 판정(오류>0, 가격표/환율 3일 초과, 누락) 추가, `.ops-status` 기본 회색 + `.has-issues`만 앰버. 캐시버스터 `20260710-mobile`.
+- **검증**: 단계별 check:js+test:prices, 최종 `npm test` 전체 통과. CDP 헤드리스(390px 모바일 에뮬레이션 + 시드 데이터)로 자산·목표·대시보드 빈 상태 재캡처 육안 확인.
+- **디자인 문서**: 전체 진단(P0~P2, 방향 A/B/C)은 이 세션 대화에 있음. 다음 라운드 후보: 모바일 상단바 압축(P1-1), 일지 삭제 버튼 톤 다운(P1-3), "포트 분석" 문구·도넛 "기타" 라벨(P1-4), 방향 B 밀도를 데스크톱에 확장.
+
 ## 방금 완료한 수정 (공식 프롬프트 자산 추가)
 - `prompts/`를 공식 프로젝트 자산으로 보고, AssetTrail 내보내기 JSON과 함께 쓰는 프롬프트 2개를 추가.
 - `prompts/포트폴리오-리뷰.md`: 자산배분, 집중도, 보유 자산 역할, 투자 행동과 성과 연결, 리밸런싱 우선순위 점검.

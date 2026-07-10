@@ -1028,6 +1028,21 @@ textarea {
   padding: 11px 12px;
 }
 
+/* 가격표 상태 줄: 정상은 조용한 회색, 문제(오류·오래된 가격)일 때만 경고색 */
+.ops-status {
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.ops-status.has-issues {
+  background: var(--amber-2);
+  border-color: #fde68a;
+  color: #92400e;
+  font-weight: 700;
+}
+
 .app-notice {
   align-items: center;
   display: flex;
@@ -1202,8 +1217,8 @@ tbody tr:last-child td {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-flat);
   display: grid;
-  gap: 14px;
-  padding: 16px;
+  gap: 10px;
+  padding: 14px;
 }
 
 .asset-card-head {
@@ -1233,21 +1248,37 @@ tbody tr:last-child td {
   gap: 4px;
 }
 
-.asset-card-value > span {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
+.asset-card-value-row {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  justify-content: space-between;
 }
 
-.asset-card-value > strong {
-  font-size: 26px;
+.asset-card-value > .asset-card-value-row > strong {
+  font-size: 22px;
   line-height: 1.1;
 }
 
+.asset-card-gain {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.asset-card-gain.positive {
+  color: var(--green);
+}
+
+.asset-card-gain.negative {
+  color: var(--red);
+}
+
 .asset-card-meta {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .asset-card-meta span {
@@ -1258,7 +1289,7 @@ tbody tr:last-child td {
   font-weight: 600;
   min-width: 0;
   overflow-wrap: anywhere;
-  padding: 7px 10px;
+  padding: 4px 9px;
 }
 
 .asset-card-meta b {
@@ -1281,13 +1312,14 @@ tbody tr:last-child td {
 }
 
 .asset-card-actions {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: 1.15fr 1fr 1fr 1fr;
+  display: flex;
+  gap: 6px;
 }
 
 .asset-card-actions button {
+  flex: 1 1 0;
   min-width: 0;
+  padding: 0 8px;
 }
 
 .muted-dash {
@@ -2336,16 +2368,27 @@ tbody tr:last-child td {
     gap: 12px;
   }
 
-  .asset-card-meta {
-    grid-template-columns: 1fr;
-  }
-
-  .asset-card-actions {
-    grid-template-columns: 1fr 1fr;
-  }
-
   .asset-card-actions button {
-    min-height: 42px;
+    font-size: 12.5px;
+    min-height: 40px;
+  }
+
+  /* 모바일 조회 기록 표: 핵심 열(조회 시각·총자산·변동률·관리)만 표시 */
+  .history-table table {
+    min-width: 0;
+  }
+
+  .history-table th:nth-child(3),
+  .history-table td:nth-child(3),
+  .history-table th:nth-child(5),
+  .history-table td:nth-child(5) {
+    display: none;
+  }
+
+  .history-table th,
+  .history-table td {
+    font-size: 12.5px;
+    padding: 10px 8px;
   }
 
   .asset-form-panel,
@@ -2666,6 +2709,10 @@ h3 { font-weight: 700; }
 .today-card .dashboard-checklist { grid-template-columns: 1fr 1fr; }
 
 .goal-card { gap: 10px; }
+.goal-empty-guide { color: var(--muted); font-size: 13px; font-weight: 600; line-height: 1.5; }
+.goal-card.goal-unset .goal-progress-value,
+.goal-card.goal-unset .goal-progress-track,
+.goal-card.goal-unset .goal-stats { display: none; }
 .goal-progress-value { font-size: 30px; font-weight: 800; line-height: 1.1; color: var(--ink); font-variant-numeric: tabular-nums; }
 .goal-progress-track { height: 10px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
 .goal-progress-fill { display: block; height: 100%; width: 0%; border-radius: 999px; background: var(--blue); transition: width 360ms cubic-bezier(0.16, 1, 0.3, 1); }
