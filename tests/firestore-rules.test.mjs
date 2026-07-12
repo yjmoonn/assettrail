@@ -9,6 +9,8 @@ import { deleteDoc, doc, getDoc, setDoc } from "firebase/firestore";
 
 const PROJECT_ID = "assettrail-6f676";
 const DATA_PATH = "users/alice/financeData/primary";
+const ANALYSIS_PATH = "users/alice/analysisRuns/run-1";
+const ANALYSIS_PREFERENCES_PATH = "users/alice/analysisPreferences/primary";
 
 const testEnv = await initializeTestEnvironment({
   projectId: PROJECT_ID,
@@ -31,6 +33,10 @@ try {
   const aliceDoc = doc(aliceDb, DATA_PATH);
   const bobViewOfAliceDoc = doc(bobDb, DATA_PATH);
   const guestViewOfAliceDoc = doc(guestDb, DATA_PATH);
+  const aliceAnalysisDoc = doc(aliceDb, ANALYSIS_PATH);
+  const bobViewOfAliceAnalysisDoc = doc(bobDb, ANALYSIS_PATH);
+  const aliceAnalysisPreferences = doc(aliceDb, ANALYSIS_PREFERENCES_PATH);
+  const unexpectedAlicePath = doc(aliceDb, "users/alice/unexpected/document");
   const priceRequestsForAlice = doc(aliceDb, "priceRequests/us");
   const priceRequestsForGuest = doc(guestDb, "priceRequests/us");
   const blockedPriceRequests = doc(aliceDb, "priceRequests/eu");
@@ -56,6 +62,20 @@ try {
   await assertFails(setDoc(bobViewOfAliceDoc, { assets: ["blocked"] }));
   await assertFails(getDoc(guestViewOfAliceDoc));
   await assertFails(setDoc(guestViewOfAliceDoc, { assets: ["blocked"] }));
+
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), ANALYSIS_PATH), {
+      schemaVersion: "assettrail.analysis.v1",
+      createdAt: "2026-07-12T00:00:00.000Z"
+    });
+  });
+  await assertSucceeds(getDoc(aliceAnalysisDoc));
+  await assertFails(setDoc(aliceAnalysisDoc, { createdAt: "blocked" }));
+  await assertFails(getDoc(bobViewOfAliceAnalysisDoc));
+  await assertSucceeds(setDoc(aliceAnalysisPreferences, { primaryBenchmark: "SP500" }));
+  await assertSucceeds(getDoc(aliceAnalysisPreferences));
+  await assertFails(setDoc(unexpectedAlicePath, { privateData: true }));
+  await assertFails(getDoc(unexpectedAlicePath));
 
   await assertSucceeds(getDoc(priceRequestsForGuest));
   await assertSucceeds(

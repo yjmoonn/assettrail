@@ -1,5 +1,7 @@
 const STORAGE_KEY = "finance-ledger-retirement-v1";
+const ANALYSIS_STORAGE_KEY = "assettrail-analysis-runs-v1";
 const CLOUD_DOC_ID = "primary";
+const MAX_ANALYSIS_RUNS = 12;
 const PRICE_FILE_PATH = "prices.json";
 const PUBLIC_PRICE_FILE_URL = "https://yjmoonn.github.io/assettrail/prices.json";
 const PIE_COLORS = ["#2563eb", "#059669", "#d97706", "#64748b", "#8b5cf6"];
@@ -55,12 +57,13 @@ const CHECK_ICON_GLYPHS = {
   target: "%",
   snapshot: "✦"
 };
-const APP_VIEWS = new Set(["DASHBOARD", "ASSETS", "JOURNAL", "PORTFOLIO", "GOALS", "SETTINGS"]);
+const APP_VIEWS = new Set(["DASHBOARD", "ASSETS", "JOURNAL", "PORTFOLIO", "ANALYSIS", "GOALS", "SETTINGS"]);
 const VIEW_LABELS = {
   DASHBOARD: "대시보드",
   ASSETS: "자산",
   JOURNAL: "투자 기록",
   PORTFOLIO: "포트폴리오",
+  ANALYSIS: "분석",
   GOALS: "목표",
   SETTINGS: "설정",
 };
@@ -70,6 +73,7 @@ const VIEW_HEADINGS = {
   ASSETS: { title: "자산", subtitle: "보유 자산과 매수·매도를 한 곳에서 관리해요." },
   JOURNAL: { title: "투자 기록", subtitle: "매매 판단과 매도 결과를 기록하고 복기해요." },
   PORTFOLIO: { title: "포트폴리오", subtitle: "계좌·상품·국내외 배분과 목표 비중 차이를 봐요." },
+  ANALYSIS: { title: "분석", subtitle: "포트폴리오 노출, 집중도, 데이터 신뢰도와 계산 가능한 성과를 점검해요." },
   GOALS: { title: "목표", subtitle: "자산 추이와 은퇴 계획을 함께 점검해요." },
   SETTINGS: { title: "설정", subtitle: "동기화, 가격표, 데이터, 운영 작업을 관리해요." },
 };
@@ -256,6 +260,27 @@ const els = {
   targetCash: document.querySelector("#targetCash"),
   targetManual: document.querySelector("#targetManual"),
   rebalanceSummary: document.querySelector("#rebalanceSummary"),
+  analysisImportInput: document.querySelector("#analysisImportInput"),
+  analysisRunBtn: document.querySelector("#analysisRunBtn"),
+  analysisPdfBtn: document.querySelector("#analysisPdfBtn"),
+  analysisBenchmark: document.querySelector("#analysisBenchmark"),
+  analysisBenchmarkSecondary1: document.querySelector("#analysisBenchmarkSecondary1"),
+  analysisBenchmarkSecondary2: document.querySelector("#analysisBenchmarkSecondary2"),
+  analysisSourceLabel: document.querySelector("#analysisSourceLabel"),
+  analysisSourceDetail: document.querySelector("#analysisSourceDetail"),
+  analysisEmptyState: document.querySelector("#analysisEmptyState"),
+  analysisResults: document.querySelector("#analysisResults"),
+  analysisCreatedAt: document.querySelector("#analysisCreatedAt"),
+  analysisResultSource: document.querySelector("#analysisResultSource"),
+  analysisSummary: document.querySelector("#analysisSummary"),
+  analysisQualityScore: document.querySelector("#analysisQualityScore"),
+  analysisQualityChecks: document.querySelector("#analysisQualityChecks"),
+  analysisWarningCount: document.querySelector("#analysisWarningCount"),
+  analysisWarnings: document.querySelector("#analysisWarnings"),
+  analysisExposure: document.querySelector("#analysisExposure"),
+  analysisConcentration: document.querySelector("#analysisConcentration"),
+  analysisPerformance: document.querySelector("#analysisPerformance"),
+  analysisRunList: document.querySelector("#analysisRunList"),
   historyRange: document.querySelector("#historyRange"),
   snapshotNote: document.querySelector("#snapshotNote"),
   historyChartDescription: document.querySelector("#historyChartDescription"),
@@ -314,6 +339,10 @@ const uiState = {
   realizedYear: "ALL",
   autofilledAssetName: ""
 };
+let analysisRuns = loadAnalysisRuns();
+let selectedAnalysisRunId = analysisRuns[0]?.id || null;
+let importedAnalysisLedger = null;
+let importedAnalysisFileName = "";
 
 function defaultState() {
   return {
@@ -348,6 +377,72 @@ function defaultState() {
 
 function storageKeyForUser(user) {
   return user?.uid ? `${STORAGE_KEY}:user:${user.uid}` : STORAGE_KEY;
+}
+
+function analysisStorageKeyForUser(user = cloud.user) {
+  return user?.uid ? `${ANALYSIS_STORAGE_KEY}:user:${user.uid}` : ANALYSIS_STORAGE_KEY;
+}
+
+function loadAnalysisRuns(user = cloud.user) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(analysisStorageKeyForUser(user)));
+    return Array.isArray(saved) ? saved.slice(0, MAX_ANALYSIS_RUNS) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistAnalysisRuns() {
+  localStorage.setItem(analysisStorageKeyForUser(), JSON.stringify(analysisRuns.slice(0, MAX_ANALYSIS_RUNS)));
+}
+
+function analysisApiUrl(path) {
+  const base = String(window.assetTrailAnalysisApiBaseUrl || firebaseConfig.analysisApiBaseUrl || "").replace(/\/$/, "");
+  return base ? `${base}${path}` : "";
+}
+
+async function analysisApiRequest(path, options = {}) {
+  const endpoint = analysisApiUrl(path);
+  if (!endpoint || !cloud.user || typeof cloud.user.getIdToken !== "function") return null;
+  const token = await cloud.user.getIdToken();
+  return fetch(endpoint, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {})
+    }
+  });
+}
+
+async function syncAnalysisRunsFromServer() {
+  try {
+    const response = await analysisApiRequest("/v1/analysis-runs");
+    if (!response) return;
+    if (!response.ok) throw new Error(`분석 이력 동기화 실패 (${response.status})`);
+    const payload = await response.json();
+    const merged = new Map([...analysisRuns, ...(Array.isArray(payload.runs) ? payload.runs : [])].map((run) => [run.id, run]));
+    analysisRuns = [...merged.values()]
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, MAX_ANALYSIS_RUNS);
+    selectedAnalysisRunId = selectedAnalysisRunId || analysisRuns[0]?.id || null;
+    persistAnalysisRuns();
+    if (uiState.activeView === "ANALYSIS") renderAnalysis();
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function saveAnalysisRunToServer(run) {
+  try {
+    const response = await analysisApiRequest("/v1/analysis-runs", {
+      method: "POST",
+      body: JSON.stringify({ analysis: run })
+    });
+    if (response && !response.ok) throw new Error(`분석 이력 저장 실패 (${response.status})`);
+  } catch (error) {
+    console.error(error);
+  }
 }
 
 function loadState(storageKey = activeStorageKey) {
@@ -585,12 +680,17 @@ async function completeCloudSignIn(user) {
   if (cloud.user?.uid === user?.uid && cloud.docRef) return;
 
   persist();
+  persistAnalysisRuns();
   cancelCloudPush();
   cloud.user = user;
   cloud.docRef = null;
   cloud.lastPushedFingerprint = null;
   cloud.lastSyncedPriceTickers = null;
   activeStorageKey = storageKeyForUser(user);
+  analysisRuns = loadAnalysisRuns(user);
+  selectedAnalysisRunId = analysisRuns[0]?.id || null;
+  importedAnalysisLedger = null;
+  importedAnalysisFileName = "";
   replaceState(loadState(activeStorageKey));
   render(false);
   updateAuthUi();
@@ -601,6 +701,7 @@ async function completeCloudSignIn(user) {
 
   cloud.docRef = cloud.doc(cloud.db, "users", user.uid, "financeData", CLOUD_DOC_ID);
   await pullCloudData();
+  await syncAnalysisRunsFromServer();
 }
 
 function updateAuthUi() {
@@ -1337,6 +1438,9 @@ const VIEW_RENDERERS = {
   PORTFOLIO: () => {
     renderBreakdown();
   },
+  ANALYSIS: () => {
+    renderAnalysis();
+  },
   GOALS: () => {
     renderHistory();
     renderRetirement();
@@ -1666,6 +1770,157 @@ function renderSettingsSummary() {
   }
   if (els.settingsPriceStatus) {
     els.settingsPriceStatus.textContent = els.priceStatus?.textContent || "가격 대기";
+  }
+}
+
+function analysisSourceLedger() {
+  return importedAnalysisLedger || storageSafeState();
+}
+
+function renderAnalysis() {
+  if (!els.analysisRunList) return;
+  const usingImport = Boolean(importedAnalysisLedger);
+  els.analysisSourceLabel.textContent = usingImport ? importedAnalysisFileName : "현재 AssetTrail 원장";
+  els.analysisSourceDetail.textContent = usingImport
+    ? "불러온 JSON은 분석에만 사용되며 현재 원장을 교체하지 않습니다."
+    : "동기화 후 실행하면 최신 원장을 기준으로 분석합니다.";
+  renderAnalysisRunList();
+  const selected = analysisRuns.find((run) => run.id === selectedAnalysisRunId) || analysisRuns[0];
+  els.analysisEmptyState.hidden = Boolean(selected);
+  els.analysisResults.hidden = !selected;
+  if (selected) renderAnalysisResult(selected);
+}
+
+function renderAnalysisRunList() {
+  if (!analysisRuns.length) {
+    els.analysisRunList.innerHTML = "<li class=\"analysis-run-empty\">저장된 분석 이력이 없습니다.</li>";
+    return;
+  }
+  els.analysisRunList.innerHTML = analysisRuns.map((run, index) => {
+    const total = run.summary?.totalValue || 0;
+    const warnings = run.warnings?.length || 0;
+    const source = run.source?.mode === "imported-json" ? "JSON" : "현재 원장";
+    return `<li><button type="button" data-analysis-run-id="${escapeHtml(run.id)}"><span><strong>${escapeHtml(formatDate(run.createdAt))}</strong><small>${escapeHtml(source)} · 경고 ${warnings}개</small></span><b>${escapeHtml(money(total))}</b>${index === 0 ? "<em>최근</em>" : ""}</button></li>`;
+  }).join("");
+}
+
+function analysisCheckLabel(status) {
+  return { pass: "확인", warn: "주의", fail: "부족", missing: "미연결", not_applicable: "해당 없음" }[status] || status;
+}
+
+function renderAnalysisResult(run) {
+  els.analysisCreatedAt.textContent = formatDate(run.createdAt);
+  els.analysisResultSource.textContent = run.source?.mode === "imported-json"
+    ? `JSON 파일 분석 · 가격표 ${shortDate(run.source?.priceGeneratedAt) || "기준일 없음"}`
+    : `현재 원장 분석 · 가격표 ${shortDate(run.source?.priceGeneratedAt) || "기준일 없음"}`;
+  const summaryItems = [
+    ["총 평가금액", money(run.summary?.totalValue || 0), `${run.summary?.ledgerRowCount || 0}개 원장 행`],
+    ["경제적 포지션", `${run.summary?.economicPositionCount || 0}개`, "같은 티커는 계좌가 달라도 합산"],
+    ["상위 1개 집중도", percent(run.concentration?.top1Weight || 0), "실질 경제적 노출 기준"],
+    ["관측 최대낙폭", run.performance?.maxObservedDrawdown == null ? "계산 대기" : percent(run.performance.maxObservedDrawdown), `${run.performance?.snapshotCount || 0}회 조회 기록 기준`]
+  ];
+  els.analysisSummary.innerHTML = summaryItems.map(([label, value, detail]) => `<article><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></article>`).join("");
+
+  const score = Number(run.quality?.score || 0);
+  els.analysisQualityScore.textContent = `${score}점 · ${{ high: "높음", medium: "보통", low: "낮음" }[run.quality?.level] || "확인 필요"}`;
+  els.analysisQualityScore.className = `quality-${escapeHtml(run.quality?.level || "low")}`;
+  els.analysisQualityChecks.innerHTML = (run.quality?.checks || []).map((check) => `<li><span class="check-status status-${escapeHtml(check.status)}">${escapeHtml(analysisCheckLabel(check.status))}</span><div><strong>${escapeHtml(check.code.replaceAll("_", " "))}</strong><small>${escapeHtml(check.detail)}</small></div></li>`).join("");
+
+  const warnings = run.warnings || [];
+  els.analysisWarningCount.textContent = `${warnings.length}개`;
+  els.analysisWarnings.innerHTML = warnings.length
+    ? warnings.map((item) => `<li class="severity-${escapeHtml(item.severity)}"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.detail)}</p>${Number.isFinite(item.metric) ? `<small>${escapeHtml(percent(item.metric))}</small>` : ""}</li>`).join("")
+    : "<li class=\"analysis-ok\"><strong>현재 규칙에서 감지된 중요 경고가 없습니다.</strong><p>데이터 미연결 항목은 신뢰도에서 별도로 확인하세요.</p></li>";
+
+  const exposureSections = [
+    ["자산 유형", run.exposures?.assetType || []],
+    ["상장시장 추정", run.exposures?.country || []],
+    ["통화", run.exposures?.currency || []],
+    ["계좌", (run.exposures?.account || []).slice(0, 5)]
+  ];
+  els.analysisExposure.innerHTML = exposureSections.map(([title, items]) => `<section><h4>${escapeHtml(title)}</h4>${items.map((item) => `<div class="analysis-bar-row"><div><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(percent(item.weight))}</strong></div><div class="analysis-bar-track"><span style="width:${Math.min(100, Math.max(0, item.weight * 100))}%"></span></div><small>${escapeHtml(money(item.value))}</small></div>`).join("") || "<p>표시할 데이터가 없습니다.</p>"}</section>`).join("");
+
+  const positions = (run.concentration?.positions || []).slice(0, 5);
+  els.analysisConcentration.innerHTML = `
+    <div class="analysis-concentration-stats">
+      <div><span>상위 5개</span><strong>${escapeHtml(percent(run.concentration?.top5Weight || 0))}</strong></div>
+      <div><span>HHI</span><strong>${escapeHtml(String(run.concentration?.hhi ?? "-"))}</strong></div>
+      <div><span>유효 포지션 수</span><strong>${escapeHtml(String(run.concentration?.effectivePositionCount ?? "-"))}</strong></div>
+    </div>
+    <ol>${positions.map((position) => `<li><span>${escapeHtml(position.label)}</span><strong>${escapeHtml(percent(position.weight))}</strong><small>${escapeHtml(money(position.value))}</small></li>`).join("")}</ol>`;
+
+  const performance = run.performance || {};
+  const observedRate = performance.observedChangeRate == null ? "계산 대기" : percent(performance.observedChangeRate);
+  els.analysisPerformance.innerHTML = `
+    <div><span>총자산 관측 변화</span><strong>${escapeHtml(observedRate)}</strong><small>${escapeHtml(performance.note || performance.reason || "조회 기록을 더 쌓아주세요.")}</small></div>
+    <div><span>TWR</span><strong>계산 불가</strong><small>${escapeHtml(performance.twr?.reason || "현금흐름 데이터가 필요합니다.")}</small></div>
+    <div><span>XIRR</span><strong>계산 불가</strong><small>${escapeHtml(performance.xirr?.reason || "현금흐름 데이터가 필요합니다.")}</small></div>
+    <div><span>위험조정 성과</span><strong>계산 불가</strong><small>${escapeHtml(performance.riskAdjusted?.reason || "벤치마크 시계열이 필요합니다.")}</small></div>`;
+}
+
+function runPortfolioAnalysis() {
+  const engine = window.AssetTrailAnalysis;
+  if (!engine?.analyzePortfolio) {
+    alert("분석 엔진을 불러오지 못했습니다. 페이지를 새로고침해 주세요.");
+    return;
+  }
+  const createdAt = new Date().toISOString();
+  const sourceMode = importedAnalysisLedger ? "imported-json" : "current-ledger";
+  try {
+    const run = engine.analyzePortfolio(analysisSourceLedger(), {
+      id: `analysis-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      createdAt,
+      sourceMode,
+      priceBook
+    });
+    const primaryBenchmark = els.analysisBenchmark?.value || null;
+    const secondaryBenchmarks = [els.analysisBenchmarkSecondary1?.value, els.analysisBenchmarkSecondary2?.value]
+      .filter((value, index, values) => value && value !== primaryBenchmark && values.indexOf(value) === index);
+    run.preferences = { primaryBenchmark, secondaryBenchmarks };
+    analysisRuns = [run, ...analysisRuns.filter((item) => item.id !== run.id)].slice(0, MAX_ANALYSIS_RUNS);
+    selectedAnalysisRunId = run.id;
+    persistAnalysisRuns();
+    renderAnalysis();
+    saveAnalysisRunToServer(run);
+  } catch (error) {
+    console.error(error);
+    alert(error?.message || "분석을 생성하지 못했습니다.");
+  }
+}
+
+async function requestAnalysisPdf() {
+  const run = analysisRuns.find((item) => item.id === selectedAnalysisRunId) || analysisRuns[0];
+  if (!run) return;
+  const endpoint = analysisApiUrl("/v1/reports/portfolio-analysis");
+  if (!endpoint) {
+    alert("서버 PDF 주소가 아직 설정되지 않았습니다. 분석 API를 배포한 뒤 firebase-config.js의 analysisApiBaseUrl을 설정하세요.");
+    return;
+  }
+  if (!cloud.user || typeof cloud.user.getIdToken !== "function") {
+    alert("개인 분석 PDF는 로그인 후 생성할 수 있습니다.");
+    return;
+  }
+  els.analysisPdfBtn.disabled = true;
+  els.analysisPdfBtn.textContent = "PDF 생성 중";
+  try {
+    const response = await analysisApiRequest("/v1/reports/portfolio-analysis", {
+      method: "POST",
+      body: JSON.stringify({ analysis: run })
+    });
+    if (!response.ok) throw new Error(`PDF 생성 실패 (${response.status})`);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `assettrail-analysis-${new Date().toISOString().slice(0, 10)}.pdf`;
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error(error);
+    alert(error?.message || "PDF를 생성하지 못했습니다.");
+  } finally {
+    els.analysisPdfBtn.disabled = false;
+    els.analysisPdfBtn.textContent = "상세 PDF 생성";
   }
 }
 
@@ -2743,1398 +2998,4 @@ function drawChart(snapshots = state.snapshots) {
   const topPad = 50;
   const leftPad = 58;
   const rightPad = 44;
-  const bottomPad = 66;
-  const plotBottom = height - bottomPad;
-  const plotWidth = width - leftPad - rightPad;
-  const plotHeight = height - topPad - bottomPad;
-  const points = snapshots.map((snapshot) => snapshot.total);
-  const values = points.length ? points : [totalAssets()];
-  const rawMin = Math.min(...values);
-  const rawMax = Math.max(...values);
-  const rawRange = rawMax - rawMin;
-  const padding = rawRange ? rawRange * 0.18 : Math.max(rawMax * 0.04, 1);
-  const min = Math.max(0, rawMin - padding);
-  const max = rawMax + padding;
-  const range = max - min || 1;
-
-  ctx.strokeStyle = palette.grid;
-  ctx.lineWidth = 1;
-  ctx.fillStyle = palette.muted;
-  ctx.font = `13px ${CHART_FONT}`;
-
-  for (let i = 0; i <= 4; i += 1) {
-    const y = topPad + (plotHeight / 4) * i;
-    ctx.beginPath();
-    ctx.moveTo(leftPad, y);
-    ctx.lineTo(width - rightPad, y);
-    ctx.stroke();
-    const value = max - (range / 4) * i;
-    ctx.fillText(compactMoney(value), 8, y + 4);
-  }
-
-  if (!points.length) {
-    ctx.fillStyle = palette.muted;
-    ctx.textAlign = "center";
-    ctx.fillText("조회 기록을 저장하면 차트가 표시됩니다.", width / 2, height / 2);
-    ctx.textAlign = "left";
-    return;
-  }
-
-  const xFor = (index) => {
-    if (points.length === 1) return width / 2;
-    return leftPad + (plotWidth / (points.length - 1)) * index;
-  };
-  const yFor = (value) => plotBottom - ((value - min) / range) * plotHeight;
-  const first = points[0];
-  const latest = points.at(-1);
-  const change = latest - first;
-  const lineColor = change < 0 ? palette.red : palette.green;
-  const fillColor = hexToRgba(lineColor, 0.18);
-  const accentColor = lineColor;
-  const fill = ctx.createLinearGradient(0, topPad, 0, plotBottom);
-  fill.addColorStop(0, fillColor);
-  fill.addColorStop(1, "rgba(255, 255, 255, 0)");
-
-  drawXAxisLabels(ctx, snapshots, xFor, leftPad, width - rightPad, plotBottom, height, palette);
-
-  ctx.beginPath();
-  points.forEach((value, index) => {
-    const x = xFor(index);
-    const y = yFor(value);
-    if (index === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.lineTo(xFor(points.length - 1), plotBottom);
-  ctx.lineTo(xFor(0), plotBottom);
-  ctx.closePath();
-  ctx.fillStyle = fill;
-  ctx.fill();
-
-  ctx.beginPath();
-  points.forEach((value, index) => {
-    const x = xFor(index);
-    const y = yFor(value);
-    if (index === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.strokeStyle = lineColor;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.lineWidth = 2.5;
-  ctx.stroke();
-
-  [0, points.length - 1].forEach((index) => {
-    const x = xFor(index);
-    const y = yFor(points[index]);
-    ctx.beginPath();
-    ctx.arc(x, y, 5, 0, Math.PI * 2);
-    ctx.fillStyle = palette.surface;
-    ctx.fill();
-    ctx.strokeStyle = index === points.length - 1 ? accentColor : palette.slate;
-    ctx.lineWidth = 3;
-    ctx.stroke();
-  });
-
-  drawChartBadge(ctx, xFor(0), yFor(first), "시작", money(first), palette.slate, width, height, palette);
-  drawChartBadge(ctx, xFor(points.length - 1), yFor(latest), "최근", money(latest), accentColor, width, height, palette);
-  if (els.historyChartDescription) {
-    els.historyChartDescription.textContent = `선택 기간 첫 기록 ${money(first)}, 최근 기록 ${money(latest)}, 변화 ${change > 0 ? "+" : ""}${money(change)}입니다.`;
-  }
-}
-
-function drawXAxisLabels(ctx, snapshots, xFor, left, right, plotBottom, height, palette = chartPalette()) {
-  const lastIndex = snapshots.length - 1;
-  const axisY = plotBottom + 8;
-  const labelY = Math.min(height - 18, plotBottom + 30);
-  const availableWidth = Math.max(1, right - left);
-  const maxLabels = Math.max(2, Math.floor(availableWidth / 110) + 1);
-  const step = lastIndex <= 0 ? 1 : Math.ceil(lastIndex / (maxLabels - 1));
-  const indexes = new Set([0, lastIndex]);
-
-  for (let index = 0; index <= lastIndex; index += step) {
-    indexes.add(index);
-  }
-
-  ctx.strokeStyle = hexToRgba(palette.muted, 0.26);
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(left, plotBottom);
-  ctx.lineTo(right, plotBottom);
-  ctx.stroke();
-
-  ctx.fillStyle = palette.muted;
-  ctx.font = `600 11px ${CHART_FONT}`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  [...indexes].sort((a, b) => a - b).forEach((index) => {
-    const x = xFor(index);
-    ctx.beginPath();
-    ctx.moveTo(x, plotBottom);
-    ctx.lineTo(x, axisY);
-    ctx.stroke();
-    ctx.fillText(chartDateLabel(snapshots[index]?.createdAt), x, labelY);
-  });
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
-}
-
-function drawChartBadge(ctx, x, y, label, value, color, width, height, palette = chartPalette()) {
-  const text = `${label} ${value}`;
-  ctx.font = `700 12px ${CHART_FONT}`;
-  const textWidth = ctx.measureText(text).width;
-  const boxWidth = Math.min(textWidth + 20, width - 20);
-  const boxHeight = 26;
-  const boxX = Math.min(Math.max(10, x - boxWidth / 2), width - boxWidth - 10);
-  const boxY = Math.min(Math.max(8, y - 40), height - boxHeight - 8);
-
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 9);
-  else ctx.rect(boxX, boxY, boxWidth, boxHeight);
-  ctx.fillStyle = palette.surface;
-  ctx.fill();
-  ctx.strokeStyle = hexToRgba(palette.muted, 0.2);
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  ctx.fillStyle = color;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(text, boxX + boxWidth / 2, boxY + boxHeight / 2 + 0.5);
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
-}
-
-function renderRetirement() {
-  const result = calculateRetirement(state.retirement);
-
-  els.requiredNestEgg.textContent = result.error ? "계산 불가" : money(result.nestEgg);
-  els.requiredSpendInfo.textContent = result.error
-    ? result.error
-    : `은퇴 첫해 연 지출 ${money(result.firstAnnualSpend)} 기준`;
-  els.returnNoContrib.textContent = formatReturnResult(result.requiredNoContribution);
-  els.returnWithContrib.textContent = formatReturnResult(result.requiredWithContribution);
-
-  if (result.error) {
-    els.targetStatus.textContent = "입력 확인";
-    els.targetStatus.className = "warning";
-    els.targetStatusDetail.textContent = result.error;
-  } else if (result.gap <= 0) {
-    els.targetStatus.textContent = "이미 충족";
-    els.targetStatus.className = "positive";
-    els.targetStatusDetail.textContent = `${money(Math.abs(result.gap))} 여유`;
-  } else {
-    els.targetStatus.textContent = "추가 성장 필요";
-    els.targetStatus.className = result.requiredWithContribution > 0.12 ? "warning" : "";
-    els.targetStatusDetail.textContent = `${money(result.gap)} 부족`;
-  }
-
-  els.retireGap.textContent = result.error ? "₩0" : money(Math.max(0, result.gap));
-  els.retireGapLabel.textContent = result.error ? "계산 대기" : `${result.yearsToRetire}년 남음`;
-  renderRetirementProgress(result);
-  renderRetirementSensitivity();
-}
-
-function renderRetirementProgress(result) {
-  if (!els.retirementProgressBar || !els.retirementProgressLabel) return;
-  if (result.error || !Number.isFinite(result.nestEgg) || result.nestEgg <= 0) {
-    els.retirementProgressBar.style.width = "0%";
-    els.retirementProgressLabel.textContent = "0%";
-    return;
-  }
-
-  const progress = Math.max(0, Math.min(1, Number(state.retirement.currentInvestable || 0) / result.nestEgg));
-  els.retirementProgressBar.style.width = `${Math.max(2, progress * 100)}%`;
-  els.retirementProgressLabel.textContent = `${Math.round(progress * 100)}%`;
-}
-
-function calculateRetirement(input) {
-  const currentAge = Number(input.currentAge);
-  const retireAge = Number(input.retireAge);
-  const lifeAge = Number(input.lifeAge);
-  const currentInvestable = Number(input.currentInvestable);
-  const monthlyInvest = Number(input.monthlyInvest);
-  const monthlySpend = Number(input.monthlySpend);
-  const inflation = Number(input.inflationRate) / 100;
-  const postReturn = Number(input.postReturnRate) / 100;
-  const yearsToRetire = retireAge - currentAge;
-  const retirementYears = lifeAge - retireAge;
-
-  if (yearsToRetire < 0) return { error: "은퇴 나이는 현재 나이보다 커야 합니다." };
-  if (retirementYears <= 0) return { error: "예상 수명은 은퇴 나이보다 커야 합니다." };
-  if (monthlySpend <= 0) return { error: "은퇴 후 월 지출을 입력하세요." };
-
-  const firstAnnualSpend = monthlySpend * 12 * Math.pow(1 + inflation, yearsToRetire);
-  const nestEgg = presentValueGrowingAnnuity(firstAnnualSpend, postReturn, inflation, retirementYears);
-  const months = yearsToRetire * 12;
-  const requiredNoContribution = requiredAnnualReturn(currentInvestable, 0, nestEgg, months);
-  const requiredWithContribution = requiredAnnualReturn(currentInvestable, monthlyInvest, nestEgg, months);
-  const gap = nestEgg - currentInvestable;
-
-  return {
-    firstAnnualSpend,
-    gap,
-    nestEgg,
-    requiredNoContribution,
-    requiredWithContribution,
-    yearsToRetire
-  };
-}
-
-function presentValueGrowingAnnuity(firstPayment, rate, growth, years) {
-  if (Math.abs(rate - growth) < 0.000001) {
-    return (firstPayment * years) / (1 + rate);
-  }
-  return (firstPayment / (rate - growth)) * (1 - Math.pow((1 + growth) / (1 + rate), years));
-}
-
-function requiredAnnualReturn(principal, monthlyContribution, target, months) {
-  if (target <= 0) return 0;
-  if (months <= 0) return principal >= target ? 0 : Number.POSITIVE_INFINITY;
-  if (principal <= 0 && monthlyContribution <= 0) return Number.POSITIVE_INFINITY;
-
-  const futureValue = (monthlyRate) => {
-    if (Math.abs(monthlyRate) < 0.0000001) {
-      return principal + monthlyContribution * months;
-    }
-    return (
-      principal * Math.pow(1 + monthlyRate, months) +
-      monthlyContribution * ((Math.pow(1 + monthlyRate, months) - 1) / monthlyRate)
-    );
-  };
-
-  let low = -0.99;
-  let high = 1;
-  if (futureValue(high) < target) return Number.POSITIVE_INFINITY;
-
-  for (let i = 0; i < 120; i += 1) {
-    const mid = (low + high) / 2;
-    if (futureValue(mid) >= target) high = mid;
-    else low = mid;
-  }
-
-  return Math.pow(1 + high, 12) - 1;
-}
-
-function formatReturnResult(value) {
-  if (value === Number.POSITIVE_INFINITY || !Number.isFinite(value)) return "달성 불가";
-  return percent(value);
-}
-
-function renderRetirementScenarioOptions() {
-  if (!els.retirementScenarioSelect) return;
-  const current = els.retirementScenarioSelect.value;
-  els.retirementScenarioSelect.innerHTML = `<option value="">시나리오 선택</option>${state.retirementScenarios.map((scenario) => `<option value="${escapeHtml(scenario.id)}">${escapeHtml(scenario.name)}</option>`).join("")}`;
-  els.retirementScenarioSelect.value = state.retirementScenarios.some((scenario) => scenario.id === current) ? current : "";
-}
-
-function currentRetirementScenarioInput() {
-  return { ...state.retirement };
-}
-
-function renderRetirementSensitivity() {
-  if (!els.retirementSensitivity) return;
-  const base = currentRetirementScenarioInput();
-  const cases = [
-    ["물가 +1%p", { ...base, inflationRate: Number(base.inflationRate) + 1 }],
-    ["물가 -1%p", { ...base, inflationRate: Number(base.inflationRate) - 1 }],
-    ["수익률 +1%p", { ...base, postReturnRate: Number(base.postReturnRate) + 1 }],
-    ["수익률 -1%p", { ...base, postReturnRate: Number(base.postReturnRate) - 1 }],
-    ["지출 +10%", { ...base, monthlySpend: Number(base.monthlySpend) * 1.1 }]
-  ];
-  els.retirementSensitivity.innerHTML = cases.map(([label, input]) => {
-    const result = calculateRetirement(input);
-    return `<div class="sensitivity-item">
-      <span>${escapeHtml(label)}</span>
-      <strong>${result.error ? "계산 불가" : money(result.nestEgg)}</strong>
-    </div>`;
-  }).join("");
-}
-
-function localDateInputValue(date = new Date()) {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60 * 1000);
-  return local.toISOString().slice(0, 10);
-}
-
-function toDate(value) {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function formatWithDateFormatter(formatter, value) {
-  if (!value) return "";
-  const date = toDate(value);
-  return date ? formatter.format(date) : String(value);
-}
-
-function formatTradeDate(value) {
-  if (!value) return "";
-  const date = toDate(`${value}T00:00:00`);
-  return date ? TRADE_DATE_FORMATTER.format(date) : String(value);
-}
-
-function formatDate(value) {
-  if (!value) return "없음";
-  return formatWithDateFormatter(DATE_TIME_FORMATTER, value);
-}
-
-function shortDay(value) {
-  const date = toDate(value);
-  if (!date) return "";
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${m}.${d}`;
-}
-
-function shortDate(value) {
-  return formatWithDateFormatter(SHORT_DATE_FORMATTER, value);
-}
-
-function chartDateLabel(value) {
-  return formatWithDateFormatter(CHART_DATE_FORMATTER, value);
-}
-
-function shortDateTime(value) {
-  return formatWithDateFormatter(SHORT_DATE_TIME_FORMATTER, value);
-}
-
-function compactDateTime(value) {
-  if (!value) return "";
-  const date = toDate(value);
-  if (!date) return String(value);
-  const month = date.getMonth() + 1;
-  const day = date.getDate();
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  return `${month}/${day} ${hours}:${minutes}`;
-}
-
-function daysSince(value) {
-  if (!value) return Number.POSITIVE_INFINITY;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return Number.POSITIVE_INFINITY;
-  return (Date.now() - date.getTime()) / (24 * 60 * 60 * 1000);
-}
-
-function compactMoney(value) {
-  if (value >= 100000000) return `${(value / 100000000).toFixed(1)}억`;
-  if (value >= 10000) return `${(value / 10000).toFixed(0)}만`;
-  return `${Math.round(value)}`;
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function resetAssetForm() {
-  els.assetId.value = "";
-  els.assetForm.reset();
-  uiState.autofilledAssetName = "";
-  if (els.assetFormTitle) els.assetFormTitle.textContent = "자산 추가";
-  els.saveAssetBtn.textContent = "자산 저장";
-  updateAssetFormForType();
-  hideAssetForm();
-}
-
-function showAssetForm(mode = "create") {
-  if (els.assetFormPanel) els.assetFormPanel.hidden = false;
-  if (els.assetFormTitle) els.assetFormTitle.textContent = mode === "edit" ? "자산 수정" : "자산 추가";
-  if (els.toggleAssetFormBtn) {
-    els.toggleAssetFormBtn.textContent = "접기";
-    els.toggleAssetFormBtn.setAttribute("aria-expanded", "true");
-  }
-}
-
-function hideAssetForm() {
-  if (els.assetFormPanel) els.assetFormPanel.hidden = true;
-  if (els.toggleAssetFormBtn) {
-    els.toggleAssetFormBtn.textContent = "자산 추가";
-    els.toggleAssetFormBtn.setAttribute("aria-expanded", "false");
-  }
-}
-
-function resetTradeForm({ form, idInput, preview, panel }) {
-  if (!form) return;
-  form.reset();
-  if (idInput) idInput.value = "";
-  if (preview) preview.textContent = "";
-  if (panel) panel.hidden = true;
-}
-
-function resetSellForm() {
-  resetTradeForm({ form: els.sellForm, idInput: els.sellAssetId, preview: els.sellPreview, panel: els.sellFormPanel });
-}
-
-function hideSellForm() {
-  if (els.sellFormPanel) els.sellFormPanel.hidden = true;
-}
-
-function resetBuyForm() {
-  resetTradeForm({ form: els.buyForm, idInput: els.buyAssetId, preview: els.buyPreview, panel: els.buyFormPanel });
-}
-
-function hideBuyForm() {
-  if (els.buyFormPanel) els.buyFormPanel.hidden = true;
-}
-
-function showSellForm(asset) {
-  if (!els.sellFormPanel || !els.sellForm) return;
-  resetAssetForm();
-  resetBuyForm();
-  els.sellFormPanel.hidden = false;
-  els.sellAssetId.value = asset.id;
-  els.sellDate.value = localDateInputValue();
-  els.sellQuantity.value = formatPlainNumber(asset.quantity || 0);
-  els.sellPrice.value = asset.currentPrice ? formatPlainNumber(asset.currentPrice) : "";
-  els.sellFees.value = "";
-  els.sellTax.value = "";
-  els.sellMemo.value = "";
-  if (els.sellJournalEnabled) els.sellJournalEnabled.checked = true;
-  const type = assetType(asset);
-  if (els.sellFxRateField) els.sellFxRateField.hidden = type !== "US";
-  els.sellFxRate.value = type === "US" ? formatPlainNumber(usdKrwRate()) : "1";
-  els.sellAssetSummary.textContent = `${asset.name} · ${asset.account || "계좌 미지정"} · 보유 ${formatPlainNumber(asset.quantity)}주 · 평단 ${type === "US" ? usd(asset.averagePrice) : formatPlainNumber(asset.averagePrice)}`;
-  renderSellPreview();
-  els.sellQuantity.focus();
-}
-
-function showBuyForm(asset) {
-  if (!els.buyFormPanel || !els.buyForm) return;
-  resetAssetForm();
-  resetSellForm();
-  resetJournalForm();
-  els.buyFormPanel.hidden = false;
-  els.buyAssetId.value = asset.id;
-  els.buyDate.value = localDateInputValue();
-  els.buyQuantity.value = "";
-  els.buyPrice.value = asset.currentPrice ? formatPlainNumber(asset.currentPrice) : "";
-  els.buyFees.value = "";
-  els.buyMemo.value = "";
-  if (els.buyJournalEnabled) els.buyJournalEnabled.checked = true;
-  const type = assetType(asset);
-  if (els.buyFxRateField) els.buyFxRateField.hidden = type !== "US";
-  els.buyFxRate.value = type === "US" ? formatPlainNumber(usdKrwRate()) : "1";
-  els.buyAssetSummary.textContent = `${asset.name} · ${asset.account || "계좌 미지정"} · 현재 ${formatPlainNumber(asset.quantity)}주 · 평단 ${type === "US" ? usd(asset.averagePrice) : formatPlainNumber(asset.averagePrice)}`;
-  renderBuyPreview();
-  els.buyQuantity.focus();
-}
-
-function renderSellPreview() {
-  if (!els.sellPreview) return;
-  const preview = parseSellForm(false);
-  if (!preview.ok) {
-    els.sellPreview.textContent = preview.message || "💡 매도 정보를 입력하면 예상 실현손익이 표시됩니다.";
-    els.sellPreview.className = "sell-preview";
-    return;
-  }
-  const gain = preview.trade.realizedGain;
-  const rate = preview.trade.realizedGainRate;
-  els.sellPreview.className = `sell-preview ${gain > 0 ? "positive" : gain < 0 ? "negative" : ""}`;
-  els.sellPreview.textContent = [
-    `매도금액 ${money(preview.trade.grossAmount)}`,
-    `원가 ${money(preview.trade.costAmount)}`,
-    `비용 ${money(preview.trade.fees + preview.trade.tax)}`,
-    `실현손익 ${gain > 0 ? "+" : ""}${money(gain)}${rate === null ? "" : ` (${rate > 0 ? "+" : ""}${percent(rate)})`}`
-  ].join(" · ");
-}
-
-function renderBuyPreview() {
-  if (!els.buyPreview) return;
-  const preview = parseBuyForm(false);
-  if (!preview.ok) {
-    els.buyPreview.textContent = preview.message || "추가매수 정보를 입력하면 새 보유수량과 평단이 표시됩니다.";
-    els.buyPreview.className = "buy-preview";
-    return;
-  }
-  const type = assetType(preview.asset);
-  const averageText = type === "US" ? usd(preview.nextAveragePrice) : formatPlainNumber(preview.nextAveragePrice);
-  const previousAverageText = type === "US" ? usd(Number(preview.asset.averagePrice || 0)) : formatPlainNumber(preview.asset.averagePrice || 0);
-  els.buyPreview.className = "buy-preview positive";
-  els.buyPreview.textContent = [
-    `매수금액 ${money(preview.grossAmount + preview.fees)}`,
-    `보유 ${formatPlainNumber(preview.previousQuantity)}주 → ${formatPlainNumber(preview.nextQuantity)}주`,
-    `평단 ${previousAverageText} → ${averageText}`
-  ].join(" · ");
-}
-
-function parseSellForm(strict = true) {
-  const asset = state.assets.find((item) => item.id === els.sellAssetId?.value);
-  if (!asset) return { ok: false, message: "매도할 자산을 찾을 수 없습니다." };
-  const type = assetType(asset);
-  if (!isMarketType(type)) return { ok: false, message: "KRX/US 자산만 매도 기록을 남길 수 있습니다." };
-
-  const quantity = parseAmount(els.sellQuantity?.value || 0);
-  const holdingQuantity = Number(asset.quantity || 0);
-  const sellPrice = parseAmount(els.sellPrice?.value || 0);
-  const fxRate = type === "US" ? parseAmount(els.sellFxRate?.value || 0) : 1;
-  const fees = Math.max(0, parseAmount(els.sellFees?.value || 0));
-  const tax = Math.max(0, parseAmount(els.sellTax?.value || 0));
-  const soldAt = els.sellDate?.value || localDateInputValue();
-
-  if (quantity <= 0) return { ok: false, message: strict ? "매도 수량은 0보다 커야 합니다." : "" };
-  if (quantity > holdingQuantity + 0.0000001) return { ok: false, message: `보유 수량 ${formatPlainNumber(holdingQuantity)}주보다 많이 매도할 수 없습니다.` };
-  if (sellPrice <= 0) return { ok: false, message: strict ? "매도가를 입력하세요." : "" };
-  if (type === "US" && fxRate <= 0) return { ok: false, message: strict ? "달러 환율을 입력하세요." : "" };
-
-  const effectiveFx = type === "US" ? fxRate : 1;
-  const costAmount = quantity * Number(asset.averagePrice || 0) * effectiveFx;
-  const grossAmount = quantity * sellPrice * effectiveFx;
-  const realizedGain = grossAmount - costAmount - fees - tax;
-  const trade = normalizeRealizedTrade({
-    id: uid(),
-    assetId: asset.id,
-    soldAt,
-    name: asset.name,
-    ticker: normalizeTicker(type, asset.ticker),
-    type,
-    account: asset.account || "",
-    quantity,
-    averagePrice: Number(asset.averagePrice || 0),
-    sellPrice,
-    fxRate: effectiveFx,
-    grossAmount,
-    costAmount,
-    fees,
-    tax,
-    realizedGain,
-    memo: els.sellMemo?.value.trim() || "",
-    createdAt: new Date().toISOString()
-  });
-
-  return {
-    ok: true,
-    asset,
-    remainingQuantity: Math.max(0, holdingQuantity - quantity),
-    trade
-  };
-}
-
-function parseBuyForm(strict = true) {
-  const asset = state.assets.find((item) => item.id === els.buyAssetId?.value);
-  if (!asset) return { ok: false, message: "추가매수할 자산을 찾을 수 없습니다." };
-  const type = assetType(asset);
-  if (!isMarketType(type)) return { ok: false, message: "KRX/US 자산만 추가매수할 수 있습니다." };
-
-  const quantity = parseAmount(els.buyQuantity?.value || 0);
-  const buyPrice = parseAmount(els.buyPrice?.value || 0);
-  const fxRate = type === "US" ? parseAmount(els.buyFxRate?.value || 0) : 1;
-  const fees = Math.max(0, parseAmount(els.buyFees?.value || 0));
-  const boughtAt = els.buyDate?.value || localDateInputValue();
-
-  if (quantity <= 0) return { ok: false, message: strict ? "추가매수 수량은 0보다 커야 합니다." : "" };
-  if (buyPrice <= 0) return { ok: false, message: strict ? "매수가를 입력하세요." : "" };
-  if (type === "US" && fxRate <= 0) return { ok: false, message: strict ? "달러 환율을 입력하세요." : "" };
-
-  const effectiveFx = type === "US" ? fxRate : 1;
-  const previousQuantity = Number(asset.quantity || 0);
-  const previousAveragePrice = Number(asset.averagePrice || 0);
-  const nextQuantity = previousQuantity + quantity;
-  const feeInPriceCurrency = fees / effectiveFx;
-  const previousCost = previousQuantity * previousAveragePrice;
-  const addedCost = quantity * buyPrice + feeInPriceCurrency;
-  const nextAveragePrice = nextQuantity > 0 ? (previousCost + addedCost) / nextQuantity : buyPrice;
-  const grossAmount = quantity * buyPrice * effectiveFx;
-
-  return {
-    ok: true,
-    asset,
-    boughtAt,
-    quantity,
-    buyPrice,
-    fxRate: effectiveFx,
-    fees,
-    grossAmount,
-    previousQuantity,
-    previousAveragePrice,
-    nextQuantity,
-    nextAveragePrice,
-    memo: els.buyMemo?.value.trim() || ""
-  };
-}
-
-function normalizeAssetKey(value) {
-  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
-}
-
-function updateAssetFormForType() {
-  const type = normalizeAssetType(els.assetCategory.value);
-  const manualValued = isManualValuedType(type);
-  const marketValued = isMarketType(type);
-  els.assetAmount.disabled = !manualValued;
-  els.assetAmount.placeholder = "금액 입력";
-  if (els.assetAmountField) els.assetAmountField.hidden = !manualValued;
-  if (els.manualSubtypeField) els.manualSubtypeField.hidden = type !== "MANUAL";
-  if (!manualValued) els.assetAmount.value = "";
-  if (type !== "MANUAL" && els.assetManualSubtype) els.assetManualSubtype.value = "AUTO";
-  els.assetTicker.disabled = !marketValued;
-  els.assetTicker.placeholder = type === "KRX" ? "예: 005930, 0092B0" : type === "US" ? "예: AAPL, QQQ" : "티커 불필요";
-  els.assetAveragePrice.placeholder = type === "US" ? "달러 평단가" : "0";
-  if (!marketValued) {
-    els.assetTicker.value = "";
-    uiState.autofilledAssetName = "";
-  }
-  if (els.assetTickerHelp) els.assetTickerHelp.textContent = tickerHelpForType(type);
-}
-
-function fillAssetNameFromTicker() {
-  const currentName = els.assetName.value.trim();
-  if (currentName && currentName !== uiState.autofilledAssetName) return;
-  const type = normalizeAssetType(els.assetCategory.value);
-  const inferredName = priceNameForTicker(type, els.assetTicker.value);
-  if (inferredName) {
-    els.assetName.value = inferredName;
-    uiState.autofilledAssetName = inferredName;
-  }
-}
-
-function parseAmount(value) {
-  const raw = String(value || "").trim();
-  const negative = /^\(.*\)$/.test(raw);
-  const normalized = raw.replace(/[₩$원,\s()]/g, "");
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed * (negative ? -1 : 1) : 0;
-}
-
-els.assetForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const type = normalizeAssetType(els.assetCategory.value);
-  const ticker = normalizeTicker(type, els.assetTicker.value);
-  const asset = {
-    id: els.assetId.value || uid(),
-    name: els.assetName.value.trim() || priceNameForTicker(type, ticker),
-    ticker,
-	    type,
-	    account: els.assetAccount.value.trim(),
-	    accountClass: normalizeAccountClass(els.assetAccountClass?.value),
-	    manualSubtype: type === "MANUAL" ? normalizeManualSubtype(els.assetManualSubtype?.value) : "AUTO",
-	    amount: isManualValuedType(type) ? numberValue(els.assetAmount) : 0,
-    quantity: decimalValue(els.assetQuantity),
-    averagePrice: decimalValue(els.assetAveragePrice),
-    note: els.assetNote.value.trim(),
-    updatedAt: new Date().toISOString()
-  };
-
-  if (!asset.name) return;
-  const tickerError = validateTicker(type, asset.ticker);
-  if (tickerError) {
-    alert(tickerError);
-    return;
-  }
-
-  const index = state.assets.findIndex((item) =>
-    els.assetId.value ? item.id === asset.id : assetIdentity(item) === assetIdentity(asset)
-  );
-  if (index >= 0) state.assets[index] = normalizeAsset({ ...state.assets[index], ...asset, id: state.assets[index].id });
-  else state.assets.push(normalizeAsset(asset));
-
-  applyPricesToAssets();
-  resetAssetForm();
-  render();
-});
-
-els.buyForm?.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const result = parseBuyForm(true);
-  if (!result.ok) {
-    alert(result.message);
-    return;
-  }
-
-  const { asset, nextQuantity, nextAveragePrice } = result;
-  const previousAssets = state.assets.map((item) => ({ ...item }));
-  const previousJournalEntries = state.tradeJournalEntries.map((item) => ({ ...item }));
-  const index = state.assets.findIndex((item) => item.id === asset.id);
-  if (index < 0) return;
-
-  state.assets[index] = normalizeAsset({
-    ...state.assets[index],
-    quantity: nextQuantity,
-    averagePrice: nextAveragePrice,
-    updatedAt: new Date().toISOString()
-  });
-
-  const journalCreated = Boolean(els.buyJournalEnabled?.checked);
-  if (journalCreated) {
-    state.tradeJournalEntries.push(createJournalEntryFromBuy(state.assets[index], result));
-  }
-
-  applyPricesToAssets();
-  resetBuyForm();
-  uiState.investmentRecordTab = journalCreated ? "JOURNAL" : uiState.investmentRecordTab;
-  render();
-  showUndoNotice(journalCreated ? "추가매수와 매매일지를 함께 저장했습니다." : "추가매수를 저장했습니다.", () => {
-    state.assets = previousAssets.map(normalizeAsset);
-    state.tradeJournalEntries = previousJournalEntries.map(normalizeTradeJournalEntry);
-    applyPricesToAssets();
-    render();
-  });
-});
-
-els.sellForm?.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const result = parseSellForm(true);
-  if (!result.ok) {
-    alert(result.message);
-    return;
-  }
-
-  const { asset, remainingQuantity, trade } = result;
-  const previousAssets = state.assets.map((item) => ({ ...item }));
-  const previousTrades = state.realizedTrades.map((item) => ({ ...item }));
-  const previousJournalEntries = state.tradeJournalEntries.map((item) => ({ ...item }));
-  const index = state.assets.findIndex((item) => item.id === asset.id);
-  if (index < 0) return;
-
-  state.realizedTrades.push(trade);
-  const journalCreated = Boolean(els.sellJournalEnabled?.checked);
-  if (journalCreated) {
-    state.tradeJournalEntries.push(createJournalEntryFromTrade(asset, trade));
-  }
-  if (remainingQuantity <= 0.0000001) {
-    state.assets.splice(index, 1);
-  } else {
-    state.assets[index] = normalizeAsset({
-      ...state.assets[index],
-      quantity: remainingQuantity,
-      updatedAt: new Date().toISOString()
-    });
-  }
-
-  applyPricesToAssets();
-  resetSellForm();
-  uiState.investmentRecordTab = "REALIZED";
-  render();
-  showUndoNotice(journalCreated ? "매도 기록과 매매일지를 함께 저장했습니다." : "매도 기록을 저장했습니다. 실현손익에서 일지를 연결할 수 있습니다.", () => {
-    state.assets = previousAssets.map(normalizeAsset);
-    state.realizedTrades = previousTrades.map(normalizeRealizedTrade);
-    state.tradeJournalEntries = previousJournalEntries.map(normalizeTradeJournalEntry);
-    applyPricesToAssets();
-    render();
-  });
-});
-
-function handleAssetAction(button) {
-  const asset = state.assets.find((item) => item.id === button.dataset.id);
-  if (!asset) return;
-
-  if (button.dataset.action === "detail") {
-    openAssetDetail(asset.id);
-  }
-
-  if (button.dataset.action === "buy") {
-    showBuyForm(asset);
-  }
-
-  if (button.dataset.action === "sell") {
-    showSellForm(asset);
-  }
-
-  if (button.dataset.action === "journal") {
-    setActiveView("JOURNAL", { scroll: true, updateHash: true, focus: true });
-    showJournalForm();
-    fillJournalFromAsset(asset);
-    els.journalAction.value = "WATCH";
-    els.journalStatus.value = "OPEN";
-  }
-
-  if (button.dataset.action === "edit") {
-    resetSellForm();
-    resetBuyForm();
-    showAssetForm("edit");
-    els.assetId.value = asset.id;
-    els.assetName.value = asset.name;
-	    els.assetAccount.value = asset.account || "";
-	    if (els.assetAccountClass) els.assetAccountClass.value = normalizeAccountClass(asset.accountClass);
-	    els.assetTicker.value = asset.ticker || "";
-	    els.assetCategory.value = assetType(asset);
-	    if (els.assetManualSubtype) els.assetManualSubtype.value = normalizeManualSubtype(asset.manualSubtype);
-    els.assetAmount.value = isManualValuedType(assetType(asset)) ? formatPlainNumber(asset.amount || 0) : "";
-    els.assetQuantity.value = asset.quantity || "";
-    els.assetAveragePrice.value = asset.averagePrice || "";
-    els.assetNote.value = asset.note || "";
-    uiState.autofilledAssetName = "";
-    els.saveAssetBtn.textContent = "수정 저장";
-    updateAssetFormForType();
-    els.assetName.focus();
-  }
-
-  if (button.dataset.action === "delete" && confirm(`${asset.name} 자산을 삭제할까요?\n\n계좌: ${asset.account || "계좌 미지정"}\n평가금액: ${money(assetValue(asset))}\n\n삭제 직후에는 되돌리기 버튼으로 복구할 수 있습니다.`)) {
-    const index = state.assets.findIndex((item) => item.id === asset.id);
-    const deleted = { ...asset };
-    state.assets = state.assets.filter((item) => item.id !== asset.id);
-    resetAssetForm();
-    resetSellForm();
-    resetBuyForm();
-    render();
-    showUndoNotice(`${asset.name} 자산을 삭제했습니다.`, () => {
-      state.assets.splice(Math.max(0, index), 0, deleted);
-      applyPricesToAssets();
-      render();
-    });
-  }
-}
-
-function openAssetDetail(assetId) {
-  const asset = state.assets.find((item) => item.id === assetId);
-  if (!asset || !els.assetDetailDrawer || !els.assetDetailOverlay) return;
-  const value = assetValue(asset);
-  const gain = assetGain(asset);
-  const cost = assetCost(asset);
-  const gainRate = gain === null || !cost ? null : gain / cost;
-  const tone = gain > 0 ? "positive" : gain < 0 ? "negative" : "";
-  const arrow = gain > 0 ? "▲ " : gain < 0 ? "▼ " : "";
-  const gainText = gain === null
-    ? "—"
-    : `${arrow}${gain > 0 ? "+" : ""}${money(gain)}${gainRate ? ` (${gainRate > 0 ? "+" : ""}${percent(gainRate)})` : ""}`;
-  const noteHtml = asset.note
-    ? `<p>${escapeHtml(asset.note)}</p>`
-    : `<p class="detail-empty">작성된 메모가 없어요. 일지에서 판단을 기록해 보세요.</p>`;
-  els.assetDetailDrawer.innerHTML = `
-    <div class="detail-head">
-      <div class="detail-id">
-        <strong>${escapeHtml(asset.name)}</strong>
-        <span class="asset-sub">
-          ${asset.ticker ? `<span class="ticker">${escapeHtml(asset.ticker)}</span>` : ""}
-          <span class="badge">${escapeHtml(assetTypeLabel(asset))}</span>
-          ${asset.account ? `<span class="asset-account">${escapeHtml(asset.account)}</span>` : ""}
-        </span>
-      </div>
-      <button class="icon-button detail-close" type="button" data-detail-close aria-label="상세 닫기">✕</button>
-    </div>
-    <div class="detail-body">
-      <div class="detail-value-card">
-        <span class="detail-kicker">평가금액</span>
-        <strong class="detail-value">${money(value)}</strong>
-        <span class="detail-gain ${tone}">${gainText}</span>
-      </div>
-      <div class="detail-grid">
-        <div><span>보유수량</span><strong>${asset.quantity ? formatPlainNumber(asset.quantity) : "—"}</strong></div>
-        <div><span>평단가</span><strong>${asset.averagePrice ? formatPlainNumber(asset.averagePrice) : "—"}</strong></div>
-        <div><span>매입원가</span><strong>${cost ? money(cost) : "—"}</strong></div>
-        <div><span>유형</span><strong>${escapeHtml(assetTypeLabel(asset))}</strong></div>
-      </div>
-      <div class="detail-note">
-        <span class="detail-kicker">메모</span>
-        ${noteHtml}
-      </div>
-    </div>
-    <div class="detail-actions">
-      ${canBuyAsset(asset) ? `<button class="primary-button compact-button" type="button" data-action="buy" data-id="${asset.id}">추가매수</button>` : ""}
-      ${canSellAsset(asset) ? `<button class="ghost-button" type="button" data-action="sell" data-id="${asset.id}">매도</button>` : ""}
-      <button class="ghost-button" type="button" data-action="journal" data-id="${asset.id}">일지</button>
-      <button class="ghost-button" type="button" data-action="edit" data-id="${asset.id}">수정</button>
-      <button class="ghost-button danger-action" type="button" data-action="delete" data-id="${asset.id}">삭제</button>
-    </div>
-  `;
-  els.assetDetailOverlay.hidden = false;
-  const closeBtn = els.assetDetailDrawer.querySelector("[data-detail-close]");
-  if (closeBtn) closeBtn.focus();
-}
-
-function closeAssetDetail() {
-  if (els.assetDetailOverlay) els.assetDetailOverlay.hidden = true;
-}
-
-function handleAssetSurfaceClick(event) {
-  const button = event.target.closest("button[data-action]");
-  if (button) {
-    handleAssetAction(button);
-    return;
-  }
-  const row = event.target.closest("[data-id]");
-  if (row && row.dataset.id) openAssetDetail(row.dataset.id);
-}
-
-els.assetRows.addEventListener("click", handleAssetSurfaceClick);
-els.assetCards?.addEventListener("click", handleAssetSurfaceClick);
-
-els.assetDetailOverlay?.addEventListener("click", (event) => {
-  const button = event.target.closest("button[data-action]");
-  if (button) {
-    closeAssetDetail();
-    handleAssetAction(button);
-    return;
-  }
-  if (event.target.closest("[data-detail-close]")) closeAssetDetail();
-});
-
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && els.assetDetailOverlay && !els.assetDetailOverlay.hidden) closeAssetDetail();
-});
-
-els.investmentJournalTab?.addEventListener("click", () => {
-  setInvestmentRecordTab("JOURNAL");
-});
-
-els.investmentRealizedTab?.addEventListener("click", () => {
-  setInvestmentRecordTab("REALIZED");
-});
-
-els.toggleJournalFormBtn?.addEventListener("click", () => {
-  if (els.journalFormPanel?.hidden) showJournalForm();
-  else resetJournalForm();
-});
-
-els.cancelJournalBtn?.addEventListener("click", resetJournalForm);
-
-els.journalAssetId?.addEventListener("change", () => {
-  const asset = state.assets.find((item) => item.id === els.journalAssetId.value);
-  if (asset) fillJournalFromAsset(asset);
-});
-
-els.journalFilter?.addEventListener("change", () => {
-  uiState.journalFilter = els.journalFilter.value;
-  renderJournal();
-});
-
-els.journalForm?.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const entry = journalEntryFromForm();
-  if (!entry.name) {
-    alert("매매일지의 자산명을 입력하세요.");
-    return;
-  }
-  const index = state.tradeJournalEntries.findIndex((item) => item.id === entry.id);
-  if (index >= 0) state.tradeJournalEntries[index] = entry;
-  else state.tradeJournalEntries.push(entry);
-  resetJournalForm();
-  render();
-});
-
-els.journalList?.addEventListener("click", async (event) => {
-  const button = event.target.closest("button[data-journal-action]");
-  if (!button) return;
-  const entry = state.tradeJournalEntries.find((item) => item.id === button.dataset.id);
-  if (!entry) return;
-
-  if (button.dataset.journalAction === "edit") {
-    showJournalForm(entry);
-    return;
-  }
-
-  if (button.dataset.journalAction === "view-realized") {
-    openRealizedTradeFromJournal(entry);
-    return;
-  }
-
-  if (button.dataset.journalAction === "delete") {
-    if (!confirm(`${entry.name || entry.ticker || "매매일지"} 기록을 삭제할까요?`)) return;
-    const before = state.tradeJournalEntries.map((item) => ({ ...item }));
-    state.tradeJournalEntries = state.tradeJournalEntries.filter((item) => item.id !== entry.id);
-    render();
-    showUndoNotice("매매일지를 삭제했습니다.", () => {
-      state.tradeJournalEntries = before.map(normalizeTradeJournalEntry);
-      render();
-    });
-    return;
-  }
-
-  if (button.dataset.journalAction === "copy-ai") {
-    const prompt = aiPromptForJournal(entry);
-    try {
-      await navigator.clipboard.writeText(prompt);
-      button.textContent = "복사 완료";
-      setTimeout(() => {
-        button.textContent = "AI 질문 복사";
-      }, 1400);
-    } catch {
-      window.prompt("AI에게 붙여넣을 질문입니다.", prompt);
-    }
-  }
-});
-
-els.realizedRows?.addEventListener("click", (event) => {
-  const button = event.target.closest("button[data-realized-action]");
-  if (!button) return;
-  const trade = state.realizedTrades.find((item) => item.id === button.dataset.id);
-  if (!trade) return;
-  openJournalForRealizedTrade(trade);
-});
-
-[
-  els.sellDate,
-  els.sellQuantity,
-  els.sellPrice,
-  els.sellFxRate,
-  els.sellFees,
-  els.sellTax
-].forEach((input) => {
-  input?.addEventListener("input", renderSellPreview);
-});
-
-[
-  els.buyDate,
-  els.buyQuantity,
-  els.buyPrice,
-  els.buyFxRate,
-  els.buyFees
-].forEach((input) => {
-  input?.addEventListener("input", renderBuyPreview);
-});
-
-els.cancelSellBtn?.addEventListener("click", resetSellForm);
-els.cancelBuyBtn?.addEventListener("click", resetBuyForm);
-
-els.toggleAssetFormBtn.addEventListener("click", () => {
-  if (els.assetFormPanel.hidden) {
-    resetSellForm();
-    resetBuyForm();
-    showAssetForm("create");
-    els.assetName.focus();
-  } else {
-    resetAssetForm();
-  }
-});
-
-els.loginBtn.addEventListener("click", async () => {
-  if (!cloud.enabled) {
-    alert("firebase-config.js에 Firebase 설정값을 먼저 입력하세요.");
-    return;
-  }
-  try {
-    setSyncStatus("로그인 여는 중");
-    if (cloud.signInWithPopup) {
-      const result = await cloud.signInWithPopup(cloud.auth, cloud.provider);
-      if (result?.user) {
-        await completeCloudSignIn(result.user);
-      } else {
-        setSyncStatus("로그인 확인중", true);
-      }
-      return;
-    }
-    await cloud.signInWithRedirect(cloud.auth, cloud.provider);
-  } catch (error) {
-    console.error(error);
-    if (cloud.signInWithRedirect && ["auth/popup-blocked", "auth/operation-not-supported-in-this-environment"].includes(error.code)) {
-      setSyncStatus("구글 로그인 이동중");
-      await cloud.signInWithRedirect(cloud.auth, cloud.provider);
-      return;
-    }
-    setSyncStatus(`로그인 실패: ${error.code || "unknown"}`);
-    alert(`로그인에 실패했습니다: ${error.code || "unknown"}`);
-  }
-});
-
-els.logoutBtn.addEventListener("click", async () => {
-  if (!cloud.enabled) return;
-  await flushCloudPush();
-  await cloud.signOut(cloud.auth);
-  await completeCloudSignIn(null);
-});
-
-els.cloudSyncBtn.addEventListener("click", async () => {
-  if (!cloud.docRef) return;
-  try {
-    await flushCloudPush();
-    await pullCloudData();
-    setSyncStatus("동기화 완료", true);
-  } catch (error) {
-    console.error(error);
-    setSyncStatus("동기화 실패");
-  }
-});
-
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") flushCloudPush();
-});
-
-window.addEventListener("pagehide", () => {
-  flushCloudPush();
-});
-
-document.addEventListener("click", (event) => {
-  const viewButton = event.target.closest("[data-nav-view], [data-go-view]");
-  if (viewButton) {
-    const view = viewButton.dataset.navView || viewButton.dataset.goView;
-    setActiveView(view, { scroll: true, updateHash: true, focus: true });
-    if (viewButton.dataset.openAssetForm === "true") {
-      resetSellForm();
-      resetBuyForm();
-      showAssetForm("create");
-      window.setTimeout(() => els.assetName?.focus(), 160);
-    }
-  }
-});
-
-els.cancelEditBtn.addEventListener("click", resetAssetForm);
-
-els.assetCategory.addEventListener("change", updateAssetFormForType);
-
-els.assetName.addEventListener("input", () => {
-  if (els.assetName.value.trim() !== uiState.autofilledAssetName) uiState.autofilledAssetName = "";
-});
-
-els.assetTicker.addEventListener("input", fillAssetNameFromTicker);
-
-els.assetTicker.addEventListener("blur", fillAssetNameFromTicker);
-
-els.assetTicker.addEventListener("change", fillAssetNameFromTicker);
-
-els.assetSearch.addEventListener("input", () => {
-  uiState.assetSearch = els.assetSearch.value;
-  renderAssets();
-});
-
-els.assetTypeFilter.addEventListener("change", () => {
-  uiState.assetType = normalizeAssetType(els.assetTypeFilter.value);
-  if (els.assetTypeFilter.value === "ALL") uiState.assetType = "ALL";
-  renderAssets();
-});
-
-els.assetRegionSegment?.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-region-filter]");
-  if (!button) return;
-  uiState.regionFilter = button.dataset.regionFilter || "ALL";
-  renderAssets();
-});
-
-els.assetAccountFilter.addEventListener("change", () => {
-  uiState.accountFilter = els.assetAccountFilter.value;
-  renderAssets();
-});
-
-els.assetStatusFilter.addEventListener("change", () => {
-  uiState.statusFilter = els.assetStatusFilter.value;
-  renderAssets();
-});
-
-els.assetGainFilter.addEventListener("change", () => {
-  uiState.gainFilter = els.assetGainFilter.value;
-  renderAssets();
-});
-
-els.assetSort.addEventListener("change", () => {
-  uiState.assetSort = els.assetSort.value;
-  renderAssets();
-});
-
-els.ledgerFilterToggle?.addEventListener("click", () => {
-  const panel = els.ledgerAdvancedFilters;
-  if (!panel) return;
-  const open = panel.hidden;
-  panel.hidden = !open;
-  els.ledgerFilterToggle.setAttribute("aria-expanded", String(open));
-});
-
-els.priceRefreshBtn?.addEventListener("click", () => {
-  initPrices();
-});
-
-els.dashboardSnapshotBtn?.addEventListener("click", () => {
-  els.snapshotBtn?.click();
-});
-
-[els.targetDomestic, els.targetOverseas, els.targetCash, els.targetManual].forEach((input) => {
-  input?.addEventListener("input", () => {
-    savePortfolioTargets();
-    render(false);
-  });
-  input?.addEventListener("change", () => {
-    savePortfolioTargets();
-    render();
-  });
-});
-
-els.historyRange.addEventListener("change", () => {
-  uiState.historyRange = els.historyRange.value;
-  renderHistory();
-});
-
-els.realizedYearFilter?.addEventListener("change", () => {
-  uiState.realizedYear = els.realizedYearFilter.value;
-  renderRealized();
-});
-
-els.snapshotBtn.addEventListener("click", () => {
-  const now = new Date().toISOString();
-	  state.snapshots.push({
-	    id: uid(),
-	    createdAt: now,
-	    total: totalAssets(),
-	    note: els.snapshotNote?.value.trim() || "",
-	    assets: state.assets.map((asset) => ({ ...asset })),
-    typeTotals: Object.fromEntries(
-      state.assets.reduce((map, asset) => {
-        const type = assetType(asset);
-        map.set(type, (map.get(type) || 0) + assetValue(asset));
-        return map;
-      }, new Map())
-    )
-	  });
-	  if (els.snapshotNote) els.snapshotNote.value = "";
-	  render();
-	});
-
-els.historyRows.addEventListener("click", (event) => {
-  const button = event.target.closest("button[data-history-delete]");
-  if (!button) return;
-  const snapshot = state.snapshots.find((item) => item.id === button.dataset.historyDelete);
-  if (!snapshot) return;
-  if (!confirm(`${formatDate(snapshot.createdAt)} 조회 기록을 삭제할까요?\n총자산 ${money(snapshot.total)} 기록만 삭제되고 자산 원장은 유지됩니다.`)) return;
-  const before = [...state.snapshots];
-  state.snapshots = state.snapshots.filter((item) => item.id !== snapshot.id);
-  render();
-  showUndoNotice("조회 기록을 삭제했습니다.", () => {
-    state.snapshots = before;
-    render();
-  });
-});
-
-els.clearHistoryBtn.addEventListener("click", () => {
-  if (!state.snapshots.length) return;
-  const before = [...state.snapshots];
-  if (confirm(`조회 히스토리 ${state.snapshots.length}개를 모두 삭제할까요?\n\n삭제되는 것: 조회 시각별 총자산 기록\n유지되는 것: 자산 원장, 은퇴 설정, 가격표\n\n삭제 직후에는 되돌리기 버튼으로 복구할 수 있습니다.`)) {
-    state.snapshots = [];
-    render();
-    showUndoNotice("조회 히스토리를 비웠습니다.", () => {
-      state.snapshots = before;
-      render();
-    });
-  }
-});
-
-els.retirementForm.addEventListener("input", () => {
-  saveRetirementInputs();
-  render(false);
-});
-els.retirementForm.addEventListener("change", () => {
-  saveRetirementInputs();
-  render();
-});
-
-els.retirementForm.addEventListener("focusout", (event) => {
-  formatRetirementMoneyInput(event.target);
-});
-
-els.syncAssetsBtn.addEventListener("click", () => {
-  els.currentInvestable.value = formatIntegerNumber(Math.ceil(totalAssets()));
-  saveRetirementInputs();
-  render();
-});
-
-document.querySelectorAll("[data-retirement-preset]").forEach((button) => {
-  button.addEventListener("click", () => {
-    const presets = {
-      conservative: { inflationRate: 2.5, monthlyInvest: 700000, postReturnRate: 2.5 },
-      balanced: { inflationRate: 2, monthlyInvest: 1000000, postReturnRate: 3.5 },
-      growth: { inflationRate: 2, monthlyInvest: 1500000, postReturnRate: 4.5 }
-    };
-    const preset = presets[button.dataset.retirementPreset];
-    if (!preset) return;
-    Object.entries(preset).forEach(([key, value]) => {
-      if (!els[key]) return;
-      els[key].value = RETIREMENT_MONEY_FIELDS.has(key) ? formatIntegerNumber(value) : value;
-    });
-    render();
-  });
-});
-
-els.saveScenarioBtn.addEventListener("click", () => {
-  const name = els.retirementScenarioName.value.trim();
-  if (!name) {
-    alert("시나리오명을 입력하세요.");
-    return;
-  }
-  const existing = state.retirementScenarios.find((scenario) => scenario.name === name);
-  const scenario = {
-    id: existing?.id || uid(),
-    name,
-    input: currentRetirementScenarioInput(),
-    updatedAt: new Date().toISOString()
-  };
-  if (existing) Object.assign(existing, scenario);
-  else state.retirementScenarios.push(scenario);
-  renderRetirementScenarioOptions();
-  els.retirementScenarioSelect.value = scenario.id;
-  render();
-});
-
-els.loadScenarioBtn.addEventListener("click", () => {
-  const scenario = state.retirementScenarios.find((item) => item.id === els.retirementScenarioSelect.value);
-  if (!scenario) return;
-  state.retirement = { ...state.retirement, ...(scenario.input || {}) };
-  hydrateRetirementInputs();
-  render();
-});
-
-els.deleteScenarioBtn.addEventListener("click", () => {
-  const scenario = state.retirementScenarios.find((item) => item.id === els.retirementScenarioSelect.value);
-  if (!scenario) return;
-  if (!confirm(`${scenario.name} 은퇴 시나리오를 삭제할까요?`)) return;
-  const before = [...state.retirementScenarios];
-  state.retirementScenarios = state.retirementScenarios.filter((item) => item.id !== scenario.id);
-  renderRetirementScenarioOptions();
-  render();
-  showUndoNotice("은퇴 시나리오를 삭제했습니다.", () => {
-    state.retirementScenarios = before;
-    renderRetirementScenarioOptions();
-    render();
-  });
-});
-
-els.exportBtn.addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `finance-ledger-${new Date().toISOString().slice(0, 10)}.json`;
-  link.click();
-  URL.revokeObjectURL(url);
-});
-
-els.importInput.addEventListener("change", async (event) => {
-  const [file] = event.target.files;
-  if (!file) return;
-
-  try {
-    const imported = JSON.parse(await file.text());
-	    if (!Array.isArray(imported.assets) || !Array.isArray(imported.snapshots)) {
-	      throw new Error("Invalid file");
-	    }
-	    const summary = [
-	      `자산 ${imported.assets.length}개`,
-	      `히스토리 ${imported.snapshots.length}개`,
-	      Array.isArray(imported.tradeJournalEntries) ? `매매일지 ${imported.tradeJournalEntries.length}개` : "매매일지 없음",
-	      imported.retirement ? "은퇴 설정 포함" : "은퇴 설정 없음",
-	      Array.isArray(imported.retirementScenarios) ? `은퇴 시나리오 ${imported.retirementScenarios.length}개` : "은퇴 시나리오 없음"
-	    ].join("\n");
-	    if (!confirm(`가져오기 전에 현재 데이터 내보내기를 권장합니다.\n\n가져올 데이터:\n${summary}\n\n현재 화면 데이터를 이 파일 내용으로 교체할까요?`)) return;
-	    replaceState(imported);
-	    applyPricesToAssets();
-	    render();
-  } catch {
-    alert("가져올 수 없는 JSON 파일입니다.");
-  } finally {
-    event.target.value = "";
-  }
-});
-
-hydrateRetirementInputs();
-hydratePortfolioTargetInputs();
-renderRetirementScenarioOptions();
-state.assets = state.assets.map(normalizeAsset);
-applyPricesToAssets();
-updateAssetFormForType();
-uiState.activeView = viewFromHash();
-history.replaceState({ view: uiState.activeView }, "", viewHash(uiState.activeView));
-window.addEventListener("popstate", () => {
-  setActiveView(viewFromHash(), { scroll: false, focus: true });
-});
-window.addEventListener("hashchange", () => {
-  setActiveView(viewFromHash(), { scroll: false, focus: true });
-});
-let heroSparkResizeRaf = 0;
-window.addEventListener("resize", () => {
-  if (uiState.activeView !== "DASHBOARD") return;
-  cancelAnimationFrame(heroSparkResizeRaf);
-  heroSparkResizeRaf = requestAnimationFrame(() => drawHeroSparkline());
-});
-renderAllViews();
-updateAuthUi();
-initPrices();
-initFirebase();
+  const

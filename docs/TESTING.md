@@ -7,6 +7,7 @@
 | 명령 | 목적 |
 |---|---|
 | `npm run check:js` | Node로 `app.js` 문법 확인 |
+| `npm run test:analysis` | 분석 엔진, 8페이지 보고서 템플릿, 분석 탭 흐름 검증 |
 | `npm run test:prices` | 포트폴리오 가격 계산과 가격표 처리 검증 |
 | `npm run test:price-fallback` | 가격 데이터가 없거나 오래된 경우의 fallback 상태 검증 |
 | `npm run test:cloud` | 클라우드 동기화 상태와 사용자 데이터 동작 검증 |
@@ -62,6 +63,7 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PA
 |---|---|
 | Markdown 문서만 변경 | `npm run check:js` |
 | `app.js` 렌더링 또는 UI 상태 | `npm run check:js`, 관련 JS 테스트 |
+| `analysis-engine.js`, 분석 탭, PDF 템플릿 | `npm run check:js`, `npm run test:analysis` |
 | 포트폴리오 계산 또는 가격 표시 | `npm run check:js`, `npm run test:prices`, `npm run test:price-fallback` |
 | `scripts/generate_prices.py`, `tickers.json`, `requirements.txt` | `npm run test:price-requests`, `npm run test:prices` |
 | Firebase Auth 또는 Firestore 동기화 | `npm run test:cloud`, `npm run test:cloud-prices`, `npm run test:firestore` |

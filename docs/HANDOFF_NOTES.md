@@ -8,6 +8,16 @@
 상세 과거 메모는 `docs/archive/PROJECT_CORE.md`, `docs/archive/DATA_AND_PRICES.md`, `docs/archive/OPERATIONS.md`, `docs/archive/TODO.md`에 보존되어 있습니다.
 작업별 결정 요약은 `docs/sessions/`에 보존합니다. 전체 대화가 아니라 목적, 결정, 변경, 검증, 다음 작업만 남깁니다.
 
+## 방금 완료한 수정 (포트폴리오 분석 JSON 파일럿, 2026-07-12)
+
+- `분석` 탭과 `analysis-engine.js` 추가. 현재 원장 또는 내보낸 JSON으로 총자산, 경제적 포지션, 자산·지역·통화·계좌 노출, 집중도, 데이터 신뢰도와 조회 기록 기반 관측치를 계산한다.
+- 현금흐름·ETF 구성·벤치마크가 없으면 TWR·XIRR·ETF 투시·위험조정 성과를 추정하지 않고 계산 불가 사유를 표시한다.
+- 최근 분석 12회를 사용자별 로컬 캐시에 보존하고, 분석 API가 설정된 로그인 사용자는 Firestore 서버 이력과 병합한다.
+- `services/analysis-api/`에 Firebase token 검증, 서버 전용 분석 이력 쓰기, Noto CJK/Chromium 기반 8페이지 PDF 생성을 추가했다.
+- Firestore Rules를 `financeData`, `analysisPreferences`, `analysisRuns`로 분리하고 `analysisRuns`의 브라우저 쓰기를 차단했다.
+- 상세 결정은 `docs/sessions/2026-07-12-포트폴리오-분석-파일럿.md` 참고.
+- Cloud Run 실제 배포와 `analysisApiBaseUrl` 설정은 PR 승인 후 별도 작업이다.
+
 ## 반드시 지킬 제약
 - 기존 사용자 데이터·Firestore 사용자별 분리(`storageKeyForUser`) 구조를 깨지 않는다.
 - prices.json 기반 KRX/US 평가, CASH/MANUAL 수동평가(amount) 모델을 유지한다.

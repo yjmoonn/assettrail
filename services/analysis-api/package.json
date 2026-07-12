@@ -1,0 +1,16 @@
+{
+  "name": "assettrail-analysis-api",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/server.js",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/server.js",
+    "check": "node --check src/server.js && node --check src/report-template.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "firebase-admin": "^13.4.0",
+    "puppeteer-core": "^24.15.0"
+  }
+}
