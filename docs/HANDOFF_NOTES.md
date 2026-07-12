@@ -18,6 +18,7 @@
 - 상세 결정은 `docs/sessions/2026-07-12-포트폴리오-분석-파일럿.md` 참고.
 - Cloud Run을 `assettrail-6f676`의 서울 리전에 실제 배포하고 `analysisApiBaseUrl`을 `https://assettrail-analysis-api-sncfxafdza-du.a.run.app`으로 설정했다.
 - Firestore Rules 배포, Cloud Run 공개 접근, 미인증 `/v1/analysis-runs`의 `401` 응답으로 서버 인증 경계를 확인했다. 실제 로그인 계정의 이력 저장·PDF 생성 E2E는 PR 병합 전에 남아 있다.
+- 최초 로그인 E2E에서 런타임 계정의 Firebase Auth 읽기 권한 누락으로 `auth/insufficient-permission`이 발생했다. `roles/firebaseauth.viewer`를 배포 스크립트에 추가해 토큰 폐기 여부를 최소 읽기 권한으로 확인하도록 수정했다.
 - 실제 배포는 `docs/ANALYSIS_DEPLOYMENT.md`와 `scripts/deploy_analysis_backend.sh`를 사용한다. 최소 인스턴스 0·최대 2, 전용 런타임 서비스 계정, 배포 전 결제·예산 확인을 기본값으로 둔다.
 
 ## 반드시 지킬 제약
