@@ -16,7 +16,8 @@
 - `services/analysis-api/`에 Firebase token 검증, 서버 전용 분석 이력 쓰기, Noto CJK/Chromium 기반 8페이지 PDF 생성을 추가했다.
 - Firestore Rules를 `financeData`, `analysisPreferences`, `analysisRuns`로 분리하고 `analysisRuns`의 브라우저 쓰기를 차단했다.
 - 상세 결정은 `docs/sessions/2026-07-12-포트폴리오-분석-파일럿.md` 참고.
-- Cloud Run 실제 배포와 `analysisApiBaseUrl` 설정은 PR 승인 후 별도 작업이다.
+- Cloud Run을 `assettrail-6f676`의 서울 리전에 실제 배포하고 `analysisApiBaseUrl`을 `https://assettrail-analysis-api-sncfxafdza-du.a.run.app`으로 설정했다.
+- Firestore Rules 배포, Cloud Run 공개 접근, 미인증 `/v1/analysis-runs`의 `401` 응답으로 서버 인증 경계를 확인했다. 실제 로그인 계정의 이력 저장·PDF 생성 E2E는 PR 병합 전에 남아 있다.
 - 실제 배포는 `docs/ANALYSIS_DEPLOYMENT.md`와 `scripts/deploy_analysis_backend.sh`를 사용한다. 최소 인스턴스 0·최대 2, 전용 런타임 서비스 계정, 배포 전 결제·예산 확인을 기본값으로 둔다.
 
 ## 반드시 지킬 제약
