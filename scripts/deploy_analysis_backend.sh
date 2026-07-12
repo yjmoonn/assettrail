@@ -57,6 +57,11 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --role="roles/datastore.user" \
   --condition=None >/dev/null
 
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${RUNTIME_ACCOUNT}" \
+  --role="roles/firebaseauth.viewer" \
+  --condition=None >/dev/null
+
 project_number="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
 builder_account="${project_number}-compute@developer.gserviceaccount.com"
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
