@@ -89,6 +89,7 @@ npm test
 - [AI 공통 작업 규칙](AGENTS.md)
 - [Claude Code 작업 규칙](CLAUDE.md)
 - [아키텍처](docs/ARCHITECTURE.md)
+- [분석 백엔드 배포](docs/ANALYSIS_DEPLOYMENT.md)
 - [테스트 가이드](docs/TESTING.md)
 - [디자인 리뷰 가이드](docs/DESIGN_REVIEW_GUIDE.md)
 - [제품 경험 리디자인](docs/PRODUCT_EXPERIENCE_REDESIGN.md)
