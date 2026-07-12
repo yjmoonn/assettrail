@@ -8,6 +8,29 @@
 상세 과거 메모는 `docs/archive/PROJECT_CORE.md`, `docs/archive/DATA_AND_PRICES.md`, `docs/archive/OPERATIONS.md`, `docs/archive/TODO.md`에 보존되어 있습니다.
 작업별 결정 요약은 `docs/sessions/`에 보존합니다. 전체 대화가 아니라 목적, 결정, 변경, 검증, 다음 작업만 남깁니다.
 
+## 방금 완료한 수정 (AI 포트폴리오 보고서 재설계, 2026-07-12)
+
+- 규칙 기반 8페이지 PDF를 종료하고, 결정론적 계산과 구조화된 AI 판단을 분리한 기관형 5+2페이지 보고서로 교체했다.
+- 핵심 5페이지는 현재 진단, 경제적 노출, 위험 전이, 성과·행동, 조건부 대응이다. 최신 시장 맥락과 근거·방법론은 조건부 선택 페이지다.
+- 판단 옆 evidence ID, 페이지별 근거 색인, 실제 웹검색 URL 검증을 추가했다.
+- 계좌명·사용자 식별자를 AI 입력에서 제거하고 OpenAI 저장을 끈다. 최신 시장 맥락만 웹검색을 사용한다.
+- 사용자별 월 기본 2회 한도를 서버에서 관리하고, 구조화된 판단과 비공개 PDF를 향후 비교용으로 보관한다.
+- PDF는 Firebase Storage의 사용자별 경로에 저장하고 Firebase ID token을 확인한 API로만 다운로드한다.
+- 샘플 7페이지 PDF를 Poppler PNG로 전 페이지 렌더해 한글·표·페이지 넘침을 확인했다.
+
+## 이전 수정 (포트폴리오 분석 JSON 파일럿, 2026-07-12)
+
+- `분석` 탭과 `analysis-engine.js` 추가. 현재 원장 또는 내보낸 JSON으로 총자산, 경제적 포지션, 자산·지역·통화·계좌 노출, 집중도, 데이터 신뢰도와 조회 기록 기반 관측치를 계산한다.
+- 현금흐름·ETF 구성·벤치마크가 없으면 TWR·XIRR·ETF 투시·위험조정 성과를 추정하지 않고 계산 불가 사유를 표시한다.
+- 최근 분석 12회를 사용자별 로컬 캐시에 보존하고, 분석 API가 설정된 로그인 사용자는 Firestore 서버 이력과 병합한다.
+- `services/analysis-api/`에 Firebase token 검증, 서버 전용 분석 이력 쓰기와 PDF 생성 기반을 추가했다.
+- Firestore Rules를 `financeData`, `analysisPreferences`, `analysisRuns`로 분리하고 `analysisRuns`의 브라우저 쓰기를 차단했다.
+- 상세 결정은 `docs/sessions/2026-07-12-포트폴리오-분석-파일럿.md` 참고.
+- Cloud Run을 `assettrail-6f676`의 서울 리전에 실제 배포하고 `analysisApiBaseUrl`을 `https://assettrail-analysis-api-sncfxafdza-du.a.run.app`으로 설정했다.
+- Firestore Rules 배포, Cloud Run 공개 접근, 미인증 `/v1/analysis-runs`의 `401` 응답으로 서버 인증 경계를 확인했다. 실제 로그인 계정의 이력 저장·PDF 생성 E2E는 PR 병합 전에 남아 있다.
+- 최초 로그인 E2E에서 런타임 계정의 Firebase Auth 읽기 권한 누락으로 `auth/insufficient-permission`이 발생했다. `roles/firebaseauth.viewer`를 배포 스크립트에 추가해 토큰 폐기 여부를 최소 읽기 권한으로 확인하도록 수정했다.
+- 실제 배포는 `docs/ANALYSIS_DEPLOYMENT.md`와 `scripts/deploy_analysis_backend.sh`를 사용한다. 최소 인스턴스 0·최대 2, 전용 런타임 서비스 계정, 배포 전 결제·예산 확인을 기본값으로 둔다.
+
 ## 반드시 지킬 제약
 - 기존 사용자 데이터·Firestore 사용자별 분리(`storageKeyForUser`) 구조를 깨지 않는다.
 - prices.json 기반 KRX/US 평가, CASH/MANUAL 수동평가(amount) 모델을 유지한다.

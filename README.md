@@ -14,6 +14,10 @@ AssetTrail은 GitHub Pages에 배포되는 정적 개인 자산 관리 앱이다
    - 같은 시장 티커라도 계좌가 다르면 별도 자산으로 관리할 수 있다.
 4. 포트폴리오 스냅샷을 남기고 싶을 때 `조회 기록 저장`을 누른다.
 5. 은퇴 시뮬레이터에서 기본값을 선택하거나 가정을 직접 수정한다.
+6. `분석` 탭에서 현재 원장 또는 내보낸 JSON을 선택하고 `분석 실행`을 누른다.
+   - 계좌가 달라도 같은 티커는 하나의 경제적 포지션으로 합산한다.
+   - 데이터가 부족한 TWR·XIRR·ETF 투시·위험조정 성과는 추정하지 않고 계산 불가 사유를 표시한다.
+   - 최근 결과는 사용자별로 최대 12회 보존한다.
 
 ## 가격표 업데이트
 
@@ -40,6 +44,8 @@ AssetTrail은 GitHub Pages에 배포되는 정적 개인 자산 관리 앱이다
 ## 동기화
 
 Firebase Auth와 Firestore가 자산, 히스토리 스냅샷, 은퇴 설정을 로그인 사용자별 문서에 동기화한다.
+
+분석 API와 OpenAI Secret을 배포하고 `firebase-config.js`의 `analysisApiBaseUrl`을 설정하면 사용자별 분석 이력, 월 사용량과 기관형 AI PDF를 서버에서 생성·보관한다. 기본 수치 분석은 AI와 분리되어 있으며, 배포 전에도 로컬 계산과 이력은 동작한다.
 
 필수 Firebase Auth 허용 도메인:
 
@@ -83,6 +89,7 @@ npm test
 - [AI 공통 작업 규칙](AGENTS.md)
 - [Claude Code 작업 규칙](CLAUDE.md)
 - [아키텍처](docs/ARCHITECTURE.md)
+- [분석 백엔드 배포](docs/ANALYSIS_DEPLOYMENT.md)
 - [테스트 가이드](docs/TESTING.md)
 - [디자인 리뷰 가이드](docs/DESIGN_REVIEW_GUIDE.md)
 - [제품 경험 리디자인](docs/PRODUCT_EXPERIENCE_REDESIGN.md)
