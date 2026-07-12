@@ -35,6 +35,7 @@ bash scripts/deploy_analysis_backend.sh
 - Cloud Run, Cloud Build, Artifact Registry, IAM API 활성화
 - `assettrail-analysis-runtime` 전용 서비스 계정 생성
 - 런타임 계정에 Firestore 사용 권한 부여
+- 런타임 계정에 토큰 폐기 여부 확인용 Firebase Authentication 읽기 권한 부여
 - Cloud Build 계정에 Cloud Run 빌더 역할 부여
 - 서울 리전에 `assettrail-analysis-api` 배포
 - 1 vCPU, 1 GiB, 동시요청 4, 서비스·리비전 모두 최소 0·최대 2로 제한
