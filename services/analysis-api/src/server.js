@@ -55,6 +55,7 @@ async function saveAnalysisRun(uid, analysis) {
 }
 
 app.get("/healthz", (_request, response) => response.json({ ok: true }));
+app.get("/v1/status", (_request, response) => response.json({ ok: true }));
 app.get("/v1/analysis-runs", async (request, response) => {
   try {
     const token = await authenticate(request);
