@@ -6,6 +6,10 @@ REGION="${REGION:-asia-northeast3}"
 SERVICE_NAME="${SERVICE_NAME:-assettrail-analysis-api}"
 RUNTIME_ACCOUNT_NAME="${RUNTIME_ACCOUNT_NAME:-assettrail-analysis-runtime}"
 RUNTIME_ACCOUNT="${RUNTIME_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+FIREBASE_STORAGE_BUCKET="${FIREBASE_STORAGE_BUCKET:-${PROJECT_ID}.firebasestorage.app}"
+OPENAI_SECRET_NAME="${OPENAI_SECRET_NAME:-openai-api-key}"
+OPENAI_MODEL="${OPENAI_MODEL:-gpt-5.6}"
+AI_REPORT_DEFAULT_MONTHLY_LIMIT="${AI_REPORT_DEFAULT_MONTHLY_LIMIT:-2}"
 
 required_commands=(gcloud npm curl)
 for command_name in "${required_commands[@]}"; do
@@ -44,7 +48,8 @@ gcloud services enable \
   run.googleapis.com \
   cloudbuild.googleapis.com \
   artifactregistry.googleapis.com \
-  iam.googleapis.com
+  iam.googleapis.com \
+  secretmanager.googleapis.com
 
 if ! gcloud iam service-accounts describe "${RUNTIME_ACCOUNT}" >/dev/null 2>&1; then
   gcloud iam service-accounts create "${RUNTIME_ACCOUNT_NAME}" \
@@ -61,6 +66,22 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member="serviceAccount:${RUNTIME_ACCOUNT}" \
   --role="roles/firebaseauth.viewer" \
   --condition=None >/dev/null
+
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${RUNTIME_ACCOUNT}" \
+  --role="roles/storage.objectUser" \
+  --condition=None >/dev/null
+
+secret_flags=()
+if gcloud secrets describe "${OPENAI_SECRET_NAME}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud secrets add-iam-policy-binding "${OPENAI_SECRET_NAME}" \
+    --project "${PROJECT_ID}" \
+    --member="serviceAccount:${RUNTIME_ACCOUNT}" \
+    --role="roles/secretmanager.secretAccessor" >/dev/null
+  secret_flags=(--set-secrets "OPENAI_API_KEY=${OPENAI_SECRET_NAME}:latest")
+else
+  echo "주의: Secret Manager의 ${OPENAI_SECRET_NAME}이 없어 AI 보고서 생성은 비활성 상태로 배포됩니다." >&2
+fi
 
 project_number="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
 builder_account="${project_number}-compute@developer.gserviceaccount.com"
@@ -88,7 +109,8 @@ deploy_service() {
     --max 2 \
     --min-instances 0 \
     --max-instances 2 \
-    --set-env-vars NODE_ENV=production
+    --set-env-vars "NODE_ENV=production,FIREBASE_STORAGE_BUCKET=${FIREBASE_STORAGE_BUCKET},OPENAI_MODEL=${OPENAI_MODEL},AI_REPORT_DEFAULT_MONTHLY_LIMIT=${AI_REPORT_DEFAULT_MONTHLY_LIMIT}" \
+    "${secret_flags[@]}"
 }
 
 for attempt in 1 2 3; do

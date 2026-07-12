@@ -11,6 +11,8 @@ const PROJECT_ID = "assettrail-6f676";
 const DATA_PATH = "users/alice/financeData/primary";
 const ANALYSIS_PATH = "users/alice/analysisRuns/run-1";
 const ANALYSIS_PREFERENCES_PATH = "users/alice/analysisPreferences/primary";
+const ANALYSIS_ENTITLEMENT_PATH = "users/alice/analysisEntitlements/primary";
+const ANALYSIS_USAGE_PATH = "users/alice/analysisUsage/2026-07";
 
 const testEnv = await initializeTestEnvironment({
   projectId: PROJECT_ID,
@@ -36,6 +38,8 @@ try {
   const aliceAnalysisDoc = doc(aliceDb, ANALYSIS_PATH);
   const bobViewOfAliceAnalysisDoc = doc(bobDb, ANALYSIS_PATH);
   const aliceAnalysisPreferences = doc(aliceDb, ANALYSIS_PREFERENCES_PATH);
+  const aliceAnalysisEntitlement = doc(aliceDb, ANALYSIS_ENTITLEMENT_PATH);
+  const aliceAnalysisUsage = doc(aliceDb, ANALYSIS_USAGE_PATH);
   const unexpectedAlicePath = doc(aliceDb, "users/alice/unexpected/document");
   const priceRequestsForAlice = doc(aliceDb, "priceRequests/us");
   const priceRequestsForGuest = doc(guestDb, "priceRequests/us");
@@ -74,6 +78,10 @@ try {
   await assertFails(getDoc(bobViewOfAliceAnalysisDoc));
   await assertSucceeds(setDoc(aliceAnalysisPreferences, { primaryBenchmark: "SP500" }));
   await assertSucceeds(getDoc(aliceAnalysisPreferences));
+  await assertFails(getDoc(aliceAnalysisEntitlement));
+  await assertFails(setDoc(aliceAnalysisEntitlement, { monthlyLimit: 999 }));
+  await assertFails(getDoc(aliceAnalysisUsage));
+  await assertFails(setDoc(aliceAnalysisUsage, { aiReportCount: 0 }));
   await assertFails(setDoc(unexpectedAlicePath, { privateData: true }));
   await assertFails(getDoc(unexpectedAlicePath));
 

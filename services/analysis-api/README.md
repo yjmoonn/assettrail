@@ -1,13 +1,16 @@
 # AssetTrail 분석 API
 
-포트폴리오 분석 이력을 사용자별 Firestore 경로에 저장하고, 동일한 레이아웃의 8페이지 PDF를 서버에서 생성하는 Cloud Run용 서비스다.
+결정론적 포트폴리오 계산 결과를 구조화된 AI 판단으로 확장하고, 기관형 5개 핵심 페이지와 최대 2개 선택 페이지 PDF를 생성·보관하는 Cloud Run 서비스다.
 
 ## 경계
 
 - Firebase ID token을 검증한 요청만 처리한다.
 - 분석 이력은 `users/{uid}/analysisRuns/{runId}`에 최대 12회 저장한다.
 - 브라우저는 분석 이력을 직접 쓸 수 없다. Firestore Admin SDK를 사용하는 이 서비스만 쓴다.
-- PDF 응답은 `Cache-Control: no-store`로 반환하고 서버 파일시스템에 보존하지 않는다.
+- 원장 계좌명과 사용자 식별자는 AI 제공자에게 보내지 않으며 Responses API의 저장 기능도 끈다.
+- AI 보고서 월 기본 한도는 사용자당 2회이며 서버 전용 entitlement로 조정한다.
+- PDF는 사용자별 비공개 Firebase Storage 경로에 보관하고 인증된 다운로드만 허용한다.
+- 시장 맥락 모드의 외부 근거 URL은 실제 웹검색 출처와 일치해야 한다.
 - 허용 Origin은 AssetTrail GitHub Pages와 로컬 프리뷰 주소로 제한한다.
 
 ## API
@@ -17,7 +20,11 @@
 | `GET` | `/healthz` | 상태 확인 |
 | `GET` | `/v1/analysis-runs` | 로그인 사용자의 최근 분석 12회 조회 |
 | `POST` | `/v1/analysis-runs` | 분석 결과 저장 |
-| `POST` | `/v1/reports/portfolio-analysis` | 분석 저장 후 8페이지 PDF 반환 |
+| `GET` | `/v1/ai-quota` | 로그인 사용자의 이번 달 AI 보고서 한도 조회 |
+| `POST` | `/v1/ai-reports` | 구조화된 AI 판단·PDF 생성 및 분석 이력 저장 |
+| `GET` | `/v1/ai-reports/:analysisId/pdf` | 저장된 비공개 PDF 다운로드 |
+
+`POST /v1/reports/portfolio-analysis`는 종료되어 `410`을 반환한다.
 
 인증이 필요한 요청은 `Authorization: Bearer <Firebase ID token>` 헤더를 사용한다.
 

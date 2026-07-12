@@ -45,7 +45,7 @@ AssetTrail은 GitHub Pages에 배포되는 정적 개인 자산 관리 앱이다
 
 Firebase Auth와 Firestore가 자산, 히스토리 스냅샷, 은퇴 설정을 로그인 사용자별 문서에 동기화한다.
 
-분석 API를 배포하고 `firebase-config.js`의 `analysisApiBaseUrl`을 설정하면 분석 이력도 사용자별 Firestore에 저장되고 상세 PDF를 서버에서 생성한다. 배포 전에는 수치 분석과 로컬 이력만 동작한다.
+분석 API와 OpenAI Secret을 배포하고 `firebase-config.js`의 `analysisApiBaseUrl`을 설정하면 사용자별 분석 이력, 월 사용량과 기관형 AI PDF를 서버에서 생성·보관한다. 기본 수치 분석은 AI와 분리되어 있으며, 배포 전에도 로컬 계산과 이력은 동작한다.
 
 필수 Firebase Auth 허용 도메인:
 

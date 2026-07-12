@@ -15,6 +15,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /users/{userId}/analysisEntitlements/{documentId} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId}/analysisUsage/{documentId} {
+      allow read, write: if false;
+    }
+
     match /priceRequests/{market} {
       allow read: if market == "us";
       allow create, update: if request.auth != null

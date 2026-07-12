@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "check:js": "node --check app.js && node --check analysis-engine.js",
-    "test:analysis": "node tests/analysis-engine.test.cjs && node tests/analysis-report.test.cjs && node tests/app-analysis.test.mjs",
+    "test:analysis": "node tests/analysis-engine.test.cjs && node tests/ai-report.test.cjs && node tests/analysis-report.test.cjs && node tests/app-analysis.test.mjs",
     "test:cloud": "node tests/app-cloud-sync.test.mjs",
     "test:cloud-prices": "node tests/app-cloud-prices.test.mjs",
     "test:price-fallback": "node tests/app-price-fallback.test.mjs",

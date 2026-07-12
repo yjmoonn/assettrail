@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-store">
     <meta http-equiv="Pragma" content="no-cache">
     <title>자산 히스토리 & 은퇴 플래너</title>
-    <link rel="stylesheet" href="styles.css?v=20260710-tokens">
+    <link rel="stylesheet" href="styles.css?v=20260712-ai-report">
   </head>
   <body>
     <div class="app">
@@ -612,6 +612,29 @@
             </label>
           </div>
 
+          <div class="analysis-ai-toolbar">
+            <div>
+              <span>AI 보고서</span>
+              <strong>현재 포트폴리오에 대한 5~7페이지 기관형 진단</strong>
+              <small id="analysisAiStatus">계산 결과를 확인한 뒤 별도로 생성합니다.</small>
+            </div>
+            <label>
+              분석 범위
+              <select id="analysisAiMode">
+                <option value="structure">포트폴리오 구조 분석</option>
+                <option value="market-context">구조 + 최신 시장 맥락</option>
+              </select>
+            </label>
+            <label class="analysis-ai-consent">
+              <input id="analysisAiConsent" type="checkbox">
+              <span>AI 보고서 생성을 위해 종목·평가액·비중 등 최소 분석 데이터를 OpenAI API로 전송하는 데 동의합니다.</span>
+            </label>
+            <div class="analysis-ai-actions">
+              <small id="analysisAiQuota">월 사용량 확인 전</small>
+              <button class="primary-button" id="analysisAiReportBtn" type="button">AI 보고서 생성</button>
+            </div>
+          </div>
+
           <div class="analysis-empty" id="analysisEmptyState">
             <strong>아직 생성된 분석이 없습니다.</strong>
             <p>현재 원장 또는 JSON 파일을 선택하고 분석 실행을 누르세요.</p>
@@ -624,8 +647,10 @@
                 <strong id="analysisCreatedAt">-</strong>
                 <small id="analysisResultSource">-</small>
               </div>
-              <button class="ghost-button" id="analysisPdfBtn" type="button">상세 PDF 생성</button>
+              <button class="ghost-button" id="analysisPdfBtn" type="button" hidden>AI PDF 다시 받기</button>
             </div>
+
+            <article class="analysis-ai-insight" id="analysisAiInsight" hidden></article>
 
             <div class="analysis-summary-grid" id="analysisSummary"></div>
 
@@ -872,6 +897,6 @@
 
     <script src="firebase-config.js?v=20260519-auth-result"></script>
     <script src="analysis-engine.js?v=20260712-analysis-pilot"></script>
-    <script type="module" src="app.js?v=20260712-analysis-pilot"></script>
+    <script type="module" src="app.js?v=20260712-ai-report"></script>
   </body>
 </html>

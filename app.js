@@ -1,5 +1,6 @@
 const STORAGE_KEY = "finance-ledger-retirement-v1";
 const ANALYSIS_STORAGE_KEY = "assettrail-analysis-runs-v1";
+const ANALYSIS_AI_CONSENT_KEY = "assettrail-ai-consent-v1";
 const CLOUD_DOC_ID = "primary";
 const MAX_ANALYSIS_RUNS = 12;
 const PRICE_FILE_PATH = "prices.json";
@@ -262,6 +263,12 @@ const els = {
   rebalanceSummary: document.querySelector("#rebalanceSummary"),
   analysisImportInput: document.querySelector("#analysisImportInput"),
   analysisRunBtn: document.querySelector("#analysisRunBtn"),
+  analysisAiMode: document.querySelector("#analysisAiMode"),
+  analysisAiConsent: document.querySelector("#analysisAiConsent"),
+  analysisAiReportBtn: document.querySelector("#analysisAiReportBtn"),
+  analysisAiQuota: document.querySelector("#analysisAiQuota"),
+  analysisAiStatus: document.querySelector("#analysisAiStatus"),
+  analysisAiInsight: document.querySelector("#analysisAiInsight"),
   analysisPdfBtn: document.querySelector("#analysisPdfBtn"),
   analysisBenchmark: document.querySelector("#analysisBenchmark"),
   analysisBenchmarkSecondary1: document.querySelector("#analysisBenchmarkSecondary1"),
@@ -430,6 +437,25 @@ async function syncAnalysisRunsFromServer() {
     if (uiState.activeView === "ANALYSIS") renderAnalysis();
   } catch (error) {
     console.error(error);
+  }
+}
+
+async function loadAiQuota() {
+  try {
+    const response = await analysisApiRequest("/v1/ai-quota");
+    if (!response) {
+      if (els.analysisAiQuota) els.analysisAiQuota.textContent = "로그인 후 사용 가능";
+      return;
+    }
+    if (!response.ok) throw new Error(`AI 사용량 조회 실패 (${response.status})`);
+    const { quota } = await response.json();
+    if (!els.analysisAiQuota) return;
+    els.analysisAiQuota.textContent = quota?.unlimited
+      ? "AI 보고서 제한 없음"
+      : `${quota?.period || "이번 달"} · ${quota?.used || 0}/${quota?.limit ?? 0}회 사용`;
+  } catch (error) {
+    console.error(error);
+    if (els.analysisAiQuota) els.analysisAiQuota.textContent = "사용량 확인 실패";
   }
 }
 
@@ -702,6 +728,7 @@ async function completeCloudSignIn(user) {
   cloud.docRef = cloud.doc(cloud.db, "users", user.uid, "financeData", CLOUD_DOC_ID);
   await pullCloudData();
   await syncAnalysisRunsFromServer();
+  await loadAiQuota();
 }
 
 function updateAuthUi() {
@@ -1856,6 +1883,21 @@ function renderAnalysisResult(run) {
     <div><span>TWR</span><strong>계산 불가</strong><small>${escapeHtml(performance.twr?.reason || "현금흐름 데이터가 필요합니다.")}</small></div>
     <div><span>XIRR</span><strong>계산 불가</strong><small>${escapeHtml(performance.xirr?.reason || "현금흐름 데이터가 필요합니다.")}</small></div>
     <div><span>위험조정 성과</span><strong>계산 불가</strong><small>${escapeHtml(performance.riskAdjusted?.reason || "벤치마크 시계열이 필요합니다.")}</small></div>`;
+
+  const aiReport = run.aiReport?.content;
+  if (els.analysisAiInsight) {
+    els.analysisAiInsight.hidden = !aiReport;
+    els.analysisAiInsight.innerHTML = aiReport ? `
+      <div><span>AI 종합진단</span><strong>${escapeHtml(aiReport.executive?.portfolioCharacter || "현재 포트폴리오 진단")}</strong><p>${escapeHtml(aiReport.executive?.diagnosis || "")}</p></div>
+      <ol>${(aiReport.executive?.priorities || []).slice(0, 3).map((item) => `<li><b>${escapeHtml(String(item.rank))}</b><span><strong>${escapeHtml(item.action)}</strong><small>${escapeHtml(item.rationale)}</small></span></li>`).join("")}</ol>` : "";
+  }
+  if (els.analysisPdfBtn) els.analysisPdfBtn.hidden = !run.aiReport?.pdfAvailable;
+  if (els.analysisAiReportBtn) els.analysisAiReportBtn.textContent = run.aiReport ? "AI 보고서 다시 생성" : "AI 보고서 생성";
+  if (els.analysisAiStatus) {
+    els.analysisAiStatus.textContent = run.aiReport
+      ? `${run.aiReport.mode === "market-context" ? "최신 시장 맥락 포함" : "포트폴리오 구조"} · ${formatDate(run.aiReport.generatedAt)}`
+      : "계산 결과를 확인한 뒤 별도로 생성합니다.";
+  }
 }
 
 function runPortfolioAnalysis() {
@@ -1888,39 +1930,81 @@ function runPortfolioAnalysis() {
   }
 }
 
-async function requestAnalysisPdf() {
-  const run = analysisRuns.find((item) => item.id === selectedAnalysisRunId) || analysisRuns[0];
-  if (!run) return;
-  const endpoint = analysisApiUrl("/v1/reports/portfolio-analysis");
-  if (!endpoint) {
-    alert("서버 PDF 주소가 아직 설정되지 않았습니다. 분석 API를 배포한 뒤 firebase-config.js의 analysisApiBaseUrl을 설정하세요.");
-    return;
+async function responseError(response, fallback) {
+  try {
+    const payload = await response.json();
+    return new Error(payload?.error || fallback);
+  } catch {
+    return new Error(fallback);
   }
+}
+
+async function downloadAiReportPdf(run = analysisRuns.find((item) => item.id === selectedAnalysisRunId) || analysisRuns[0]) {
+  if (!run?.aiReport?.pdfAvailable) return;
   if (!cloud.user || typeof cloud.user.getIdToken !== "function") {
-    alert("개인 분석 PDF는 로그인 후 생성할 수 있습니다.");
+    alert("AI 보고서 PDF는 로그인 후 받을 수 있습니다.");
     return;
   }
   els.analysisPdfBtn.disabled = true;
-  els.analysisPdfBtn.textContent = "PDF 생성 중";
+  els.analysisPdfBtn.textContent = "PDF 받는 중";
   try {
-    const response = await analysisApiRequest("/v1/reports/portfolio-analysis", {
-      method: "POST",
-      body: JSON.stringify({ analysis: run })
-    });
-    if (!response.ok) throw new Error(`PDF 생성 실패 (${response.status})`);
+    const response = await analysisApiRequest(`/v1/ai-reports/${encodeURIComponent(run.id)}/pdf`);
+    if (!response?.ok) throw await responseError(response, `PDF 다운로드 실패 (${response?.status || "연결 오류"})`);
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `assettrail-analysis-${new Date().toISOString().slice(0, 10)}.pdf`;
+    link.download = `assettrail-ai-report-${new Date().toISOString().slice(0, 10)}.pdf`;
     link.click();
     URL.revokeObjectURL(url);
   } catch (error) {
     console.error(error);
-    alert(error?.message || "PDF를 생성하지 못했습니다.");
+    alert(error?.message || "PDF를 받지 못했습니다.");
   } finally {
     els.analysisPdfBtn.disabled = false;
-    els.analysisPdfBtn.textContent = "상세 PDF 생성";
+    els.analysisPdfBtn.textContent = "AI PDF 다시 받기";
+  }
+}
+
+async function requestAiReport() {
+  const run = analysisRuns.find((item) => item.id === selectedAnalysisRunId) || analysisRuns[0];
+  if (!run) return;
+  const endpoint = analysisApiUrl("/v1/ai-reports");
+  if (!endpoint) {
+    alert("AI 보고서 서버 주소가 아직 설정되지 않았습니다.");
+    return;
+  }
+  if (!cloud.user || typeof cloud.user.getIdToken !== "function") {
+    alert("AI 보고서는 로그인 후 생성할 수 있습니다.");
+    return;
+  }
+  if (!els.analysisAiConsent?.checked) {
+    alert("AI 보고서 데이터 전송 동의를 확인해 주세요.");
+    return;
+  }
+  els.analysisAiReportBtn.disabled = true;
+  els.analysisAiReportBtn.textContent = "AI 분석 중";
+  if (els.analysisAiStatus) els.analysisAiStatus.textContent = "포트폴리오를 진단하고 PDF를 구성하고 있습니다.";
+  try {
+    const response = await analysisApiRequest("/v1/ai-reports", {
+      method: "POST",
+      body: JSON.stringify({ analysis: run, mode: els.analysisAiMode?.value || "structure" })
+    });
+    if (!response?.ok) throw await responseError(response, `AI 보고서 생성 실패 (${response?.status || "연결 오류"})`);
+    const payload = await response.json();
+    run.aiReport = payload.report;
+    analysisRuns = [run, ...analysisRuns.filter((item) => item.id !== run.id)].slice(0, MAX_ANALYSIS_RUNS);
+    persistAnalysisRuns();
+    renderAnalysisResult(run);
+    await loadAiQuota();
+    await downloadAiReportPdf(run);
+  } catch (error) {
+    console.error(error);
+    alert(error?.message || "AI 보고서를 생성하지 못했습니다.");
+    if (els.analysisAiStatus) els.analysisAiStatus.textContent = "AI 보고서 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+  } finally {
+    els.analysisAiReportBtn.disabled = false;
+    els.analysisAiReportBtn.textContent = run.aiReport ? "AI 보고서 다시 생성" : "AI 보고서 생성";
   }
 }
 
@@ -4333,7 +4417,11 @@ els.deleteScenarioBtn.addEventListener("click", () => {
 });
 
 els.analysisRunBtn?.addEventListener("click", runPortfolioAnalysis);
-els.analysisPdfBtn?.addEventListener("click", requestAnalysisPdf);
+els.analysisAiReportBtn?.addEventListener("click", requestAiReport);
+els.analysisPdfBtn?.addEventListener("click", () => downloadAiReportPdf());
+els.analysisAiConsent?.addEventListener("change", () => {
+  localStorage.setItem(ANALYSIS_AI_CONSENT_KEY, els.analysisAiConsent.checked ? "true" : "false");
+});
 els.analysisRunList?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-analysis-run-id]");
   if (!button) return;
@@ -4405,6 +4493,7 @@ els.importInput.addEventListener("change", async (event) => {
 hydrateRetirementInputs();
 hydratePortfolioTargetInputs();
 renderRetirementScenarioOptions();
+if (els.analysisAiConsent) els.analysisAiConsent.checked = localStorage.getItem(ANALYSIS_AI_CONSENT_KEY) === "true";
 state.assets = state.assets.map(normalizeAsset);
 applyPricesToAssets();
 updateAssetFormForType();
