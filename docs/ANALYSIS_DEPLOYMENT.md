@@ -37,10 +37,11 @@ bash scripts/deploy_analysis_backend.sh
 - 런타임 계정에 Firestore 사용 권한 부여
 - Cloud Build 계정에 Cloud Run 빌더 역할 부여
 - 서울 리전에 `assettrail-analysis-api` 배포
-- 1 vCPU, 1 GiB, 동시요청 4, 최소 인스턴스 0, 최대 2로 제한
+- 1 vCPU, 1 GiB, 동시요청 4, 서비스·리비전 모두 최소 0·최대 2로 제한
+- Cloud Build 전용 계정을 명시하고 IAM 전파 지연 시 최대 3회 재시도
 - Firebase 프로젝트에 `firestore.rules` 배포
 
-Cloud Run 자체는 브라우저에서 호출할 수 있도록 공개되지만, 분석 저장과 PDF API는 Firebase ID token을 별도로 검증한다. `/healthz`만 인증 없이 상태를 반환한다.
+Cloud Run 자체는 브라우저에서 호출할 수 있도록 공개되지만, 분석 저장과 PDF API는 Firebase ID token을 별도로 검증한다. `/healthz`와 배포 확인용 `/v1/status`만 인증 없이 상태를 반환한다.
 
 ## 배포 후
 
@@ -51,6 +52,8 @@ ANALYSIS_API_BASE_URL=https://...
 ```
 
 URL은 비밀정보가 아니다. `firebase-config.js`의 `analysisApiBaseUrl`에 반영하고 PR에서 실제 로그인·분석 이력·PDF 생성을 검증한다.
+
+2026-07-12 최초 배포 주소는 `https://assettrail-analysis-api-sncfxafdza-du.a.run.app`이다. Firestore Rules 배포와 미인증 API의 `401` 응답까지 확인했다.
 
 ## 비용 경계
 
