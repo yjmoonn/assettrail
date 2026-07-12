@@ -6,5 +6,5 @@ window.firebaseConfig = {
   messagingSenderId: "988903598147",
   appId: "1:988903598147:web:060d03faa4a14f396b0cf6",
   measurementId: "G-7PCJLJB88E",
-  analysisApiBaseUrl: ""
+  analysisApiBaseUrl: "https://assettrail-analysis-api-sncfxafdza-du.a.run.app"
 };
