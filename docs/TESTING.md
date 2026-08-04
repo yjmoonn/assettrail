@@ -9,9 +9,12 @@
 | `npm run check:js` | Node로 `app.js` 문법 확인 |
 | `npm run test:prices` | 포트폴리오 가격 계산과 가격표 처리 검증 |
 | `npm run test:price-fallback` | 가격 데이터가 없거나 오래된 경우의 fallback 상태 검증 |
+| `npm run test:symbols` | 분리된 종목 디렉터리의 지연 로딩과 실패 격리 검증 |
 | `npm run test:cloud` | 클라우드 동기화 상태와 사용자 데이터 동작 검증 |
-| `npm run test:cloud-prices` | 로그인 사용자의 클라우드 가격 요청 동작 검증 |
-| `npm run test:price-requests` | Python 가격 요청 생성 동작 검증 |
+| `npm run test:cloud-conflict` | 클라우드 충돌 가져오기·올리기·나중에 경로 검증 |
+| `npm run test:cloud-prices` | 클라우드 자산에 정적 가격표를 적용하는 동작 검증 |
+| `npm run test:data` | 저장 스키마, 가져오기 검증, 용량·revision 방어 검증 |
+| `npm run test:price-requests` | Python 가격 생성·실거래일 품질 게이트 검증 |
 | `npm run test:firestore` | Firebase Emulator로 Firestore Rules 검증 |
 | `npm test` | 전체 검증을 순서대로 실행 |
 
@@ -47,7 +50,7 @@ npm run test:firestore
 `package.json`에는 아래 방식으로 등록되어 있다.
 
 ```sh
-JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH firebase emulators:exec --only firestore "node tests/firestore-rules.test.mjs"
+firebase emulators:exec --only firestore "node tests/firestore-rules.test.mjs"
 ```
 
 확인할 점:

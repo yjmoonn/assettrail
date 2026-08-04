@@ -17,10 +17,7 @@ on:
         default: true
         type: boolean
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+permissions: {}
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -29,6 +26,9 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
     env:
       TZ: Asia/Seoul
     steps:
@@ -38,11 +38,20 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Audit high-severity dependencies
+        run: npm audit --audit-level=high
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
 
       - name: Check app.js syntax
         run: npm run check:js
@@ -51,8 +60,14 @@ jobs:
         run: |
           npm run test:prices
           npm run test:price-fallback
+          npm run test:symbols
           npm run test:cloud
+          npm run test:cloud-conflict
           npm run test:cloud-prices
+          npm run test:data
+
+      - name: Run Firestore Rules tests
+        run: npm run test:firestore
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -68,7 +83,7 @@ jobs:
 
   deploy:
     needs: test
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     concurrency:
       group: pages
       cancel-in-progress: false
@@ -76,11 +91,23 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
+
+      - name: Verify deployment source
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]]
+          [[ "$GITHUB_SHA" == "$(git rev-parse HEAD)" ]]
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -145,35 +172,49 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! curl -fsSL "$PAGES_URL/prices.json?v=${{ github.sha }}" -o prices.json; then
-            cat > prices.json <<'JSON'
-          {
-            "errors": [
-              {
-                "error": "deployed prices.json could not be reused",
-                "ticker": "prices.json",
-                "type": "DEPLOY"
-              }
-            ],
-            "fx": {},
-            "generatedAt": null,
-            "prices": {
-              "KRX": {},
-              "US": {}
-            },
-            "symbols": {
-              "KRX": {},
-              "US": {}
-            }
-          }
-          JSON
+          curl --fail --silent --show-error --location \
+            --retry 3 --retry-delay 2 --retry-all-errors \
+            "$PAGES_URL/prices.json?v=${{ github.sha }}" \
+            --output prices.json
+          python -m json.tool prices.json >/dev/null
+
+          symbols_ok="false"
+          if curl --fail --silent --show-error --location \
+            --retry 3 --retry-delay 2 --retry-all-errors \
+            "$PAGES_URL/symbols.json?v=${{ github.sha }}" \
+            --output symbols.reused.json; then
+            if python -c 'import json, sys; data = json.load(open(sys.argv[1], encoding="utf-8")); sys.exit(0 if isinstance(data.get("generatedAt"), str) and isinstance(data.get("symbols"), dict) else 1)' symbols.reused.json; then
+              mv symbols.reused.json symbols.json
+              symbols_ok="true"
+            fi
+          fi
+
+          if [[ "$symbols_ok" != "true" ]]; then
+            rm -f symbols.reused.json
+            echo "::warning::Deployed symbols.json could not be reused; using inline legacy symbols or an empty directory."
+            python - prices.json symbols.json <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          prices = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          symbols = prices.get("symbols")
+          if not isinstance(symbols, dict):
+              symbols = {"KRX": {}, "US": {}}
+          generated_at = prices.get("symbolsGeneratedAt") or prices.get("generatedAt")
+          payload = {"generatedAt": generated_at, "symbols": symbols}
+          Path(sys.argv[2]).write_text(
+              json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+              encoding="utf-8"
+          )
+          PY
           fi
 
       - name: Prepare static site
         run: |
           rm -rf _site
           mkdir _site
-          cp index.html app.js styles.css assettrail-tokens.css firebase-config.js prices.json .nojekyll _site/
+          cp index.html app.js styles.css assettrail-tokens.css firebase-config.js prices.json symbols.json .nojekyll _site/
 
       - name: Upload static site
         uses: actions/upload-pages-artifact@v3

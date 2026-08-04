@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-store">
     <meta http-equiv="Pragma" content="no-cache">
     <title>자산 히스토리 & 은퇴 플래너</title>
-    <link rel="stylesheet" href="styles.css?v=20260710-tokens">
+    <link rel="stylesheet" href="styles.css?v=20260730-hardening-v2">
   </head>
   <body>
     <div class="app">
@@ -31,12 +31,12 @@
       </header>
       <div class="notice app-notice" id="appNotice" hidden></div>
       <nav class="app-nav" aria-label="AssetTrail 주요 화면">
-        <button class="app-nav-item active" type="button" data-nav-view="DASHBOARD" aria-current="page"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg><span class="nav-label">대시보드</span></button>
-        <button class="app-nav-item" type="button" data-nav-view="ASSETS"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2H5a2 2 0 0 0-2 2z"></path><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2H5"></path><circle cx="17" cy="13" r="1.4" fill="currentColor" stroke="none"></circle></svg><span class="nav-label">자산</span></button>
-        <button class="app-nav-item" type="button" data-nav-view="JOURNAL"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4a2 2 0 0 1 2-2h11a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6a2 2 0 0 1-2-2z"></path><path d="M4 4v16"></path><path d="M9 7h5M9 11h5"></path></svg><span class="nav-label">투자기록</span></button>
-        <button class="app-nav-item" type="button" data-nav-view="PORTFOLIO"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-9z"></path><path d="M12 3v9"></path><path d="M12 3a9 9 0 0 1 7.5 4"></path></svg><span class="nav-label">포트폴리오</span></button>
-        <button class="app-nav-item" type="button" data-nav-view="GOALS"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"></circle></svg><span class="nav-label">목표</span></button>
-        <button class="app-nav-item" type="button" data-nav-view="SETTINGS"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15H4.5a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 6 9.4l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 11 4.6V4.5a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 2.82 1.17l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 11h.1a2 2 0 0 1 0 4h-.1z"></path></svg><span class="nav-label">설정</span></button>
+        <button class="app-nav-item active" type="button" data-nav-view="DASHBOARD" aria-current="page" tabindex="0"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg><span class="nav-label">대시보드</span></button>
+        <button class="app-nav-item" type="button" data-nav-view="ASSETS" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2H5a2 2 0 0 0-2 2z"></path><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2H5"></path><circle cx="17" cy="13" r="1.4" fill="currentColor" stroke="none"></circle></svg><span class="nav-label">자산</span></button>
+        <button class="app-nav-item" type="button" data-nav-view="JOURNAL" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4a2 2 0 0 1 2-2h11a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6a2 2 0 0 1-2-2z"></path><path d="M4 4v16"></path><path d="M9 7h5M9 11h5"></path></svg><span class="nav-label">투자기록</span></button>
+        <button class="app-nav-item" type="button" data-nav-view="PORTFOLIO" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-9z"></path><path d="M12 3v9"></path><path d="M12 3a9 9 0 0 1 7.5 4"></path></svg><span class="nav-label">포트폴리오</span></button>
+        <button class="app-nav-item" type="button" data-nav-view="GOALS" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"></circle></svg><span class="nav-label">목표</span></button>
+        <button class="app-nav-item" type="button" data-nav-view="SETTINGS" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15H4.5a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 6 9.4l-.06-.06a2 2 0 1 1 2.83-2.83l.06-.06A1.65 1.65 0 0 0 11 4.6V4.5a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 2.82 1.17l.06-.06a2 2 0 1 1 2.83 2.83l-.06-.06A1.65 1.65 0 0 0 19.4 11h.1a2 2 0 0 1 0 4h-.1z"></path></svg><span class="nav-label">설정</span></button>
       </nav>
 
       <main>
@@ -113,7 +113,7 @@
             <div class="panel-header">
               <div>
                 <h2>자산 원장</h2>
-                <p>KRX/US 자산은 가격 파일 기준, CASH/MANUAL 자산은 수동평가금액 기준으로 계산합니다.</p>
+                <p>KRX/US 자산은 가격 파일 기준, CASH/MANUAL 자산은 수동평가금액 기준으로 계산합니다. US 평가손익은 환차손익을 제외한 주가손익입니다.</p>
               </div>
               <div class="panel-actions">
                 <button class="primary-button" id="toggleAssetFormBtn" type="button" aria-expanded="false">자산 추가</button>
@@ -132,7 +132,7 @@
                 <input type="hidden" id="assetId">
                 <label>
                   자산명
-                  <input id="assetName" type="text" placeholder="예: 국내 ETF" required>
+                  <input id="assetName" type="text" maxlength="500" placeholder="예: 국내 ETF" required>
                 </label>
                 <label>
                   티커
@@ -150,7 +150,7 @@
                 </label>
                 <label>
                   계좌
-                  <input id="assetAccount" type="text" placeholder="예: 삼성증권 ISA">
+                  <input id="assetAccount" type="text" maxlength="500" placeholder="예: 삼성증권 ISA">
                 </label>
                 <label>
                   계좌 분류
@@ -187,7 +187,7 @@
                 </label>
                 <label>
                   메모
-                  <input id="assetNote" type="text" placeholder="비고">
+                  <input id="assetNote" type="text" maxlength="10000" placeholder="비고">
                 </label>
                 <div class="form-actions">
                   <button class="primary-button" id="saveAssetBtn" type="submit">자산 저장</button>
@@ -231,7 +231,7 @@
                 </label>
                 <label class="wide-field">
                   메모
-                  <input id="sellMemo" type="text" placeholder="예: 일부 매도">
+                  <input id="sellMemo" type="text" maxlength="10000" placeholder="예: 일부 매도">
                 </label>
                 <label class="checkbox-field wide-field">
                   <input id="sellJournalEnabled" type="checkbox" checked>
@@ -276,7 +276,7 @@
                 </label>
                 <label class="wide-field">
                   메모
-                  <input id="buyMemo" type="text" placeholder="예: 조정 시 추가매수">
+                  <input id="buyMemo" type="text" maxlength="10000" placeholder="예: 조정 시 추가매수">
                 </label>
                 <label class="checkbox-field wide-field">
                   <input id="buyJournalEnabled" type="checkbox" checked>
@@ -355,13 +355,14 @@
 
             <div class="table-wrap asset-table-wrap" id="assetTableWrap">
               <table>
+                <caption class="sr-only">보유 자산별 수량, 평가금액, 평가손익과 거래 관리 목록</caption>
                 <thead>
                   <tr>
-                    <th>자산</th>
-                    <th class="number">보유수량</th>
-                    <th class="number">평가금액</th>
-                    <th class="number">평가손익</th>
-                    <th class="actions-col">거래 · 관리</th>
+                    <th scope="col">자산</th>
+                    <th class="number" scope="col">보유수량</th>
+                    <th class="number" scope="col">평가금액</th>
+                    <th class="number" scope="col" title="US 자산은 환차손익 제외">평가손익</th>
+                    <th class="actions-col" scope="col">거래 · 관리</th>
                   </tr>
                 </thead>
                 <tbody id="assetRows"></tbody>
@@ -379,10 +380,10 @@
               <p>매매 판단과 매도 결과를 한 흐름으로 복기합니다.</p>
             </div>
             <div class="record-tabs" role="tablist" aria-label="투자 기록 보기">
-              <button class="record-tab active" id="investmentJournalTab" type="button" role="tab" aria-selected="true" aria-controls="journalTabPanel" data-investment-tab="JOURNAL">
+              <button class="record-tab active" id="investmentJournalTab" type="button" role="tab" aria-selected="true" aria-controls="journalTabPanel" data-investment-tab="JOURNAL" tabindex="0">
                 매매일지 <span id="journalTabCount">0건</span>
               </button>
-              <button class="record-tab" id="investmentRealizedTab" type="button" role="tab" aria-selected="false" aria-controls="realizedTabPanel" data-investment-tab="REALIZED">
+              <button class="record-tab" id="investmentRealizedTab" type="button" role="tab" aria-selected="false" aria-controls="realizedTabPanel" data-investment-tab="REALIZED" tabindex="-1">
                 실현손익 <span id="realizedTabCount">0건</span>
               </button>
             </div>
@@ -427,11 +428,11 @@
                 </label>
                 <label>
                   자산명
-                  <input id="journalAssetName" type="text" placeholder="예: 삼성전자" required>
+                  <input id="journalAssetName" type="text" maxlength="500" placeholder="예: 삼성전자" required>
                 </label>
                 <label>
                   티커
-                  <input id="journalTicker" type="text" placeholder="예: 005930, AAPL">
+                  <input id="journalTicker" type="text" maxlength="500" placeholder="예: 005930, AAPL">
                 </label>
                 <label>
                   국내/해외
@@ -443,7 +444,7 @@
                 </label>
                 <label>
                   계좌
-                  <input id="journalAccount" type="text" placeholder="예: 키움증권">
+                  <input id="journalAccount" type="text" maxlength="500" placeholder="예: 키움증권">
                 </label>
                 <label>
                   구분
@@ -472,19 +473,19 @@
                 </label>
                 <label class="wide-field">
                   투자 이유
-                  <textarea id="journalReason" rows="3" placeholder="왜 이 결정을 했는지 적어두세요."></textarea>
+                  <textarea id="journalReason" rows="3" maxlength="10000" placeholder="왜 이 결정을 했는지 적어두세요."></textarea>
                 </label>
                 <label class="wide-field">
                   리스크
-                  <textarea id="journalRisk" rows="3" placeholder="틀릴 수 있는 이유, 손절 기준, 확인할 변수를 적어두세요."></textarea>
+                  <textarea id="journalRisk" rows="3" maxlength="10000" placeholder="틀릴 수 있는 이유, 손절 기준, 확인할 변수를 적어두세요."></textarea>
                 </label>
                 <label class="wide-field">
                   복기 메모
-                  <textarea id="journalReview" rows="3" placeholder="나중에 결과를 보고 배운 점을 남겨두세요."></textarea>
+                  <textarea id="journalReview" rows="3" maxlength="10000" placeholder="나중에 결과를 보고 배운 점을 남겨두세요."></textarea>
                 </label>
                 <label class="wide-field">
                   태그
-                  <input id="journalTags" type="text" placeholder="예: AI, 배당, 장기, 리밸런싱">
+                  <input id="journalTags" type="text" maxlength="500" placeholder="예: AI, 배당, 장기, 리밸런싱">
                 </label>
                 <div class="form-actions">
                   <button class="primary-button" id="saveJournalBtn" type="submit">일지 저장</button>
@@ -506,17 +507,19 @@
                 </select>
               </label>
             </div>
+            <p class="field-help">US 실현손익은 매도 시점 입력 환율로 매도금액과 취득원가를 함께 환산한 주가손익이며, 환차손익은 포함하지 않습니다.</p>
             <div class="realized-summary" id="realizedSummary"></div>
-            <div class="realized-chart" id="realizedChart" aria-label="월별 실현손익 차트"></div>
+            <div class="realized-chart" id="realizedChart" role="img" aria-label="월별 실현손익 차트"></div>
             <div class="table-wrap realized-table">
               <table>
+                <caption class="sr-only">매도 거래별 매도금액과 실현손익 목록</caption>
                 <thead>
                   <tr>
-                    <th>매도일 · 종목</th>
-                    <th class="number">수량 · 매도가</th>
-                    <th class="number">매도금액</th>
-                    <th class="number">실현손익</th>
-                    <th class="actions-col">일지</th>
+                    <th scope="col">매도일 · 종목</th>
+                    <th class="number" scope="col">수량 · 매도가</th>
+                    <th class="number" scope="col">매도금액</th>
+                    <th class="number" scope="col">실현손익</th>
+                    <th class="actions-col" scope="col">일지</th>
                   </tr>
                 </thead>
                 <tbody id="realizedRows"></tbody>
@@ -532,34 +535,41 @@
               <p>계좌, 상품 유형, 국내/해외 비중과 목표 비중 차이를 함께 봅니다.</p>
             </div>
           </div>
+          <button class="ghost-button portfolio-breakdown-toggle" id="portfolioBreakdownToggle" type="button" aria-expanded="false" aria-controls="categoryBreakdown" hidden>나머지 분석 펼치기</button>
           <div class="portfolio-layout">
-            <div id="categoryBreakdown" class="breakdown"></div>
+            <div id="categoryBreakdown" class="breakdown mobile-collapsed"></div>
             <section class="target-panel">
               <h3>목표 비중</h3>
               <div class="target-grid">
                 <label>
                   국내
-                  <input id="targetDomestic" type="text" inputmode="decimal" value="50">
+                  <input id="targetDomestic" type="text" inputmode="decimal" value="50" aria-describedby="targetValidation">
                 </label>
                 <label>
                   해외
-                  <input id="targetOverseas" type="text" inputmode="decimal" value="30">
+                  <input id="targetOverseas" type="text" inputmode="decimal" value="30" aria-describedby="targetValidation">
                 </label>
                 <label>
                   현금
-                  <input id="targetCash" type="text" inputmode="decimal" value="10">
+                  <input id="targetCash" type="text" inputmode="decimal" value="10" aria-describedby="targetValidation">
                 </label>
                 <label>
                   수동
-                  <input id="targetManual" type="text" inputmode="decimal" value="10">
+                  <input id="targetManual" type="text" inputmode="decimal" value="10" aria-describedby="targetValidation">
                 </label>
               </div>
+              <small class="field-help" id="targetValidation" role="status" aria-live="polite">각 비중은 0~100%, 네 항목 합계는 100%로 입력하세요.</small>
               <div id="rebalanceSummary" class="rebalance-summary"></div>
             </section>
           </div>
         </section>
 
-        <section class="panel history-panel" data-app-section="GOALS">
+        <nav class="goal-mobile-tabs" data-app-section="GOALS" aria-label="목표 화면 모바일 보기">
+          <button class="ghost-button goal-mobile-tab" type="button" data-goal-mobile-panel="HISTORY" aria-pressed="true" aria-controls="historyPanel">자산 이력</button>
+          <button class="ghost-button goal-mobile-tab" type="button" data-goal-mobile-panel="RETIREMENT" aria-pressed="false" aria-controls="retirementPanel">은퇴 계획</button>
+        </nav>
+
+        <section class="panel history-panel" id="historyPanel" data-app-section="GOALS">
           <div class="panel-header">
             <div>
               <h2>조회 히스토리</h2>
@@ -579,22 +589,23 @@
             </label>
             <label>
               조회 메모
-              <input id="snapshotNote" type="text" placeholder="예: 월말 점검">
+              <input id="snapshotNote" type="text" maxlength="10000" placeholder="예: 월말 점검">
             </label>
           </div>
           <div class="history-summary" id="historySummary"></div>
           <p class="sr-only" id="historyChartDescription">조회 히스토리 차트 설명이 여기에 표시됩니다.</p>
-          <canvas id="historyChart" width="1100" height="320" aria-label="자산 히스토리 차트"></canvas>
+          <canvas id="historyChart" width="1100" height="320" aria-label="자산 히스토리 차트" aria-describedby="historyChartDescription"></canvas>
           <div class="table-wrap history-table">
             <table>
+              <caption class="sr-only">저장 시점별 총자산과 직전 기록 대비 변화 목록</caption>
               <thead>
                 <tr>
-                  <th>조회 시각</th>
-                  <th class="number">총자산</th>
-                  <th class="number">직전 대비</th>
-                  <th class="number">변동률</th>
-                  <th>메모</th>
-                  <th class="actions-col">관리</th>
+                  <th scope="col">조회 시각</th>
+                  <th class="number" scope="col">총자산</th>
+                  <th class="number" scope="col">직전 대비</th>
+                  <th class="number" scope="col">변동률</th>
+                  <th scope="col">메모</th>
+                  <th class="actions-col" scope="col">관리</th>
                 </tr>
               </thead>
               <tbody id="historyRows"></tbody>
@@ -602,7 +613,7 @@
           </div>
         </section>
 
-        <section class="panel retirement-panel" data-app-section="GOALS">
+        <section class="panel retirement-panel goal-panel-mobile-hidden" id="retirementPanel" data-app-section="GOALS">
           <div class="panel-header">
             <div>
               <h2>은퇴 시뮬레이터</h2>
@@ -627,7 +638,7 @@
           <div class="scenario-toolbar">
             <label>
               시나리오명
-              <input id="retirementScenarioName" type="text" placeholder="예: 55세 은퇴 기본안">
+              <input id="retirementScenarioName" type="text" maxlength="500" placeholder="예: 55세 은퇴 기본안">
             </label>
             <label>
               저장된 시나리오
@@ -643,37 +654,38 @@
           <form id="retirementForm" class="retirement-grid">
             <label>
               현재 나이
-              <input id="currentAge" type="text" inputmode="numeric" value="35">
+              <input id="currentAge" type="text" inputmode="numeric" value="35" aria-describedby="retirementValidation">
             </label>
             <label>
               은퇴 나이
-              <input id="retireAge" type="text" inputmode="numeric" value="55">
+              <input id="retireAge" type="text" inputmode="numeric" value="55" aria-describedby="retirementValidation">
             </label>
             <label>
               예상 수명
-              <input id="lifeAge" type="text" inputmode="numeric" value="90">
+              <input id="lifeAge" type="text" inputmode="numeric" value="90" aria-describedby="retirementValidation">
             </label>
             <label>
               현재 투자 가능 자산
-              <input id="currentInvestable" type="text" inputmode="numeric" value="0">
+              <input id="currentInvestable" type="text" inputmode="numeric" value="0" aria-describedby="retirementValidation">
             </label>
             <label>
               매월 추가 투자
-              <input id="monthlyInvest" type="text" inputmode="numeric" value="1,000,000">
+              <input id="monthlyInvest" type="text" inputmode="numeric" value="1,000,000" aria-describedby="retirementValidation">
             </label>
             <label>
               은퇴 후 월 지출
-              <input id="monthlySpend" type="text" inputmode="numeric" value="3,500,000">
+              <input id="monthlySpend" type="text" inputmode="numeric" value="3,500,000" aria-describedby="retirementValidation">
             </label>
             <label>
               물가상승률
-              <input id="inflationRate" type="text" inputmode="decimal" value="2.0">
+              <input id="inflationRate" type="text" inputmode="decimal" value="2.0" aria-describedby="retirementValidation">
             </label>
             <label>
               은퇴 후 연수익률
-              <input id="postReturnRate" type="text" inputmode="decimal" value="3.5">
+              <input id="postReturnRate" type="text" inputmode="decimal" value="3.5" aria-describedby="retirementValidation">
             </label>
           </form>
+          <small class="field-help" id="retirementValidation" role="status" aria-live="polite">나이는 정수, 금액은 0원 이상, 물가상승률은 0~20%, 연수익률은 0~30%로 입력하세요.</small>
 
           <div class="result-grid">
             <article class="result">
@@ -737,9 +749,35 @@
       </main>
     </div>
 
+    <dialog class="cloud-conflict-dialog" id="cloudConflictDialog" aria-labelledby="cloudConflictTitle" aria-describedby="cloudConflictDescription">
+      <div class="cloud-conflict-content">
+        <div>
+          <span class="detail-kicker">클라우드 동기화</span>
+          <h2 id="cloudConflictTitle">서로 다른 데이터가 발견됐어요</h2>
+          <p id="cloudConflictDescription">두 데이터의 저장 시각과 기록 수를 확인한 뒤 이번 동기화 방향을 선택하세요.</p>
+        </div>
+        <div class="cloud-conflict-compare">
+          <article>
+            <span>클라우드 데이터</span>
+            <strong id="cloudConflictCloudMeta">저장 정보 확인 중</strong>
+          </article>
+          <article>
+            <span>이 기기 데이터</span>
+            <strong id="cloudConflictLocalMeta">저장 정보 확인 중</strong>
+          </article>
+        </div>
+        <p class="field-help">가져오기 또는 올리기를 선택하면 현재 기기 데이터를 먼저 JSON 파일로 자동 백업합니다.</p>
+        <div class="cloud-conflict-actions">
+          <button class="primary-button" type="button" data-cloud-conflict-choice="download">클라우드 가져오기</button>
+          <button class="ghost-button" type="button" data-cloud-conflict-choice="upload">이 기기 데이터 올리기</button>
+          <button class="text-link-button" type="button" data-cloud-conflict-choice="later">나중에 결정</button>
+        </div>
+      </div>
+    </dialog>
+
     <div class="asset-detail-overlay" id="assetDetailOverlay" hidden>
       <div class="asset-detail-scrim" data-detail-close></div>
-      <aside class="asset-detail-drawer" id="assetDetailDrawer" role="dialog" aria-modal="true" aria-label="자산 상세"></aside>
+      <aside class="asset-detail-drawer" id="assetDetailDrawer" role="dialog" aria-modal="true" aria-labelledby="assetDetailTitle"></aside>
     </div>
 
     <template id="emptyAssetTemplate">
@@ -767,6 +805,6 @@
     </template>
 
     <script src="firebase-config.js?v=20260519-auth-result"></script>
-    <script type="module" src="app.js?v=20260710-tokens"></script>
+    <script type="module" src="app.js?v=20260730-hardening-v2"></script>
   </body>
 </html>

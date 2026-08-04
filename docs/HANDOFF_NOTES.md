@@ -15,6 +15,40 @@
 - React/Tailwind 대전환은 단계적 검토 후. 변경은 작은 단위로.
 - 수정 후 `npm run check:js` + `npm run test:prices` (가능하면 `npm test`) 실행. `npm test`의 firestore `PERMISSION_DENIED` 로그는 규칙 검증의 정상 출력.
 
+## 방금 완료한 수정 (2026-07-30 안정화 1~5단계)
+
+- **운영 기준선** — 운영 `main`과 대규모 초안 PR #6을 분리해 점검했다. PR #6은
+  백엔드 재배포·인증 E2E·보안 검증 전까지 별도로 유지한다.
+- **정확성** — 은퇴 프리셋 즉시 저장·재계산, 불완전 가격 스냅샷 차단, US 손익의
+  환차손익 제외 표기, 자산·목표 비중·은퇴 입력 범위 검증을 추가했다.
+- **데이터 내구성** — `schemaVersion: 2`, compact snapshot, legacy 마이그레이션,
+  15MB 가져오기 구조·개수 검증, 교체 전 자동 백업, 저장 실패 노출, 900KB
+  클라우드 한도와 revision 충돌 방어를 추가했다. 가져온 데이터를 로컬에 쓰지
+  못하면 성공 표시 없이 기존 화면 상태로 되돌린다.
+- **동기화 충돌 UX** — 커스텀 대화상자에서 클라우드 가져오기·이 기기 데이터
+  올리기·나중에 결정하기를 선택한다. 앞의 두 경로는 로컬 JSON 백업이 성공해야
+  진행하고, 나중에 결정한 동안에는 자동 클라우드 쓰기를 멈춘다.
+- **가격·배포** — 가격 품질 게이트(7일 이내 KRX 유효 가격 3,000개,
+  USD/KRW 범위·실거래일, `tickers.json` US 성공률), 원자적 생성, 재사용 실패 시
+  배포 중단을 추가했다. 비신뢰 공유 가격 요청은 앱·생성기에서 제거하고
+  `priceRequests/**`를 Rules에서 전면 차단했다.
+  `prices.json`과 minified `symbols.json`을 분리해 초기 파일은 운영 데이터 기준
+  약 3.18MB→0.76MB로 줄이고 심볼은 자산 입력 때 한 번만 지연 로딩한다.
+- **보안·CI** — Firestore 경로를 명시적으로 제한하고 Rules 에뮬레이터 테스트,
+  데이터·충돌·심볼 테스트, high 이상 의존성 감사, 최소 Actions 권한, Node 22,
+  Dependabot을 CI에 포함했다.
+- **접근성·모바일** — 내비·투자기록 roving tabindex, 드로어 포커스 트랩·복귀,
+  표 caption/scope, 차트 대체 설명, 모바일 목표 패널 전환, 포트폴리오 분석 접기,
+  44px 터치 대상, safe area, 숨김 상태에서 backing store가 커지지 않는 DPR 대응
+  히스토리 차트를 반영했다.
+- **검증** — JS·Python·Firestore 전체 테스트와 `npm audit --audit-level=high`,
+  YAML 파싱, `git diff --check`를 통과했다. Chrome 실화면은 1440/1280/390/430px와
+  충돌 대화상자를 확인했고 모든 기준 폭에서 가로 오버플로가 없었다.
+- **남은 외부 설정** — 연결된 GitHub 도구가 저장소 ruleset/branch protection
+  쓰기 API를 제공하지 않고 로컬 `gh` 인증도 유효하지 않아 `main` required check
+  설정은 적용하지 못했다. 로컬 Firebase CLI에도 인증 계정이 없어 강화한 Rules의
+  운영 배포는 남아 있다. 코드상 PR·`main` 배포 게이트는 동일한 `test` job이다.
+
 ## 방금 완료한 수정 (디자인 3차: 색·크기 토큰 일원화, 커밋 8682441·ed7b402, dev 미푸시)
 - **색상 (8682441)** — styles.css의 hex 42곳(20종)을 전부 토큰 참조로 치환, 잔여 hex 0. 흰색 계열 7종→surface 토큰 수렴. 토큰 신설: `--up-200`(#a7f3d0)·`--down-200`(#fecaca)·`--warn-200`(#fde68a)·`--warn-800`(#92400e). 근사 치환(±색조 미세): #fed7aa→warn-200, #f8fbff류→surface-2, #eef2f5/#e5edf7→surface-3, #c7d3df→slate-300. rgba/그라디언트는 범위 제외.
 - **크기 (ed7b402)** — font-size 98곳 토큰화. 신설 `--fs-caption-sm`(12px), `--fs-h2` 24→20px(방향 B 기준으로 토큰을 현실에 맞춤). 임의 half값(10.5/11.5/12.5/13.5/14.5)과 10px·16px은 최근접 토큰으로 정규화(최대 1px). **잔여**: 22/24/26/30px 통계 숫자 + hero clamp 2곳 — 통계 스케일 토큰은 추후. font-weight 650/750 비표준 2곳, spacing(--space-*) 일원화도 미착수.

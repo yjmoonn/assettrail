@@ -40,7 +40,8 @@ AssetTrail은 개인 자산, 포트폴리오 변화, 투자 판단, 히스토리
 
 - 사용자 자산 데이터는 `users/{uid}/financeData/primary` 범위에 유지한다.
 - Firestore Rules를 약화하거나 사용자별 비공개 데이터를 공개 읽기로 바꾸지 않는다.
-- `priceRequests/us`는 공개 읽기, 로그인 사용자 쓰기 모델을 유지한다. 보안 검토 없이 바꾸지 않는다.
+- 2026-07-30 보안 검토 결정에 따라 `priceRequests/**`는 사용하거나 공개하지 않는다.
+  가격 생성 대상은 리뷰 가능한 `tickers.json`에서만 관리한다.
 - 현재 가격 모델을 유지한다. `KRX`와 `US`는 `prices.json`을 사용하고, `CASH`와 `MANUAL`은 사용자가 입력한 평가금액을 사용한다.
 - 제품 결정 없이 Alpha Vantage, 수동 환율 입력, 통화 필드, 대량등록 흐름을 되살리지 않는다.
 - `.env`, 서비스 계정 JSON, private key, Firebase Admin 인증 정보, 로컬 백업, 생성 로그, `prices.json`, 의존성 폴더를 커밋하지 않는다.

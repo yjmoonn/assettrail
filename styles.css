@@ -1744,7 +1744,8 @@ tbody tr:last-child td {
   font-weight: 700;
   line-height: 1.25;
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: keep-all;
 }
 
 .breakdown-value {
@@ -1790,9 +1791,25 @@ tbody tr:last-child td {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   display: block;
-  height: auto;
+  height: 320px;
   margin-bottom: 14px;
   width: 100%;
+}
+
+@media (min-width: 1101px) and (max-width: 1320px) {
+  .pie-breakdown {
+    gap: 10px;
+    grid-template-columns: minmax(124px, 29%) minmax(0, 1fr);
+  }
+
+  .pie-chart {
+    width: min(100%, 140px);
+  }
+
+  .pie-legend-item {
+    column-gap: 6px;
+    grid-template-columns: 10px minmax(0, 1fr) max-content 42px;
+  }
 }
 
 .history-table {
@@ -2146,7 +2163,7 @@ tbody tr:last-child td {
 
 @media (max-width: 720px) {
   body {
-    padding-bottom: 88px;
+    padding-bottom: calc(88px + env(safe-area-inset-bottom));
   }
 
   .app {
@@ -2624,7 +2641,13 @@ h3 { font-weight: 700; }
 }
 .detail-id strong { display: block; font-size: var(--fs-h3); font-weight: 800; color: var(--ink); }
 .detail-id .asset-sub { margin-top: 7px; }
-.detail-close { width: 34px; padding: 0; font-size: var(--fs-body-sm); }
+.detail-close {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0;
+  width: 44px;
+  font-size: var(--fs-body-sm);
+}
 .detail-body { flex: 1; overflow: auto; padding: 20px 22px; display: flex; flex-direction: column; gap: 16px; }
 .detail-kicker { font-size: var(--fs-label); font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
 .detail-value-card { padding: 18px; border-radius: 16px; background: var(--surface-2); border: 1px solid var(--line); }
@@ -2651,8 +2674,176 @@ h3 { font-weight: 700; }
 .detail-note .detail-empty { color: var(--muted); }
 .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px 22px; border-top: 1px solid var(--line); }
 .detail-actions > button { flex: 1 1 auto; min-width: 72px; min-height: 42px; }
+
+.cloud-conflict-dialog {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.24);
+  color: var(--ink);
+  margin: auto;
+  max-height: calc(100dvh - 32px);
+  max-width: min(620px, calc(100vw - 32px));
+  padding: 0;
+  width: 100%;
+}
+
+.cloud-conflict-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.52);
+}
+
+.cloud-conflict-content {
+  display: grid;
+  gap: 20px;
+  padding: 26px;
+}
+
+.cloud-conflict-content h2 {
+  display: flex;
+  margin: 5px 0 8px;
+}
+
+.cloud-conflict-content .detail-kicker {
+  display: block;
+}
+
+.cloud-conflict-content > .field-help {
+  color: var(--slate);
+  font-size: var(--fs-caption-sm);
+  line-height: 1.5;
+}
+
+.cloud-conflict-content p {
+  margin: 0;
+}
+
+.cloud-conflict-compare {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cloud-conflict-compare article {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: 7px;
+  padding: 16px;
+}
+
+.cloud-conflict-compare span {
+  color: var(--muted);
+  font-size: var(--fs-label);
+  font-weight: 700;
+}
+
+.cloud-conflict-compare strong {
+  font-size: var(--fs-body-sm);
+  line-height: 1.55;
+}
+
+.cloud-conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.cloud-conflict-actions button {
+  min-height: 44px;
+}
+
 @media (max-width: 720px) {
   .asset-detail-drawer { width: 100%; }
+  .detail-close {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  #historyChart {
+    height: 180px;
+  }
+
+  .topbar .ghost-button,
+  .topbar .settings-button,
+  #clearHistoryBtn,
+  .history-table .icon-button {
+    height: 44px;
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .cloud-conflict-content {
+    padding: 20px;
+  }
+
+  .cloud-conflict-compare {
+    grid-template-columns: 1fr;
+  }
+
+  .cloud-conflict-actions {
+    display: grid;
+  }
+}
+
+/* 모바일에서 긴 목표·포트폴리오 화면을 단계적으로 탐색한다. */
+.goal-mobile-tabs,
+.portfolio-breakdown-toggle {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .goal-mobile-tabs {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    display: grid;
+    gap: 6px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 12px;
+    padding: 6px;
+  }
+
+  .goal-mobile-tab {
+    min-height: 44px;
+  }
+
+  .goal-mobile-tab[aria-pressed="true"] {
+    background: var(--blue-2);
+    border-color: var(--blue-100);
+    color: var(--blue);
+    font-weight: 800;
+  }
+
+  .goal-panel-mobile-hidden {
+    display: none !important;
+  }
+
+  .portfolio-breakdown-toggle {
+    align-items: center;
+    display: inline-flex;
+    justify-content: center;
+    margin-bottom: 12px;
+    min-height: 44px;
+    width: 100%;
+  }
+
+  .breakdown.mobile-collapsed .breakdown-section:nth-child(n + 2) {
+    display: none;
+  }
+
+  .journal-list {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .record-tab,
+  .segment-button,
+  .filter-toggle,
+  .text-icon-button {
+    min-height: 44px;
+  }
 }
 
 /* ============================================================
