@@ -20,7 +20,7 @@ AssetTrail은 GitHub Pages에 배포되는 정적 개인 자산 관리 앱이다
 가격표는 GitHub Actions가 하루 한 번 한국 시간 06:30에 생성한다.
 
 - 국내 주식, ETF, ETN: KRX 전체 가격표를 자동 생성한다. ETF/ETN 코드는 `0092B0`처럼 영문이 섞일 수 있다.
-- 미국 주식, ETF: 기본 심볼은 `tickers.json`에 둘 수 있다. 로그인 사용자가 미국 자산을 저장하면 Firestore의 공유 가격 요청 목록에 새 미국 티커가 자동으로 쌓인다.
+- 미국 주식, ETF: 가격을 제공할 티커는 검토 가능한 `tickers.json`에서만 관리한다.
 - 워크플로는 가격, 종목명, 상품 유형, `fx.USDKRW`를 포함한 `prices.json`을 만든다.
 - 앱은 `prices.json`을 읽어 `KRX`와 `US` 자산의 평가금액과 손익을 계산한다. 미국 가격과 평단가는 달러 기준이며 `fx.USDKRW`로 원화 환산한다.
 - `CASH`와 `MANUAL` 자산은 사용자가 입력한 수동 평가금액만 사용한다.
@@ -35,7 +35,9 @@ AssetTrail은 GitHub Pages에 배포되는 정적 개인 자산 관리 앱이다
 }
 ```
 
-미국 자산이 `가격 대기`로 보이면 로그인 후 자산을 저장/동기화한 뒤 워크플로를 다시 실행하거나 다음 일일 생성까지 기다린다. KRX 자산은 자동 생성된 KRX 가격표와 매칭된다. 배포된 앱은 `prices.json`의 가격 생성 오류도 화면에 표시한다.
+미국 자산이 `가격 대기`로 보이면 운영자가 `tickers.json`에 티커를 추가한 뒤
+가격표 생성 워크플로를 실행해야 한다. KRX 자산은 자동 생성된 KRX 가격표와
+매칭된다. 배포된 앱은 `prices.json`의 가격 생성 오류도 화면에 표시한다.
 
 ## 동기화
 
@@ -59,7 +61,10 @@ yjmoonn.github.io
 users/{uid}/financeData/primary
 ```
 
-- 공유 문서 `priceRequests/us`는 GitHub Actions가 미국 티커 요청을 수집할 수 있도록 공개 읽기를 허용한다. 쓰기는 로그인 사용자만 가능하다.
+- 브라우저 보유정보로 가격 생성 입력을 자동 확장하지 않는다. `priceRequests/**`는
+  읽기와 쓰기를 모두 차단하며, 가격 생성기는 저장소의 `tickers.json`만 신뢰한다.
+- `firestore.rules` 변경은 에뮬레이터 테스트와 별도로 운영 Firebase 프로젝트에
+  인증된 배포가 필요하다.
 
 ## 보안 체크리스트
 

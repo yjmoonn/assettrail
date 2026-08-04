@@ -1,7 +1,24 @@
 const STORAGE_KEY = "finance-ledger-retirement-v1";
+const STATE_SCHEMA_VERSION = 2;
 const CLOUD_DOC_ID = "primary";
+const CLOUD_PAYLOAD_MAX_BYTES = 900 * 1024;
+const IMPORT_FILE_MAX_BYTES = 15 * 1024 * 1024;
+const IMPORT_LIMITS = {
+  assets: 2000,
+  realizedTrades: 10000,
+  tradeJournalEntries: 10000,
+  snapshots: 10000,
+  retirementScenarios: 200
+};
+const IMPORT_STRING_LIMITS = {
+  id: 160,
+  short: 500,
+  note: 10000
+};
 const PRICE_FILE_PATH = "prices.json";
 const PUBLIC_PRICE_FILE_URL = "https://yjmoonn.github.io/assettrail/prices.json";
+const SYMBOL_FILE_PATH = "symbols.json";
+const PUBLIC_SYMBOL_FILE_URL = "https://yjmoonn.github.io/assettrail/symbols.json";
 const PIE_COLORS = ["#2563eb", "#059669", "#d97706", "#64748b", "#8b5cf6"];
 const BREAKDOWN_ICONS = {
   "계좌 분석": "wallet",
@@ -91,7 +108,9 @@ let cloud = {
   ready: false,
   user: null,
   lastPushedFingerprint: null,
-  lastSyncedPriceTickers: null
+  lastErrorCode: null,
+  conflictPending: false,
+  runTransaction: null
 };
 let activeStorageKey = STORAGE_KEY;
 
@@ -100,6 +119,8 @@ let priceBook = {
   fx: {},
   generatedAt: null,
   loaded: false,
+  symbolFile: null,
+  symbolsGeneratedAt: null,
   prices: {
     KRX: {},
     US: {}
@@ -110,8 +131,12 @@ let priceBook = {
   }
 };
 let activePriceFileUrl = PRICE_FILE_PATH;
+let symbolLoadPromise = null;
+let symbolsLoaded = false;
+let symbolLoadFailed = false;
 
 const els = {
+  app: document.querySelector(".app"),
   pageTitle: document.querySelector("#pageTitle"),
   pageSubtitle: document.querySelector("#pageSubtitle"),
   totalAsset: document.querySelector("#totalAsset"),
@@ -127,6 +152,7 @@ const els = {
   retireGap: document.querySelector("#retireGap"),
   retireGapLabel: document.querySelector("#retireGapLabel"),
   appNavButtons: [...document.querySelectorAll("[data-nav-view]")],
+  appNavItems: [...document.querySelectorAll(".app-nav .app-nav-item")],
   appSections: [...document.querySelectorAll("[data-app-section]")],
   dashboardSnapshotBtn: document.querySelector("#dashboardSnapshotBtn"),
   dashboardReviewCount: document.querySelector("#dashboardReviewCount"),
@@ -197,6 +223,7 @@ const els = {
   priceAlert: document.querySelector("#priceAlert"),
   visibleAssetCount: document.querySelector("#visibleAssetCount"),
   categoryBreakdown: document.querySelector("#categoryBreakdown"),
+  portfolioBreakdownToggle: document.querySelector("#portfolioBreakdownToggle"),
   realizedSummary: document.querySelector("#realizedSummary"),
   realizedChart: document.querySelector("#realizedChart"),
   realizedRows: document.querySelector("#realizedRows"),
@@ -240,6 +267,9 @@ const els = {
   importInput: document.querySelector("#importInput"),
   appNotice: document.querySelector("#appNotice"),
   syncDetail: document.querySelector("#syncDetail"),
+  cloudConflictDialog: document.querySelector("#cloudConflictDialog"),
+  cloudConflictCloudMeta: document.querySelector("#cloudConflictCloudMeta"),
+  cloudConflictLocalMeta: document.querySelector("#cloudConflictLocalMeta"),
   assetAccountClass: document.querySelector("#assetAccountClass"),
   assetManualSubtype: document.querySelector("#assetManualSubtype"),
   manualSubtypeField: document.querySelector("#manualSubtypeField"),
@@ -255,10 +285,14 @@ const els = {
   targetOverseas: document.querySelector("#targetOverseas"),
   targetCash: document.querySelector("#targetCash"),
   targetManual: document.querySelector("#targetManual"),
+  targetValidation: document.querySelector("#targetValidation"),
   rebalanceSummary: document.querySelector("#rebalanceSummary"),
   historyRange: document.querySelector("#historyRange"),
   snapshotNote: document.querySelector("#snapshotNote"),
   historyChartDescription: document.querySelector("#historyChartDescription"),
+  goalMobileButtons: [...document.querySelectorAll("[data-goal-mobile-panel]")],
+  historyPanel: document.querySelector("#historyPanel"),
+  retirementPanel: document.querySelector("#retirementPanel"),
   viewAnnounce: document.querySelector("#viewAnnounce"),
   retirementScenarioName: document.querySelector("#retirementScenarioName"),
   retirementScenarioSelect: document.querySelector("#retirementScenarioSelect"),
@@ -266,6 +300,7 @@ const els = {
   loadScenarioBtn: document.querySelector("#loadScenarioBtn"),
   deleteScenarioBtn: document.querySelector("#deleteScenarioBtn"),
   retirementSensitivity: document.querySelector("#retirementSensitivity"),
+  retirementValidation: document.querySelector("#retirementValidation"),
   emptyAssetTemplate: document.querySelector("#emptyAssetTemplate"),
   assetDetailOverlay: document.querySelector("#assetDetailOverlay"),
   assetDetailDrawer: document.querySelector("#assetDetailDrawer"),
@@ -298,7 +333,10 @@ const els = {
   saveJournalBtn: document.querySelector("#saveJournalBtn")
 };
 
-const state = loadState();
+const initialStateLoad = loadState();
+const state = initialStateLoad.state;
+let storageWritesBlocked = !initialStateLoad.ok;
+let protectedStorageRaw = initialStateLoad.ok ? null : initialStateLoad.raw;
 const uiState = {
   assetSearch: "",
   assetType: "ALL",
@@ -312,19 +350,25 @@ const uiState = {
   activeView: "DASHBOARD",
   historyRange: "ALL",
   realizedYear: "ALL",
+  goalMobilePanel: "HISTORY",
+  portfolioBreakdownExpanded: false,
   autofilledAssetName: ""
 };
+let assetDetailOpener = null;
 
 function defaultState() {
   return {
+    schemaVersion: STATE_SCHEMA_VERSION,
     assets: [],
     realizedTrades: [],
     tradeJournalEntries: [],
     snapshots: [],
     meta: {
       cloudUpdatedAt: null,
+      cloudRevision: 0,
       lastSavedAt: null,
-      lastSyncDirection: "local"
+      lastSyncDirection: "local",
+      syncErrorCode: null
     },
     portfolioTargets: {
       domestic: 50,
@@ -352,75 +396,203 @@ function storageKeyForUser(user) {
 
 function loadState(storageKey = activeStorageKey) {
   const fallback = defaultState();
+  let raw = null;
 
   try {
-    const saved = JSON.parse(localStorage.getItem(storageKey));
-    if (!saved || typeof saved !== "object") return fallback;
-    return {
-      ...fallback,
-      ...saved,
-      assets: Array.isArray(saved.assets) ? saved.assets.map(normalizeAsset) : [],
-      realizedTrades: Array.isArray(saved.realizedTrades) ? saved.realizedTrades.map(normalizeRealizedTrade) : [],
-      tradeJournalEntries: Array.isArray(saved.tradeJournalEntries) ? saved.tradeJournalEntries.map(normalizeTradeJournalEntry) : [],
-      snapshots: Array.isArray(saved.snapshots) ? saved.snapshots : [],
-      meta: { ...fallback.meta, ...(saved.meta || {}) },
-      portfolioTargets: { ...fallback.portfolioTargets, ...(saved.portfolioTargets || {}) },
-      retirementScenarios: Array.isArray(saved.retirementScenarios) ? saved.retirementScenarios : [],
-      retirement: { ...fallback.retirement, ...(saved.retirement || {}) }
-    };
-  } catch {
-    return fallback;
+    raw = localStorage.getItem(storageKey);
+    if (!raw) return { ok: true, state: fallback, error: null, raw: null };
+    const saved = JSON.parse(raw);
+    if (!isPlainObject(saved)) throw new Error("저장 데이터가 객체가 아닙니다.");
+    return { ok: true, state: migrateState(saved), error: null, raw };
+  } catch (error) {
+    reportStorageFailure("로컬 데이터를 읽지 못했습니다. 브라우저 저장 권한과 저장 공간을 확인하세요.");
+    return { ok: false, state: fallback, error, raw };
   }
 }
 
 function persist() {
-  localStorage.setItem(activeStorageKey, JSON.stringify(storageSafeState()));
+  if (storageWritesBlocked) {
+    reportStorageFailure("기존 로컬 데이터를 보호하기 위해 자동 저장을 중단했습니다. 올바른 백업 파일을 가져오거나 클라우드 데이터를 다시 불러오세요.");
+    return false;
+  }
+  try {
+    localStorage.setItem(activeStorageKey, JSON.stringify(storageSafeState()));
+    return true;
+  } catch (error) {
+    console.error(error);
+    reportStorageFailure("변경 내용을 이 기기에 저장하지 못했습니다. 브라우저 저장 권한 또는 남은 공간을 확인하고 데이터를 내보내세요.");
+    return false;
+  }
 }
 
 function hasFirebaseConfig() {
   return ["apiKey", "authDomain", "projectId", "appId"].every((key) => Boolean(firebaseConfig[key]));
 }
 
-function cloudSafeState() {
-  const updatedAt = new Date().toISOString();
-  state.meta.lastSavedAt = updatedAt;
+function cloudSafeState(revision, updatedAt = new Date().toISOString()) {
+  const safeState = storageSafeState();
+  const cloudRevision = normalizeRevision(revision);
   return {
-	    ...storageSafeState(),
-	    updatedAt
-	  };
-	}
+    ...safeState,
+    revision: cloudRevision,
+    meta: {
+      ...safeState.meta,
+      cloudRevision,
+      lastSavedAt: updatedAt,
+      syncErrorCode: null
+    },
+    updatedAt
+  };
+}
 
 function storageSafeState() {
-	  return {
-	    assets: state.assets.map(serializeAsset),
-	    realizedTrades: state.realizedTrades.map(serializeRealizedTrade),
-	    tradeJournalEntries: state.tradeJournalEntries.map(serializeTradeJournalEntry),
-	    snapshots: state.snapshots,
-	    meta: state.meta,
-	    portfolioTargets: state.portfolioTargets,
-	    retirementScenarios: state.retirementScenarios,
-	    retirement: state.retirement
-	  };
-	}
+  return {
+    schemaVersion: STATE_SCHEMA_VERSION,
+    assets: state.assets.map(serializeAsset),
+    realizedTrades: state.realizedTrades.map(serializeRealizedTrade),
+    tradeJournalEntries: state.tradeJournalEntries.map(serializeTradeJournalEntry),
+    snapshots: state.snapshots.map(normalizeSnapshot),
+    meta: { ...state.meta },
+    portfolioTargets: { ...state.portfolioTargets },
+    retirementScenarios: state.retirementScenarios.map(normalizeRetirementScenario),
+    retirement: { ...state.retirement }
+  };
+}
+
+function migrateState(nextState) {
+  const fallback = defaultState();
+  const source = isPlainObject(nextState) ? nextState : {};
+  assertSupportedStateSchema(source);
+  const meta = isPlainObject(source.meta) ? source.meta : {};
+  return {
+    schemaVersion: STATE_SCHEMA_VERSION,
+    assets: Array.isArray(source.assets)
+      ? source.assets.map((asset, index) => {
+          const serialized = serializeAsset(asset);
+          if (!serialized.id) serialized.id = `legacy-asset-${index}`;
+          return normalizeAsset(serialized);
+        })
+      : [],
+    realizedTrades: Array.isArray(source.realizedTrades) ? source.realizedTrades.map(normalizeRealizedTrade) : [],
+    tradeJournalEntries: Array.isArray(source.tradeJournalEntries) ? source.tradeJournalEntries.map(normalizeTradeJournalEntry) : [],
+    snapshots: Array.isArray(source.snapshots) ? source.snapshots.map(normalizeSnapshot) : [],
+    meta: {
+      cloudUpdatedAt: normalizeStoredDate(source.updatedAt || meta.cloudUpdatedAt),
+      cloudRevision: normalizeRevision(source.revision ?? meta.cloudRevision),
+      lastSavedAt: normalizeStoredDate(meta.lastSavedAt),
+      lastSyncDirection: ["local", "download", "upload", "save"].includes(meta.lastSyncDirection)
+        ? meta.lastSyncDirection
+        : fallback.meta.lastSyncDirection,
+      syncErrorCode: null
+    },
+    portfolioTargets: normalizePortfolioTargets(source.portfolioTargets, fallback.portfolioTargets),
+    retirementScenarios: Array.isArray(source.retirementScenarios)
+      ? source.retirementScenarios.map(normalizeRetirementScenario)
+      : [],
+    retirement: normalizeRetirementState(source.retirement, fallback.retirement)
+  };
+}
 
 function replaceState(nextState) {
-  const fallback = defaultState();
-  state.assets = Array.isArray(nextState.assets) ? nextState.assets.map(normalizeAsset) : [];
-  state.realizedTrades = Array.isArray(nextState.realizedTrades) ? nextState.realizedTrades.map(normalizeRealizedTrade) : [];
-  state.tradeJournalEntries = Array.isArray(nextState.tradeJournalEntries) ? nextState.tradeJournalEntries.map(normalizeTradeJournalEntry) : [];
-  state.snapshots = Array.isArray(nextState.snapshots) ? nextState.snapshots : [];
-  state.meta = {
-    ...fallback.meta,
-    ...(nextState.meta || {}),
-    cloudUpdatedAt: nextState.updatedAt || nextState.meta?.cloudUpdatedAt || null
-  };
-  state.portfolioTargets = { ...fallback.portfolioTargets, ...(nextState.portfolioTargets || {}) };
-  state.retirementScenarios = Array.isArray(nextState.retirementScenarios) ? nextState.retirementScenarios : [];
-  state.retirement = { ...fallback.retirement, ...(nextState.retirement || {}) };
+  const migrated = migrateState(nextState);
+  state.schemaVersion = STATE_SCHEMA_VERSION;
+  state.assets = migrated.assets;
+  state.realizedTrades = migrated.realizedTrades;
+  state.tradeJournalEntries = migrated.tradeJournalEntries;
+  state.snapshots = migrated.snapshots;
+  state.meta = migrated.meta;
+  state.portfolioTargets = migrated.portfolioTargets;
+  state.retirementScenarios = migrated.retirementScenarios;
+  state.retirement = migrated.retirement;
   applyPricesToAssets();
   hydrateRetirementInputs();
   hydratePortfolioTargetInputs();
   renderRetirementScenarioOptions();
+  return true;
+}
+
+function isPlainObject(value) {
+  return Boolean(value)
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Object.prototype.toString.call(value) === "[object Object]";
+}
+
+function normalizeRevision(value) {
+  const revision = Number(value);
+  return Number.isSafeInteger(revision) && revision >= 0 ? revision : 0;
+}
+
+function assertSupportedStateSchema(source) {
+  if (source.schemaVersion === undefined || source.schemaVersion === null) return;
+  const version = Number(source.schemaVersion);
+  if (!Number.isSafeInteger(version) || version < 1 || version > STATE_SCHEMA_VERSION) {
+    throw new Error(`지원하지 않는 데이터 스키마 버전입니다: ${source.schemaVersion}`);
+  }
+}
+
+function normalizeStoredDate(value) {
+  if (!value || !Number.isFinite(Date.parse(value))) return null;
+  return new Date(value).toISOString();
+}
+
+function normalizePortfolioTargets(targets, fallback = defaultState().portfolioTargets) {
+  const source = isPlainObject(targets) ? targets : {};
+  return Object.fromEntries(
+    Object.entries(fallback).map(([key, fallbackValue]) => {
+      const value = Number(source[key]);
+      return [key, Number.isFinite(value) ? value : fallbackValue];
+    })
+  );
+}
+
+function normalizeRetirementState(retirement, fallback = defaultState().retirement) {
+  const source = isPlainObject(retirement) ? retirement : {};
+  return Object.fromEntries(
+    Object.entries(fallback).map(([key, fallbackValue]) => {
+      const value = Number(source[key]);
+      return [key, Number.isFinite(value) ? value : fallbackValue];
+    })
+  );
+}
+
+function normalizeRetirementScenario(scenario, index = 0) {
+  const source = isPlainObject(scenario) ? scenario : {};
+  return {
+    id: String(source.id || `retirement-scenario-${index}`).slice(0, IMPORT_STRING_LIMITS.id),
+    name: String(source.name || "").slice(0, IMPORT_STRING_LIMITS.short),
+    input: normalizeRetirementState(source.input),
+    updatedAt: normalizeStoredDate(source.updatedAt) || new Date(0).toISOString()
+  };
+}
+
+function normalizeSnapshot(snapshot, index = 0) {
+  const source = isPlainObject(snapshot) ? snapshot : {};
+  const createdAtValue = String(source.createdAt || "");
+  const createdAt = Number.isFinite(Date.parse(createdAtValue))
+    ? new Date(createdAtValue).toISOString()
+    : new Date(0).toISOString();
+  const typeTotals = {};
+  if (isPlainObject(source.typeTotals)) {
+    ["KRX", "US", "CASH", "MANUAL"].forEach((type) => {
+      const value = Number(source.typeTotals[type]);
+      if (Number.isFinite(value) && value >= 0) typeTotals[type] = value;
+    });
+  }
+  return {
+    id: String(source.id || `snapshot-${createdAt}-${index}`).slice(0, IMPORT_STRING_LIMITS.id),
+    createdAt,
+    total: Number.isFinite(Number(source.total)) && Number(source.total) >= 0 ? Number(source.total) : 0,
+    note: String(source.note || "").slice(0, IMPORT_STRING_LIMITS.note),
+    typeTotals
+  };
+}
+
+function reportStorageFailure(message) {
+  if (!els?.appNotice) return;
+  els.appNotice.hidden = false;
+  els.appNotice.setAttribute("role", "alert");
+  els.appNotice.textContent = message;
 }
 
 function setSyncStatus(text, online = false) {
@@ -457,11 +629,15 @@ function showUndoNotice(message, undo) {
 async function initPrices() {
   setPriceStatus("가격 확인중");
   if (els.priceRefreshBtn) els.priceRefreshBtn.disabled = true;
+  symbolLoadPromise = null;
+  symbolsLoaded = false;
+  symbolLoadFailed = false;
 
   try {
     const loaded = await loadPriceBook();
     priceBook = normalizePriceBook(loaded.data);
     activePriceFileUrl = loaded.url;
+    symbolsLoaded = !priceBook.symbolFile;
     applyPricesToAssets();
     setPriceStatus(priceBook.generatedAt ? `가격 ${compactDateTime(priceBook.generatedAt)}` : "가격 완료", true);
     render(false);
@@ -519,6 +695,63 @@ function priceFetchOptions(url) {
   return options;
 }
 
+function symbolFileUrl() {
+  const manifestPath = String(priceBook.symbolFile || SYMBOL_FILE_PATH).trim() || SYMBOL_FILE_PATH;
+  try {
+    if (/^https?:\/\//i.test(activePriceFileUrl)) {
+      return new URL(manifestPath, activePriceFileUrl).href;
+    }
+    if (activePriceFileUrl === PUBLIC_PRICE_FILE_URL) {
+      return PUBLIC_SYMBOL_FILE_URL;
+    }
+    return new URL(manifestPath, window.location.href).href;
+  } catch {
+    return manifestPath;
+  }
+}
+
+function versionedSymbolUrl(url) {
+  const version = priceBook.symbolsGeneratedAt || priceBook.generatedAt;
+  if (!version) return url;
+  const separator = String(url).includes("?") ? "&" : "?";
+  return `${url}${separator}v=${encodeURIComponent(version)}`;
+}
+
+async function ensureSymbolsLoaded() {
+  if (symbolsLoaded || !priceBook.loaded || !priceBook.symbolFile) return priceBook.symbols;
+  if (symbolLoadPromise) return symbolLoadPromise;
+
+  symbolLoadPromise = (async () => {
+    try {
+      const response = await fetch(versionedSymbolUrl(symbolFileUrl()));
+      if (!response.ok) throw new Error(`Symbols unavailable: ${response.status}`);
+      const data = await response.json();
+      if (!isPlainObject(data?.symbols)) throw new Error("Symbols payload is invalid");
+      addSymbolGroup(priceBook, "KRX", data.symbols.KRX);
+      addSymbolGroup(priceBook, "US", data.symbols.US);
+      symbolsLoaded = true;
+      symbolLoadFailed = false;
+      return priceBook.symbols;
+    } catch (error) {
+      symbolLoadFailed = true;
+      console.warn("Asset symbol directory unavailable", error);
+      return priceBook.symbols;
+    }
+  })();
+
+  return symbolLoadPromise;
+}
+
+function loadSymbolsForAssetForm() {
+  fillAssetNameFromTicker();
+  return ensureSymbolsLoaded().then(() => {
+    fillAssetNameFromTicker();
+    if (symbolLoadFailed && els.assetTickerHelp && isMarketType(normalizeAssetType(els.assetCategory?.value))) {
+      els.assetTickerHelp.textContent = `${tickerHelpForType(normalizeAssetType(els.assetCategory.value))} 종목명은 직접 입력할 수 있습니다.`;
+    }
+  });
+}
+
 function isSameOriginUrl(url) {
   try {
     return new URL(url, window.location.href).origin === window.location.origin;
@@ -550,7 +783,7 @@ async function initFirebase() {
     cloud.doc = firestoreModule.doc;
     cloud.getDoc = firestoreModule.getDoc;
     cloud.setDoc = firestoreModule.setDoc;
-    cloud.arrayUnion = firestoreModule.arrayUnion;
+    cloud.runTransaction = firestoreModule.runTransaction || null;
     cloud.enabled = true;
     cloud.ready = true;
 
@@ -584,14 +817,24 @@ async function initFirebase() {
 async function completeCloudSignIn(user) {
   if (cloud.user?.uid === user?.uid && cloud.docRef) return;
 
+  if (cloud.docRef && (cloudPushPending || cloudPushInFlight)) {
+    try {
+      await flushCloudPush();
+    } catch (error) {
+      console.error(error);
+    }
+  }
   persist();
   cancelCloudPush();
   cloud.user = user;
   cloud.docRef = null;
   cloud.lastPushedFingerprint = null;
-  cloud.lastSyncedPriceTickers = null;
+  cloud.conflictPending = false;
   activeStorageKey = storageKeyForUser(user);
-  replaceState(loadState(activeStorageKey));
+  const localLoad = loadState(activeStorageKey);
+  storageWritesBlocked = !localLoad.ok;
+  protectedStorageRaw = localLoad.ok ? null : localLoad.raw;
+  replaceState(localLoad.state);
   render(false);
   updateAuthUi();
   if (!user) {
@@ -612,45 +855,146 @@ function updateAuthUi() {
   if (!cloud.enabled) {
     setSyncStatus("로컬 저장");
   } else if (signedIn) {
-    setSyncStatus(`클라우드: ${cloud.user.email || "로그인됨"}`, true);
-    setSyncDetail(syncDetailText(), true);
+    if (cloud.conflictPending) {
+      setSyncStatus("동기화 충돌");
+      setSyncDetail("클라우드와 이 기기 중 사용할 데이터를 선택해야 합니다.");
+    } else {
+      setSyncStatus(`클라우드: ${cloud.user.email || "로그인됨"}`, true);
+      setSyncDetail(syncDetailText(), true);
+    }
   } else {
     setSyncStatus("클라우드 준비");
     setSyncDetail("");
   }
 }
 
+function cloudConflictRecordCount(data) {
+  return ["snapshots", "realizedTrades", "tradeJournalEntries", "retirementScenarios"]
+    .reduce((sum, key) => sum + (Array.isArray(data?.[key]) ? data[key].length : 0), 0);
+}
+
+function cloudConflictMetaText(data, { remote = false } = {}) {
+  const savedAt = remote
+    ? data?.updatedAt || data?.meta?.lastSavedAt
+    : data?.meta?.lastSavedAt;
+  const assetCount = Array.isArray(data?.assets) ? data.assets.length : 0;
+  return `${formatDate(savedAt)} · 자산 ${assetCount.toLocaleString("ko-KR")}개 · 기록 ${cloudConflictRecordCount(data).toLocaleString("ko-KR")}개`;
+}
+
+async function chooseCloudConflict(cloudData) {
+  const localData = storageSafeState();
+  const resolver = window.assetTrailCloudConflictResolver;
+  if (typeof resolver === "function") {
+    const choice = await resolver({
+      cloud: cloudData,
+      local: localData
+    });
+    return ["download", "upload", "later"].includes(choice) ? choice : "later";
+  }
+
+  const dialog = els.cloudConflictDialog;
+  if (!dialog) return "later";
+  if (els.cloudConflictCloudMeta) {
+    els.cloudConflictCloudMeta.textContent = cloudConflictMetaText(cloudData, { remote: true });
+  }
+  if (els.cloudConflictLocalMeta) {
+    els.cloudConflictLocalMeta.textContent = cloudConflictMetaText(localData);
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const previousFocus = document.activeElement;
+    const appWasInert = els.app?.hasAttribute("inert") || false;
+    const finish = (choice) => {
+      if (settled) return;
+      settled = true;
+      dialog.removeEventListener("click", handleClick);
+      dialog.removeEventListener("cancel", handleCancel);
+      if (typeof dialog.close === "function" && dialog.open) dialog.close();
+      else dialog.removeAttribute("open");
+      if (!appWasInert) els.app?.removeAttribute("inert");
+      if (previousFocus?.isConnected && typeof previousFocus.focus === "function") {
+        previousFocus.focus({ preventScroll: true });
+      }
+      resolve(choice);
+    };
+    const handleClick = (event) => {
+      const button = event.target.closest("[data-cloud-conflict-choice]");
+      if (!button) return;
+      finish(button.dataset.cloudConflictChoice);
+    };
+    const handleCancel = (event) => {
+      event.preventDefault();
+      finish("later");
+    };
+
+    dialog.addEventListener("click", handleClick);
+    dialog.addEventListener("cancel", handleCancel);
+    els.app?.setAttribute("inert", "");
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else dialog.setAttribute("open", "");
+    dialog.querySelector('[data-cloud-conflict-choice="download"]')?.focus();
+  });
+}
+
+function backupBeforeCloudConflictResolution() {
+  const timestamp = new Date().toISOString().replaceAll(":", "-");
+  return downloadStateFile(storageSafeState(), `assettrail-before-cloud-sync-${timestamp}.json`);
+}
+
 async function pullCloudData() {
-  if (!cloud.docRef) return;
+  if (!cloud.docRef) return false;
   setSyncStatus("클라우드 확인중", true);
   const snapshot = await cloud.getDoc(cloud.docRef);
   if (snapshot.exists()) {
     const cloudData = snapshot.data();
+    assertSupportedStateSchema(cloudData);
     if (shouldWarnCloudConflict(cloudData)) {
-      const useCloud = confirm(
-        `클라우드와 현재 화면 데이터가 서로 다릅니다.\n\n클라우드 저장 시각: ${formatDate(cloudData.updatedAt || cloudData.meta?.lastSavedAt)}\n현재 화면 저장 시각: ${formatDate(state.meta.lastSavedAt)}\n\n확인: 클라우드 데이터를 가져옵니다.\n취소: 현재 화면 데이터를 클라우드에 저장합니다.`
-      );
-      if (!useCloud) {
-        await pushCloudData("upload");
-        return;
+      const choice = await chooseCloudConflict(cloudData);
+      if (choice === "later") {
+        cloud.conflictPending = true;
+        cancelCloudPush();
+        updateAuthUi();
+        return false;
+      }
+      if (!backupBeforeCloudConflictResolution()) {
+        cloud.conflictPending = true;
+        reportStorageFailure("현재 데이터 자동 백업에 실패해 클라우드 동기화를 중단했습니다.");
+        updateAuthUi();
+        return false;
+      }
+      cloud.conflictPending = false;
+      if (choice === "upload") {
+        await pushCloudData("upload", {
+          expectedRemoteRevision: normalizeRevision(cloudData.revision ?? cloudData.meta?.cloudRevision)
+        });
+        return true;
       }
     }
     replaceState(cloudData);
+    cloud.conflictPending = false;
+    storageWritesBlocked = false;
+    protectedStorageRaw = null;
     state.meta.lastSyncDirection = "download";
     cloud.lastPushedFingerprint = dataFingerprint(storageSafeState());
     render(false);
-    await syncPriceRequests();
   } else {
-    replaceState(defaultState());
     state.meta.cloudUpdatedAt = null;
-    state.meta.lastSyncDirection = "local";
-    persist();
-    render(false);
+    state.meta.cloudRevision = 0;
+    if (localHasUserData()) {
+      await pushCloudData("upload", { expectedRemoteRevision: 0 });
+    } else {
+      replaceState(defaultState());
+      state.meta.lastSyncDirection = "local";
+      persist();
+      render(false);
+    }
   }
   updateAuthUi();
+  return true;
 }
 
-async function pushCloudData(direction = "save") {
+async function pushCloudData(direction = "save", options = {}) {
   if (!cloud.docRef) return;
   const fingerprint = dataFingerprint(storageSafeState());
   if (direction !== "upload" && fingerprint === cloud.lastPushedFingerprint) {
@@ -658,18 +1002,115 @@ async function pushCloudData(direction = "save") {
     return;
   }
   setSyncStatus("클라우드 저장중", true);
-  const payload = cloudSafeState();
-  await cloud.setDoc(cloud.docRef, payload, { merge: true });
-  cloud.lastPushedFingerprint = fingerprint;
-  state.meta.cloudUpdatedAt = payload.updatedAt;
-  state.meta.lastSyncDirection = direction;
+  try {
+    const payload = await writeCloudState(options);
+    cloud.lastPushedFingerprint = fingerprint;
+    cloud.lastErrorCode = null;
+    state.meta.cloudUpdatedAt = payload.updatedAt;
+    state.meta.cloudRevision = normalizeRevision(payload.revision);
+    state.meta.lastSavedAt = payload.updatedAt;
+    state.meta.lastSyncDirection = direction;
+    state.meta.syncErrorCode = null;
+    persist();
+    updateAuthUi();
+    return true;
+  } catch (error) {
+    exposeCloudSyncError(error);
+    throw error;
+  }
+}
+
+async function writeCloudState({ expectedRemoteRevision = null } = {}) {
+  const db = cloud.db;
+  const docRef = cloud.docRef;
+  if (!docRef) throw createCloudSyncError("assettrail/cloud-unavailable", "클라우드 연결이 없습니다.");
+  const localRevision = normalizeRevision(state.meta.cloudRevision);
+  if (typeof cloud.runTransaction === "function") {
+    return cloud.runTransaction(db, async (transaction) => {
+      const remoteSnapshot = await transaction.get(docRef);
+      const remoteRevision = revisionFromSnapshot(remoteSnapshot);
+      assertRemoteRevisionIsCurrent(localRevision, remoteRevision, expectedRemoteRevision);
+      const payload = cloudSafeState(Math.max(localRevision, remoteRevision) + 1);
+      assertCloudPayloadSize(payload);
+      transaction.set(docRef, payload, { merge: false });
+      return payload;
+    });
+  }
+
+  let remoteRevision = 0;
+  if (typeof cloud.getDoc === "function") {
+    const remoteSnapshot = await cloud.getDoc(docRef);
+    remoteRevision = revisionFromSnapshot(remoteSnapshot);
+  }
+  assertRemoteRevisionIsCurrent(localRevision, remoteRevision, expectedRemoteRevision);
+  const payload = cloudSafeState(Math.max(localRevision, remoteRevision) + 1);
+  assertCloudPayloadSize(payload);
+  await cloud.setDoc(docRef, payload, { merge: false });
+  return payload;
+}
+
+function revisionFromSnapshot(snapshot) {
+  if (!snapshot?.exists?.()) return 0;
+  const data = snapshot.data();
+  return normalizeRevision(data?.revision ?? data?.meta?.cloudRevision);
+}
+
+function assertRemoteRevisionIsCurrent(localRevision, remoteRevision, expectedRemoteRevision = null) {
+  if (expectedRemoteRevision !== null) {
+    if (remoteRevision === normalizeRevision(expectedRemoteRevision)) return;
+  } else if (remoteRevision <= localRevision) {
+    return;
+  }
+  throw createCloudSyncError(
+    "assettrail/cloud-conflict",
+    "다른 기기에 더 최신 데이터가 있어 자동 저장을 중단했습니다."
+  );
+}
+
+function serializedByteLength(value) {
+  const serialized = typeof value === "string" ? value : JSON.stringify(value);
+  if (typeof TextEncoder === "function") return new TextEncoder().encode(serialized).byteLength;
+  return new Blob([serialized]).size;
+}
+
+function assertCloudPayloadSize(payload) {
+  const bytes = serializedByteLength(payload);
+  if (bytes <= CLOUD_PAYLOAD_MAX_BYTES) return;
+  throw createCloudSyncError(
+    "assettrail/cloud-payload-too-large",
+    `클라우드 저장 데이터가 ${Math.ceil(bytes / 1024)}KB로 안전 한도 900KB를 넘었습니다. 데이터를 내보낸 뒤 기록을 정리하세요.`
+  );
+}
+
+function createCloudSyncError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function exposeCloudSyncError(error) {
+  const code = String(error?.code || "assettrail/cloud-save-failed");
+  cloud.lastErrorCode = code;
+  state.meta.syncErrorCode = code;
   persist();
-  await syncPriceRequests();
-  updateAuthUi();
+  if (code === "assettrail/cloud-conflict") {
+    setSyncStatus("동기화 충돌");
+    setSyncDetail(error.message);
+    return;
+  }
+  if (code === "assettrail/cloud-payload-too-large") {
+    setSyncStatus("클라우드 용량 초과");
+    setSyncDetail(error.message);
+    reportStorageFailure(error.message);
+    return;
+  }
+  setSyncStatus("저장 실패");
+  setSyncDetail("클라우드 저장에 실패했습니다. 네트워크 상태를 확인하세요.");
 }
 
 let cloudPushTimer = null;
 let cloudPushPending = false;
+let cloudPushInFlight = null;
 
 function cloudPushDelayMs() {
   const value = window.assetTrailCloudPushDelayMs;
@@ -677,7 +1118,7 @@ function cloudPushDelayMs() {
 }
 
 function scheduleCloudPush() {
-  if (!cloud.docRef) return;
+  if (!cloud.docRef || cloud.conflictPending) return;
   cloudPushPending = true;
   if (cloudPushTimer !== null) window.clearTimeout(cloudPushTimer);
   cloudPushTimer = window.setTimeout(() => {
@@ -691,13 +1132,45 @@ async function flushCloudPush() {
     window.clearTimeout(cloudPushTimer);
     cloudPushTimer = null;
   }
-  if (!cloudPushPending || !cloud.docRef) return;
-  cloudPushPending = false;
-  try {
-    await pushCloudData();
-  } catch (error) {
-    console.error(error);
-    setSyncStatus("저장 실패");
+  if (cloud.conflictPending) {
+    cloudPushPending = false;
+    return;
+  }
+
+  while (cloud.docRef) {
+    if (cloudPushInFlight) {
+      try {
+        await cloudPushInFlight;
+      } catch (error) {
+        console.error(error);
+      }
+      continue;
+    }
+    if (!cloudPushPending) return;
+
+    cloudPushPending = false;
+    const activePush = pushCloudData();
+    cloudPushInFlight = activePush;
+    try {
+      await activePush;
+    } catch (error) {
+      console.error(error);
+      if (error?.code === "assettrail/cloud-conflict") {
+        cloud.conflictPending = true;
+      } else if (!cloud.lastErrorCode) {
+        setSyncStatus("저장 실패");
+      }
+    } finally {
+      if (cloudPushInFlight === activePush) cloudPushInFlight = null;
+    }
+    if (cloud.conflictPending) {
+      try {
+        await pullCloudData();
+      } catch (error) {
+        console.error(error);
+      }
+      return;
+    }
   }
 }
 
@@ -710,13 +1183,21 @@ function cancelCloudPush() {
 }
 
 function shouldWarnCloudConflict(cloudData) {
-  if (!localHasUserData() || !cloudData || !cloudData.updatedAt) return false;
-  if (state.meta.cloudUpdatedAt && state.meta.cloudUpdatedAt === cloudData.updatedAt) return false;
+  if (!localHasUserData() || !cloudData) return false;
   return dataFingerprint(storageSafeState()) !== dataFingerprint(cloudData);
 }
 
 function localHasUserData() {
-  return Boolean(state.assets.length || state.realizedTrades.length || state.tradeJournalEntries.length || state.snapshots.length);
+  const defaults = defaultState();
+  return Boolean(
+    state.assets.length
+    || state.realizedTrades.length
+    || state.tradeJournalEntries.length
+    || state.snapshots.length
+    || state.retirementScenarios.length
+    || JSON.stringify(state.portfolioTargets) !== JSON.stringify(defaults.portfolioTargets)
+    || JSON.stringify(state.retirement) !== JSON.stringify(defaults.retirement)
+  );
 }
 
 function dataFingerprint(data) {
@@ -724,10 +1205,10 @@ function dataFingerprint(data) {
     assets: (data.assets || []).map(normalizeAsset).map(serializeAsset),
     realizedTrades: (data.realizedTrades || []).map(normalizeRealizedTrade).map(serializeRealizedTrade),
     tradeJournalEntries: (data.tradeJournalEntries || []).map(normalizeTradeJournalEntry).map(serializeTradeJournalEntry),
-    snapshots: data.snapshots || [],
-    portfolioTargets: data.portfolioTargets || {},
-    retirement: data.retirement || {},
-    retirementScenarios: data.retirementScenarios || []
+    snapshots: (data.snapshots || []).map(normalizeSnapshot),
+    portfolioTargets: normalizePortfolioTargets(data.portfolioTargets),
+    retirement: normalizeRetirementState(data.retirement),
+    retirementScenarios: (data.retirementScenarios || []).map(normalizeRetirementScenario)
   });
 }
 
@@ -740,32 +1221,6 @@ function syncDetailText() {
     save: "저장"
   }[state.meta.lastSyncDirection] || "저장";
   return `${direction}: ${compactDateTime(saved)}`;
-}
-
-async function syncPriceRequests() {
-  if (!cloud.db || !cloud.user || !cloud.doc || !cloud.setDoc) return;
-  const tickers = usTickersInState();
-  if (!tickers.length) return;
-  const tickerKey = tickers.join(",");
-  if (tickerKey === cloud.lastSyncedPriceTickers) return;
-
-  const ref = cloud.doc(cloud.db, "priceRequests", "us");
-  const tickerValue = typeof cloud.arrayUnion === "function" ? cloud.arrayUnion(...tickers) : tickers;
-  await cloud.setDoc(ref, {
-    tickers: tickerValue,
-    updatedAt: new Date().toISOString()
-  }, { merge: true });
-  cloud.lastSyncedPriceTickers = tickerKey;
-}
-
-function usTickersInState() {
-  return [...new Set(
-    state.assets
-      .map(normalizeAsset)
-      .filter((asset) => assetType(asset) === "US")
-      .map((asset) => normalizeTicker("US", asset.ticker))
-      .filter(Boolean)
-  )].sort();
 }
 
 const KRW_FORMATTER = new Intl.NumberFormat("ko-KR", {
@@ -858,8 +1313,22 @@ function normalizeAsset(asset) {
 
 function serializeAsset(asset) {
   const normalized = normalizeAsset(asset);
-  const { currentPrice, priceDate, priceSource, priceUpdatedAt, ...saved } = normalized;
-  return saved;
+  return {
+    id: String(normalized.id || ""),
+    name: String(normalized.name || ""),
+    ticker: String(normalized.ticker || ""),
+    type: normalized.type,
+    account: String(normalized.account || ""),
+    accountClass: normalized.accountClass,
+    manualSubtype: normalized.manualSubtype,
+    amount: Number(normalized.amount || 0),
+    quantity: Number(normalized.quantity || 0),
+    averagePrice: Number(normalized.averagePrice || 0),
+    note: String(normalized.note || ""),
+    ...(normalized.createdAt ? { createdAt: String(normalized.createdAt) } : {}),
+    ...(normalized.updatedAt ? { updatedAt: String(normalized.updatedAt) } : {}),
+    ...(normalized.kind ? { kind: String(normalized.kind) } : {})
+  };
 }
 
 function normalizeRealizedTrade(trade) {
@@ -1035,6 +1504,10 @@ function normalizePriceBook(data) {
     fx: normalizeFx(data?.fx),
     generatedAt: data?.generatedAt || data?.updatedAt || data?.date || null,
     loaded: true,
+    symbolFile: typeof data?.symbolFile === "string" && data.symbolFile.trim()
+      ? data.symbolFile.trim()
+      : null,
+    symbolsGeneratedAt: data?.symbolsGeneratedAt || data?.generatedAt || null,
     prices: {
       KRX: {},
       US: {}
@@ -1158,7 +1631,7 @@ function applyPricesToAssets() {
       ...normalized,
       currentPrice: price ? price.close : 0,
       kind: price?.kind || symbolForAsset(normalized)?.kind || null,
-      priceDate: price?.date || priceBook.generatedAt || null,
+      priceDate: price?.date || null,
       priceSource: price?.source || activePriceFileUrl,
       priceUpdatedAt: priceBook.generatedAt
     };
@@ -1295,17 +1768,93 @@ function deltaRate(current, previous) {
   return (current - previous) / previous;
 }
 
-function saveRetirementInputs() {
-  state.retirement = {
-    currentAge: numberValue(els.currentAge),
-    retireAge: numberValue(els.retireAge),
-    lifeAge: numberValue(els.lifeAge),
-    currentInvestable: numberValue(els.currentInvestable),
-    monthlyInvest: numberValue(els.monthlyInvest),
-    monthlySpend: numberValue(els.monthlySpend),
-    inflationRate: numberValue(els.inflationRate),
-    postReturnRate: numberValue(els.postReturnRate)
+function readRetirementInputs() {
+  return {
+    currentAge: parseNumericValue(els.currentAge?.value),
+    retireAge: parseNumericValue(els.retireAge?.value),
+    lifeAge: parseNumericValue(els.lifeAge?.value),
+    currentInvestable: parseNumericValue(els.currentInvestable?.value),
+    monthlyInvest: parseNumericValue(els.monthlyInvest?.value),
+    monthlySpend: parseNumericValue(els.monthlySpend?.value),
+    inflationRate: parseNumericValue(els.inflationRate?.value),
+    postReturnRate: parseNumericValue(els.postReturnRate?.value)
   };
+}
+
+function validateRetirementInput(input) {
+  const fields = [
+    "currentAge",
+    "retireAge",
+    "lifeAge",
+    "currentInvestable",
+    "monthlyInvest",
+    "monthlySpend",
+    "inflationRate",
+    "postReturnRate"
+  ];
+  if (fields.some((field) => !Number.isFinite(Number(input?.[field])))) {
+    return "은퇴 가정을 모두 숫자로 입력하세요.";
+  }
+
+  const currentAge = Number(input.currentAge);
+  const retireAge = Number(input.retireAge);
+  const lifeAge = Number(input.lifeAge);
+  if (!Number.isInteger(currentAge) || currentAge < 0 || currentAge > 100) {
+    return "현재 나이는 0~100세의 정수로 입력하세요.";
+  }
+  if (!Number.isInteger(retireAge) || retireAge < 1 || retireAge > 100) {
+    return "은퇴 나이는 1~100세의 정수로 입력하세요.";
+  }
+  if (!Number.isInteger(lifeAge) || lifeAge < 1 || lifeAge > 120) {
+    return "예상 수명은 1~120세의 정수로 입력하세요.";
+  }
+  if (retireAge < currentAge) return "은퇴 나이는 현재 나이보다 빠를 수 없습니다.";
+  if (lifeAge <= retireAge) return "예상 수명은 은퇴 나이보다 커야 합니다.";
+  if (Number(input.currentInvestable) < 0) return "현재 투자 가능 자산은 0원 이상이어야 합니다.";
+  if (Number(input.monthlyInvest) < 0) return "매월 추가 투자금은 0원 이상이어야 합니다.";
+  if (!(Number(input.monthlySpend) > 0)) return "은퇴 후 월 지출은 0원보다 커야 합니다.";
+  if (Number(input.inflationRate) < 0 || Number(input.inflationRate) > 20) {
+    return "물가상승률은 0~20% 범위로 입력하세요.";
+  }
+  if (Number(input.postReturnRate) < 0 || Number(input.postReturnRate) > 30) {
+    return "은퇴 후 연수익률은 0~30% 범위로 입력하세요.";
+  }
+  return "";
+}
+
+function setRetirementValidation(message) {
+  if (!els.retirementValidation) return;
+  const hasError = Boolean(message);
+  els.retirementValidation.textContent = message || "나이는 정수, 금액은 0원 이상, 물가상승률은 0~20%, 연수익률은 0~30%로 입력하세요.";
+  els.retirementValidation.classList.toggle("warning", hasError);
+  els.retirementForm?.setAttribute("aria-invalid", hasError ? "true" : "false");
+}
+
+function renderRetirementInputError(message) {
+  setRetirementValidation(message);
+  els.requiredNestEgg.textContent = "계산 불가";
+  els.requiredSpendInfo.textContent = message;
+  els.returnNoContrib.textContent = "계산 불가";
+  els.returnWithContrib.textContent = "계산 불가";
+  els.targetStatus.textContent = "입력 확인";
+  els.targetStatus.className = "warning";
+  els.targetStatusDetail.textContent = message;
+  els.retireGap.textContent = "₩0";
+  els.retireGapLabel.textContent = "계산 대기";
+  renderRetirementProgress({ error: message });
+  if (els.retirementSensitivity) els.retirementSensitivity.textContent = "";
+}
+
+function saveRetirementInputs() {
+  const nextRetirement = readRetirementInputs();
+  const error = validateRetirementInput(nextRetirement);
+  if (error) {
+    renderRetirementInputError(error);
+    return false;
+  }
+  state.retirement = nextRetirement;
+  setRetirementValidation("");
+  return true;
 }
 
 function hydrateRetirementInputs() {
@@ -1336,10 +1885,12 @@ const VIEW_RENDERERS = {
   },
   PORTFOLIO: () => {
     renderBreakdown();
+    renderPortfolioBreakdownToggle();
   },
   GOALS: () => {
     renderHistory();
     renderRetirement();
+    renderGoalMobilePanels();
   },
   SETTINGS: () => {
     renderSettingsSummary();
@@ -1368,10 +1919,11 @@ function render(syncCloud = true) {
   markAllViewsDirty();
   renderView(uiState.activeView);
   setActiveView(uiState.activeView, { scroll: false });
-  persist();
-  if (syncCloud && cloud.docRef) {
+  const persisted = persist();
+  if (persisted && syncCloud && cloud.docRef) {
     scheduleCloudPush();
   }
+  return persisted;
 }
 
 function renderSummary() {
@@ -1421,7 +1973,7 @@ function drawHeroSparkline() {
   if (!ctx) return;
   const cs = getComputedStyle(document.documentElement);
   const cssVar = (name, fallback) => cs.getPropertyValue(name).trim() || fallback;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (typeof ctx.setTransform === "function") ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssWidth, cssHeight);
 
   const padX = 6;
@@ -1680,13 +2232,16 @@ function setActiveView(view, options = {}) {
   els.appSections.forEach((section) => {
     const selected = section.dataset.appSection === nextView;
     section.hidden = !selected;
-    if (selected && !activeSection) activeSection = section;
+    if (selected && !activeSection && section.querySelector("h1, h2, h3")) activeSection = section;
   });
   els.appNavButtons.forEach((button) => {
     const selected = button.dataset.navView === nextView;
     button.classList.toggle("active", selected);
     if (selected) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
+  });
+  els.appNavItems.forEach((button) => {
+    button.tabIndex = button.dataset.navView === nextView ? 0 : -1;
   });
   if (options.updateHash) {
     const target = viewHash(nextView);
@@ -1706,6 +2261,52 @@ function setActiveView(view, options = {}) {
   if (nextView === "DASHBOARD") {
     requestAnimationFrame(() => drawHeroSparkline());
   }
+  if (nextView === "GOALS") {
+    requestAnimationFrame(() => drawChart(filteredHistorySnapshots()));
+  }
+}
+
+function rovingTargetIndex(event, items) {
+  const currentIndex = Math.max(0, items.indexOf(event.currentTarget));
+  if (event.key === "Home") return 0;
+  if (event.key === "End") return items.length - 1;
+  if (event.key === "ArrowRight") return (currentIndex + 1) % items.length;
+  if (event.key === "ArrowLeft") return (currentIndex - 1 + items.length) % items.length;
+  return -1;
+}
+
+function handleAppNavKeydown(event) {
+  const targetIndex = rovingTargetIndex(event, els.appNavItems);
+  if (targetIndex < 0) return;
+  event.preventDefault();
+  const target = els.appNavItems[targetIndex];
+  setActiveView(target.dataset.navView, { scroll: true, updateHash: true });
+  target.focus();
+}
+
+function renderGoalMobilePanels() {
+  const active = uiState.goalMobilePanel === "RETIREMENT" ? "RETIREMENT" : "HISTORY";
+  const historyWasHidden = els.historyPanel?.classList.contains("goal-panel-mobile-hidden");
+  uiState.goalMobilePanel = active;
+  els.goalMobileButtons.forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.goalMobilePanel === active));
+  });
+  els.historyPanel?.classList.toggle("goal-panel-mobile-hidden", active !== "HISTORY");
+  els.retirementPanel?.classList.toggle("goal-panel-mobile-hidden", active !== "RETIREMENT");
+  if (active === "HISTORY" && historyWasHidden) {
+    requestAnimationFrame(() => drawChart(filteredHistorySnapshots()));
+  }
+}
+
+function renderPortfolioBreakdownToggle() {
+  if (!els.categoryBreakdown || !els.portfolioBreakdownToggle) return;
+  const hasAdditionalSections = els.categoryBreakdown.querySelectorAll(".breakdown-section").length > 1;
+  els.portfolioBreakdownToggle.hidden = !hasAdditionalSections;
+  els.categoryBreakdown.classList.toggle("mobile-collapsed", !uiState.portfolioBreakdownExpanded);
+  els.portfolioBreakdownToggle.setAttribute("aria-expanded", String(uiState.portfolioBreakdownExpanded));
+  els.portfolioBreakdownToggle.textContent = uiState.portfolioBreakdownExpanded
+    ? "첫 분석만 보기"
+    : "나머지 분석 펼치기";
 }
 
 function renderAssets() {
@@ -1738,12 +2339,12 @@ function renderAssets() {
     const gainRate = gain === null ? null : gain / assetCost(asset);
     const valueDetail = assetValueDetail(asset);
     const buyButton = canBuyAsset(asset)
-      ? `<button class="text-icon-button buy-action" type="button" title="추가매수" aria-label="${escapeHtml(asset.name)} 추가매수" data-action="buy" data-id="${asset.id}">추가매수</button>`
+      ? `<button class="text-icon-button buy-action" type="button" title="추가매수" aria-label="${escapeHtml(asset.name)} 추가매수" data-action="buy" data-id="${escapeHtml(asset.id)}">추가매수</button>`
       : "";
     const sellButton = canSellAsset(asset)
-      ? `<button class="text-icon-button" type="button" title="매도 기록" aria-label="${escapeHtml(asset.name)} 매도 기록" data-action="sell" data-id="${asset.id}">매도</button>`
+      ? `<button class="text-icon-button" type="button" title="매도 기록" aria-label="${escapeHtml(asset.name)} 매도 기록" data-action="sell" data-id="${escapeHtml(asset.id)}">매도</button>`
       : "";
-    const journalButton = `<button class="table-action quiet-action" type="button" title="일지 작성" aria-label="${escapeHtml(asset.name)} 일지 작성" data-action="journal" data-id="${asset.id}">일지</button>`;
+    const journalButton = `<button class="table-action quiet-action" type="button" title="일지 작성" aria-label="${escapeHtml(asset.name)} 일지 작성" data-action="journal" data-id="${escapeHtml(asset.id)}">일지</button>`;
     const row = document.createElement("tr");
     row.dataset.id = asset.id;
     const gainArrow = gain > 0 ? "▲ " : gain < 0 ? "▼ " : "";
@@ -1765,7 +2366,7 @@ function renderAssets() {
           ${buyButton}
           ${sellButton}
           ${journalButton}
-          <button class="table-action quiet-action" type="button" title="상세 · 수정 · 삭제" aria-label="${escapeHtml(asset.name)} 상세" data-action="detail" data-id="${asset.id}">상세</button>
+          <button class="table-action quiet-action" type="button" title="상세 · 수정 · 삭제" aria-label="${escapeHtml(asset.name)} 상세" data-action="detail" data-id="${escapeHtml(asset.id)}">상세</button>
         </div>
       </td>
     `;
@@ -1807,7 +2408,7 @@ function renderAssetCard(asset, gain, gainRate, valueDetail, buyButton, sellButt
     <div class="asset-card-actions">
       ${isMarketType(type) ? `${buyButton}${sellButton}` : ""}
       ${journalButton}
-      <button class="table-action quiet-action" type="button" data-action="detail" data-id="${asset.id}">상세</button>
+      <button class="table-action quiet-action" type="button" data-action="detail" data-id="${escapeHtml(asset.id)}">상세</button>
     </div>
   `;
   els.assetCards.append(card);
@@ -1900,17 +2501,96 @@ function marketAssetsMissingPrices() {
     .map((asset) => `${assetType(asset)}:${normalizeTicker(assetType(asset), asset.ticker)}`);
 }
 
+function heldMarketPriceFreshness() {
+  const stale = [];
+  const undated = [];
+  state.assets
+    .map(normalizeAsset)
+    .filter((asset) => isMarketType(assetType(asset)) && Number(asset.quantity || 0) > 0)
+    .forEach((asset) => {
+      const price = priceForAsset(asset);
+      if (!price) return;
+      const age = daysSince(price.date);
+      if (!Number.isFinite(age)) {
+        undated.push(asset);
+      } else if (age > PRICE_STALE_DAYS) {
+        stale.push({ age, asset });
+      }
+    });
+  return { stale, undated };
+}
+
+function latestMarketPriceDate() {
+  const timestamps = ["KRX", "US"]
+    .flatMap((type) => Object.values(priceBook.prices[type] || {}))
+    .map((price) => toDate(price?.date)?.getTime())
+    .filter(Number.isFinite);
+  return timestamps.length ? new Date(Math.max(...timestamps)).toISOString() : null;
+}
+
+function snapshotReadiness() {
+  if (!state.assets.length) {
+    return { ok: false, message: "조회 기록을 저장하려면 자산을 먼저 등록하세요.", warnings: [] };
+  }
+  if (!priceBook.loaded) {
+    return {
+      ok: false,
+      message: "가격표를 아직 불러오지 못했습니다. 설정에서 최신 가격을 확인한 뒤 다시 저장하세요.",
+      warnings: []
+    };
+  }
+
+  const heldMarketAssets = state.assets.filter((asset) =>
+    isMarketType(assetType(asset)) && Number(asset.quantity || 0) > 0
+  );
+  const missing = heldMarketAssets.filter((asset) => marketPriceMissing(asset));
+  const hasUsAssets = heldMarketAssets.some((asset) => assetType(asset) === "US");
+  const issues = [];
+
+  if (missing.length) {
+    const labels = missing.map((asset) => {
+      const type = assetType(asset);
+      return `${asset.name || normalizeTicker(type, asset.ticker)} (${type}:${normalizeTicker(type, asset.ticker)})`;
+    });
+    issues.push(`가격이 없는 보유 자산: ${labels.join(", ")}`);
+  }
+  if (hasUsAssets && !(usdKrwRate() > 0)) {
+    issues.push("미국 자산 평가에 필요한 USD/KRW 환율이 없습니다.");
+  }
+  if (issues.length) {
+    return {
+      ok: false,
+      message: `${issues.join(" ")} 정확한 총자산을 계산할 수 없어 조회 기록을 저장하지 않았습니다.`,
+      warnings: []
+    };
+  }
+
+  const warnings = [];
+  const freshness = heldMarketPriceFreshness();
+  if (freshness.stale.length) {
+    const oldestDays = Math.max(...freshness.stale.map((item) => item.age));
+    warnings.push(`보유 종목 종가 ${freshness.stale.length}개가 최대 ${Math.floor(oldestDays)}일 전 기준입니다.`);
+  }
+  if (freshness.undated.length) {
+    warnings.push(`보유 종목 종가 ${freshness.undated.length}개의 기준일을 확인할 수 없습니다.`);
+  }
+  const fxDays = daysSince(priceBook.fx?.USDKRW?.date);
+  if (hasUsAssets && Number.isFinite(fxDays) && fxDays > PRICE_STALE_DAYS) {
+    warnings.push(`환율이 ${Math.floor(fxDays)}일 전 기준입니다.`);
+  }
+  return { ok: true, message: "", warnings };
+}
+
 function renderPriceNotice() {
   if (!els.priceAlert) return;
 
   const missing = [...new Set(marketAssetsMissingPrices())].filter((item) => !item.endsWith(":"));
   const errors = Array.isArray(priceBook.errors) ? priceBook.errors : [];
-  const staleDays = daysSince(priceBook.generatedAt);
-  const isStale = Number.isFinite(staleDays) && staleDays > PRICE_STALE_DAYS;
+  const freshness = heldMarketPriceFreshness();
   const fxDays = daysSince(priceBook.fx?.USDKRW?.date);
   const isFxStale = Number.isFinite(fxDays) && fxDays > PRICE_STALE_DAYS;
 
-  if (!missing.length && !errors.length && !isStale && !isFxStale) {
+  if (!missing.length && !errors.length && !freshness.stale.length && !freshness.undated.length && !isFxStale) {
     els.priceAlert.hidden = true;
     els.priceAlert.textContent = "";
     renderOpsStatus();
@@ -1918,13 +2598,19 @@ function renderPriceNotice() {
   }
 
   const parts = [];
-  if (isStale) parts.push(`가격표가 ${Math.floor(staleDays)}일 전 기준입니다. GitHub Actions 가격표 생성 상태를 확인하세요.`);
+  if (freshness.stale.length) {
+    const oldestDays = Math.max(...freshness.stale.map((item) => item.age));
+    parts.push(`보유 종목 종가 ${freshness.stale.length}개가 최대 ${Math.floor(oldestDays)}일 전 기준입니다.`);
+  }
+  if (freshness.undated.length) {
+    parts.push(`보유 종목 종가 ${freshness.undated.length}개의 기준일을 확인할 수 없습니다.`);
+  }
   if (isFxStale) parts.push(`환율이 ${Math.floor(fxDays)}일 전 기준입니다.`);
   if (missing.length) {
     const krxMissing = missing.filter((item) => item.startsWith("KRX:"));
     const usMissing = missing.filter((item) => item.startsWith("US:"));
     if (krxMissing.length) parts.push(`KRX 가격 대기: ${krxMissing.join(", ")}. 다음 가격표 업데이트 후 다시 확인하세요.`);
-    if (usMissing.length) parts.push(`US 가격 대기: ${usMissing.join(", ")}. 로그인 후 저장/Sync하면 요청 목록에 올라가고 다음 가격표 생성 후 반영됩니다.`);
+    if (usMissing.length) parts.push(`US 가격 대기: ${usMissing.join(", ")}. 운영자가 tickers.json에 추가한 뒤 가격표를 다시 생성해야 합니다.`);
   }
   if (errors.length) {
     const errorText = errors
@@ -1947,15 +2633,18 @@ function renderOpsStatus() {
   }
   const errorCount = Array.isArray(priceBook.errors) ? priceBook.errors.length : 0;
   const fx = priceBook.fx?.USDKRW;
-  const staleDays = daysSince(priceBook.generatedAt);
+  const latestPriceDate = latestMarketPriceDate();
+  const staleDays = daysSince(latestPriceDate);
   const fxDays = daysSince(fx?.date);
   const hasIssues = errorCount > 0
     || !priceBook.generatedAt
+    || !latestPriceDate
     || (Number.isFinite(staleDays) && staleDays > PRICE_STALE_DAYS)
     || !fx?.rate
     || (Number.isFinite(fxDays) && fxDays > PRICE_STALE_DAYS);
   const items = [
     `가격표 ${priceBook.generatedAt ? shortDateTime(priceBook.generatedAt) : "생성일 없음"}`,
+    `최근 종가 ${latestPriceDate ? shortDate(latestPriceDate) : "기준일 없음"}`,
     `오류 ${errorCount}건`,
     fx?.rate ? `환율 ${formatPlainNumber(fx.rate)}원${fx.date ? ` · ${shortDate(fx.date)}` : ""}` : "환율 없음"
   ];
@@ -2109,15 +2798,43 @@ function hydratePortfolioTargetInputs() {
   if (els.targetOverseas) els.targetOverseas.value = targets.overseas ?? 30;
   if (els.targetCash) els.targetCash.value = targets.cash ?? 10;
   if (els.targetManual) els.targetManual.value = targets.manual ?? 10;
+  setTargetValidation("");
+}
+
+function setTargetValidation(message) {
+  if (!els.targetValidation) return;
+  const hasError = Boolean(message);
+  els.targetValidation.textContent = message || "각 비중은 0~100%, 네 항목 합계는 100%로 입력하세요.";
+  els.targetValidation.classList.toggle("warning", hasError);
+  [els.targetDomestic, els.targetOverseas, els.targetCash, els.targetManual].forEach((input) => {
+    input?.setAttribute("aria-invalid", hasError ? "true" : "false");
+  });
 }
 
 function savePortfolioTargets() {
-  state.portfolioTargets = {
-    domestic: parseAmount(els.targetDomestic?.value || 0),
-    overseas: parseAmount(els.targetOverseas?.value || 0),
-    cash: parseAmount(els.targetCash?.value || 0),
-    manual: parseAmount(els.targetManual?.value || 0)
+  const nextTargets = {
+    domestic: parseNumericValue(els.targetDomestic?.value),
+    overseas: parseNumericValue(els.targetOverseas?.value),
+    cash: parseNumericValue(els.targetCash?.value),
+    manual: parseNumericValue(els.targetManual?.value)
   };
+  const values = Object.values(nextTargets);
+  if (values.some((value) => !Number.isFinite(value))) {
+    setTargetValidation("목표 비중을 모두 숫자로 입력하세요.");
+    return false;
+  }
+  if (values.some((value) => value < 0 || value > 100)) {
+    setTargetValidation("목표 비중은 각각 0% 이상 100% 이하로 입력하세요.");
+    return false;
+  }
+  const total = values.reduce((sum, value) => sum + value, 0);
+  if (Math.abs(total - 100) > 0.01) {
+    setTargetValidation(`현재 합계는 ${Number(total.toFixed(2))}%입니다. 합계를 100%로 맞춰주세요.`);
+    return false;
+  }
+  state.portfolioTargets = nextTargets;
+  setTargetValidation("");
+  return true;
 }
 
 function renderRebalanceSummary() {
@@ -2170,6 +2887,7 @@ function renderInvestmentRecordTabs() {
     const selected = tab === active;
     button?.classList.toggle("active", selected);
     button?.setAttribute("aria-selected", String(selected));
+    if (button) button.tabIndex = selected ? 0 : -1;
     if (panel) panel.hidden = !selected;
   });
 
@@ -2187,6 +2905,16 @@ function setInvestmentRecordTab(tab, { scroll = false } = {}) {
   }
 }
 
+function handleInvestmentTabKeydown(event) {
+  const items = [els.investmentJournalTab, els.investmentRealizedTab].filter(Boolean);
+  const targetIndex = rovingTargetIndex(event, items);
+  if (targetIndex < 0) return;
+  event.preventDefault();
+  const target = items[targetIndex];
+  setInvestmentRecordTab(target.dataset.investmentTab);
+  target.focus();
+}
+
 function realizedTradeForJournal(entry) {
   const realizedTradeId = String(entry?.realizedTradeId || "");
   if (!realizedTradeId) return null;
@@ -2202,7 +2930,8 @@ function journalForRealizedTrade(trade) {
 function realizedGainBadge(trade) {
   if (!trade) return "";
   const tone = trade.realizedGain > 0 ? "positive" : trade.realizedGain < 0 ? "negative" : "";
-  return `<span class="journal-badge gain-badge ${tone}">실현손익 ${trade.realizedGain > 0 ? "+" : ""}${money(trade.realizedGain)}</span>`;
+  const label = trade.type === "US" ? "실현손익(환차손익 제외)" : "실현손익";
+  return `<span class="journal-badge gain-badge ${tone}">${label} ${trade.realizedGain > 0 ? "+" : ""}${money(trade.realizedGain)}</span>`;
 }
 
 function renderJournal() {
@@ -2266,10 +2995,10 @@ function renderJournal() {
         ${entry.tags ? `<div class="journal-tags">${entry.tags.split(",").map((tag) => `<span>${escapeHtml(tag.trim())}</span>`).join("")}</div>` : ""}
       </div>
       <div class="journal-actions">
-        <button class="table-action quiet-action" type="button" data-journal-action="copy-ai" data-id="${entry.id}">AI 질문 복사</button>
-        ${linkedTrade ? `<button class="table-action quiet-action" type="button" data-journal-action="view-realized" data-id="${entry.id}">손익 보기</button>` : ""}
-        <button class="table-action quiet-action" type="button" data-journal-action="edit" data-id="${entry.id}">수정</button>
-        <button class="table-action quiet-action" type="button" data-journal-action="delete" data-id="${entry.id}">삭제</button>
+        <button class="table-action quiet-action" type="button" data-journal-action="copy-ai" data-id="${escapeHtml(entry.id)}">AI 질문 복사</button>
+        ${linkedTrade ? `<button class="table-action quiet-action" type="button" data-journal-action="view-realized" data-id="${escapeHtml(entry.id)}">손익 보기</button>` : ""}
+        <button class="table-action quiet-action" type="button" data-journal-action="edit" data-id="${escapeHtml(entry.id)}">수정</button>
+        <button class="table-action quiet-action" type="button" data-journal-action="delete" data-id="${escapeHtml(entry.id)}">삭제</button>
       </div>
     `;
     els.journalList.append(card);
@@ -2557,6 +3286,16 @@ function renderRealizedChart(year) {
 
   const max = Math.max(1, ...monthly.map((value) => Math.abs(value)));
   const hasData = monthly.some((value) => value !== 0);
+  const accessibleSummary = monthly
+    .map((value, index) => value === 0 ? "" : `${index + 1}월 ${money(value)}`)
+    .filter(Boolean)
+    .join(", ");
+  els.realizedChart.setAttribute(
+    "aria-label",
+    hasData
+      ? `${year}년 월별 실현손익 차트. ${accessibleSummary}`
+      : `${year}년 월별 실현손익 차트. 기록 없음`
+  );
   els.realizedChart.innerHTML = `
     <div class="realized-chart-title">
       <strong>${escapeHtml(year)}년 월별 실현손익</strong>
@@ -2590,9 +3329,13 @@ function renderRealizedRows(trades) {
     const tone = trade.realizedGain > 0 ? "positive" : trade.realizedGain < 0 ? "negative" : "";
     const price = trade.type === "US" ? usd(trade.sellPrice) : formatPlainNumber(trade.sellPrice);
     const journalAction = linkedJournal
-      ? `<button class="table-action quiet-action" type="button" data-realized-action="view-journal" data-id="${trade.id}">일지 보기</button>`
-      : `<button class="table-action quiet-action" type="button" data-realized-action="create-journal" data-id="${trade.id}">일지 작성</button>`;
+      ? `<button class="table-action quiet-action" type="button" data-realized-action="view-journal" data-id="${escapeHtml(trade.id)}">일지 보기</button>`
+      : `<button class="table-action quiet-action" type="button" data-realized-action="create-journal" data-id="${escapeHtml(trade.id)}">일지 작성</button>`;
     const realizedArrow = trade.realizedGain > 0 ? "▲ " : trade.realizedGain < 0 ? "▼ " : "";
+    const gainDetail = [
+      trade.type === "US" ? "환차손익 제외" : "",
+      rate === null ? "" : `${rate > 0 ? "+" : ""}${percent(rate)}`
+    ].filter(Boolean).join(" · ");
     const row = document.createElement("tr");
     row.innerHTML = `
       <td>
@@ -2605,7 +3348,7 @@ function renderRealizedRows(trades) {
       </td>
       <td class="number">${formatPlainNumber(trade.quantity)}<small class="sub-value">${price}${trade.type === "US" ? ` · 환율 ${formatPlainNumber(trade.fxRate)}` : ""}</small></td>
       <td class="number">${money(trade.grossAmount)}</td>
-      <td class="number ${tone}">${realizedArrow}${trade.realizedGain > 0 ? "+" : ""}${money(trade.realizedGain)}${rate === null ? "" : `<small class="sub-value">${rate > 0 ? "+" : ""}${percent(rate)}</small>`}</td>
+      <td class="number ${tone}">${realizedArrow}${trade.realizedGain > 0 ? "+" : ""}${money(trade.realizedGain)}${gainDetail ? `<small class="sub-value">${gainDetail}</small>` : ""}</td>
       <td><div class="row-actions">${journalAction}</div></td>
     `;
     els.realizedRows.append(row);
@@ -2734,16 +3477,29 @@ function chartPalette() {
 
 function drawChart(snapshots = state.snapshots) {
   const canvas = els.historyChart;
+  const panel = canvas.closest(".history-panel");
+  if (panel && getComputedStyle(panel).display === "none") return false;
+  const bounds = canvas.getBoundingClientRect();
+  const width = Math.round(canvas.clientWidth || bounds.width);
+  const height = Math.round(canvas.clientHeight || bounds.height);
+  if (!(width > 0) || !(height > 0)) return false;
   const ctx = canvas.getContext("2d");
-  const width = canvas.width;
-  const height = canvas.height;
+  const dpr = Math.max(1, Math.min(2, Number(window.devicePixelRatio) || 1));
+  const pixelWidth = Math.round(width * dpr);
+  const pixelHeight = Math.round(height * dpr);
+  if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+  }
+  if (typeof ctx.setTransform === "function") ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
   const palette = chartPalette();
-  const topPad = 50;
-  const leftPad = 58;
-  const rightPad = 44;
-  const bottomPad = 66;
+  const compact = width < 520;
+  const topPad = compact ? 38 : 50;
+  const leftPad = compact ? 46 : 58;
+  const rightPad = compact ? 18 : 44;
+  const bottomPad = compact ? 50 : 66;
   const plotBottom = height - bottomPad;
   const plotWidth = width - leftPad - rightPad;
   const plotHeight = height - topPad - bottomPad;
@@ -2777,7 +3533,10 @@ function drawChart(snapshots = state.snapshots) {
     ctx.textAlign = "center";
     ctx.fillText("조회 기록을 저장하면 차트가 표시됩니다.", width / 2, height / 2);
     ctx.textAlign = "left";
-    return;
+    if (els.historyChartDescription) {
+      els.historyChartDescription.textContent = "선택 기간에 저장된 조회 기록이 없습니다.";
+    }
+    return true;
   }
 
   const xFor = (index) => {
@@ -2840,6 +3599,7 @@ function drawChart(snapshots = state.snapshots) {
   if (els.historyChartDescription) {
     els.historyChartDescription.textContent = `선택 기간 첫 기록 ${money(first)}, 최근 기록 ${money(latest)}, 변화 ${change > 0 ? "+" : ""}${money(change)}입니다.`;
   }
+  return true;
 }
 
 function drawXAxisLabels(ctx, snapshots, xFor, left, right, plotBottom, height, palette = chartPalette()) {
@@ -2906,6 +3666,7 @@ function drawChartBadge(ctx, x, y, label, value, color, width, height, palette =
 
 function renderRetirement() {
   const result = calculateRetirement(state.retirement);
+  setRetirementValidation(result.error || "");
 
   els.requiredNestEgg.textContent = result.error ? "계산 불가" : money(result.nestEgg);
   els.requiredSpendInfo.textContent = result.error
@@ -2948,6 +3709,9 @@ function renderRetirementProgress(result) {
 }
 
 function calculateRetirement(input) {
+  const validationError = validateRetirementInput(input);
+  if (validationError) return { error: validationError };
+
   const currentAge = Number(input.currentAge);
   const retireAge = Number(input.retireAge);
   const lifeAge = Number(input.lifeAge);
@@ -2958,10 +3722,6 @@ function calculateRetirement(input) {
   const postReturn = Number(input.postReturnRate) / 100;
   const yearsToRetire = retireAge - currentAge;
   const retirementYears = lifeAge - retireAge;
-
-  if (yearsToRetire < 0) return { error: "은퇴 나이는 현재 나이보다 커야 합니다." };
-  if (retirementYears <= 0) return { error: "예상 수명은 은퇴 나이보다 커야 합니다." };
-  if (monthlySpend <= 0) return { error: "은퇴 후 월 지출을 입력하세요." };
 
   const firstAnnualSpend = monthlySpend * 12 * Math.pow(1 + inflation, yearsToRetire);
   const nestEgg = presentValueGrowingAnnuity(firstAnnualSpend, postReturn, inflation, retirementYears);
@@ -3148,6 +3908,7 @@ function showAssetForm(mode = "create") {
     els.toggleAssetFormBtn.textContent = "접기";
     els.toggleAssetFormBtn.setAttribute("aria-expanded", "true");
   }
+  loadSymbolsForAssetForm();
 }
 
 function hideAssetForm() {
@@ -3234,12 +3995,13 @@ function renderSellPreview() {
   }
   const gain = preview.trade.realizedGain;
   const rate = preview.trade.realizedGainRate;
+  const gainLabel = assetType(preview.asset) === "US" ? "실현손익(환차손익 제외)" : "실현손익";
   els.sellPreview.className = `sell-preview ${gain > 0 ? "positive" : gain < 0 ? "negative" : ""}`;
   els.sellPreview.textContent = [
     `매도금액 ${money(preview.trade.grossAmount)}`,
     `원가 ${money(preview.trade.costAmount)}`,
     `비용 ${money(preview.trade.fees + preview.trade.tax)}`,
-    `실현손익 ${gain > 0 ? "+" : ""}${money(gain)}${rate === null ? "" : ` (${rate > 0 ? "+" : ""}${percent(rate)})`}`
+    `${gainLabel} ${gain > 0 ? "+" : ""}${money(gain)}${rate === null ? "" : ` (${rate > 0 ? "+" : ""}${percent(rate)})`}`
   ].join(" · ");
 }
 
@@ -3275,11 +4037,15 @@ function parseSellForm(strict = true) {
   const fees = Math.max(0, parseAmount(els.sellFees?.value || 0));
   const tax = Math.max(0, parseAmount(els.sellTax?.value || 0));
   const soldAt = els.sellDate?.value || localDateInputValue();
+  const memo = els.sellMemo?.value.trim() || "";
 
   if (quantity <= 0) return { ok: false, message: strict ? "매도 수량은 0보다 커야 합니다." : "" };
   if (quantity > holdingQuantity + 0.0000001) return { ok: false, message: `보유 수량 ${formatPlainNumber(holdingQuantity)}주보다 많이 매도할 수 없습니다.` };
   if (sellPrice <= 0) return { ok: false, message: strict ? "매도가를 입력하세요." : "" };
   if (type === "US" && fxRate <= 0) return { ok: false, message: strict ? "달러 환율을 입력하세요." : "" };
+  if (memo.length > IMPORT_STRING_LIMITS.note) {
+    return { ok: false, message: strict ? "매도 메모는 10,000자 이하로 입력하세요." : "" };
+  }
 
   const effectiveFx = type === "US" ? fxRate : 1;
   const costAmount = quantity * Number(asset.averagePrice || 0) * effectiveFx;
@@ -3302,7 +4068,7 @@ function parseSellForm(strict = true) {
     fees,
     tax,
     realizedGain,
-    memo: els.sellMemo?.value.trim() || "",
+    memo,
     createdAt: new Date().toISOString()
   });
 
@@ -3325,10 +4091,14 @@ function parseBuyForm(strict = true) {
   const fxRate = type === "US" ? parseAmount(els.buyFxRate?.value || 0) : 1;
   const fees = Math.max(0, parseAmount(els.buyFees?.value || 0));
   const boughtAt = els.buyDate?.value || localDateInputValue();
+  const memo = els.buyMemo?.value.trim() || "";
 
   if (quantity <= 0) return { ok: false, message: strict ? "추가매수 수량은 0보다 커야 합니다." : "" };
   if (buyPrice <= 0) return { ok: false, message: strict ? "매수가를 입력하세요." : "" };
   if (type === "US" && fxRate <= 0) return { ok: false, message: strict ? "달러 환율을 입력하세요." : "" };
+  if (memo.length > IMPORT_STRING_LIMITS.note) {
+    return { ok: false, message: strict ? "추가매수 메모는 10,000자 이하로 입력하세요." : "" };
+  }
 
   const effectiveFx = type === "US" ? fxRate : 1;
   const previousQuantity = Number(asset.quantity || 0);
@@ -3353,7 +4123,7 @@ function parseBuyForm(strict = true) {
     previousAveragePrice,
     nextQuantity,
     nextAveragePrice,
-    memo: els.buyMemo?.value.trim() || ""
+    memo
   };
 }
 
@@ -3366,10 +4136,19 @@ function updateAssetFormForType() {
   const manualValued = isManualValuedType(type);
   const marketValued = isMarketType(type);
   els.assetAmount.disabled = !manualValued;
+  els.assetAmount.required = manualValued;
   els.assetAmount.placeholder = "금액 입력";
   if (els.assetAmountField) els.assetAmountField.hidden = !manualValued;
   if (els.manualSubtypeField) els.manualSubtypeField.hidden = type !== "MANUAL";
   if (!manualValued) els.assetAmount.value = "";
+  els.assetQuantity.disabled = !marketValued;
+  els.assetQuantity.required = marketValued;
+  els.assetAveragePrice.disabled = !marketValued;
+  els.assetAveragePrice.required = marketValued;
+  if (!marketValued) {
+    els.assetQuantity.value = "";
+    els.assetAveragePrice.value = "";
+  }
   if (type !== "MANUAL" && els.assetManualSubtype) els.assetManualSubtype.value = "AUTO";
   els.assetTicker.disabled = !marketValued;
   els.assetTicker.placeholder = type === "KRX" ? "예: 005930, 0092B0" : type === "US" ? "예: AAPL, QQQ" : "티커 불필요";
@@ -3392,12 +4171,36 @@ function fillAssetNameFromTicker() {
   }
 }
 
-function parseAmount(value) {
+function parseNumericValue(value) {
   const raw = String(value || "").trim();
+  if (!raw) return Number.NaN;
   const negative = /^\(.*\)$/.test(raw);
   const normalized = raw.replace(/[₩$원,\s()]/g, "");
   const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed * (negative ? -1 : 1) : 0;
+  return Number.isFinite(parsed) ? parsed * (negative ? -1 : 1) : Number.NaN;
+}
+
+function parseAmount(value) {
+  const parsed = parseNumericValue(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function validateAssetInput(asset) {
+  const type = assetType(asset);
+  if (!asset.name) return "자산명을 입력하세요.";
+  if (String(asset.name).length > IMPORT_STRING_LIMITS.short) return "자산명은 500자 이하로 입력하세요.";
+  if (String(asset.account || "").length > IMPORT_STRING_LIMITS.short) return "계좌명은 500자 이하로 입력하세요.";
+  if (String(asset.note || "").length > IMPORT_STRING_LIMITS.note) return "자산 메모는 10,000자 이하로 입력하세요.";
+  if (isManualValuedType(type) && !(asset.amount > 0)) {
+    return "현금·수동 자산의 평가금액은 0보다 커야 합니다.";
+  }
+  if (isMarketType(type) && !(asset.quantity > 0)) {
+    return "시장가격 자산의 보유수량은 0보다 커야 합니다.";
+  }
+  if (isMarketType(type) && !(asset.averagePrice > 0)) {
+    return "시장가격 자산의 평단가는 0보다 커야 합니다.";
+  }
+  return "";
 }
 
 els.assetForm.addEventListener("submit", (event) => {
@@ -3419,10 +4222,14 @@ els.assetForm.addEventListener("submit", (event) => {
     updatedAt: new Date().toISOString()
   };
 
-  if (!asset.name) return;
   const tickerError = validateTicker(type, asset.ticker);
   if (tickerError) {
     alert(tickerError);
+    return;
+  }
+  const assetError = validateAssetInput(asset);
+  if (assetError) {
+    alert(assetError);
     return;
   }
 
@@ -3523,7 +4330,7 @@ function handleAssetAction(button) {
   if (!asset) return;
 
   if (button.dataset.action === "detail") {
-    openAssetDetail(asset.id);
+    openAssetDetail(asset.id, button);
   }
 
   if (button.dataset.action === "buy") {
@@ -3579,15 +4386,17 @@ function handleAssetAction(button) {
   }
 }
 
-function openAssetDetail(assetId) {
+function openAssetDetail(assetId, opener = document.activeElement) {
   const asset = state.assets.find((item) => item.id === assetId);
   if (!asset || !els.assetDetailDrawer || !els.assetDetailOverlay) return;
+  assetDetailOpener = opener && typeof opener.focus === "function" ? opener : null;
   const value = assetValue(asset);
   const gain = assetGain(asset);
   const cost = assetCost(asset);
   const gainRate = gain === null || !cost ? null : gain / cost;
   const tone = gain > 0 ? "positive" : gain < 0 ? "negative" : "";
   const arrow = gain > 0 ? "▲ " : gain < 0 ? "▼ " : "";
+  const gainLabel = assetType(asset) === "US" ? "평가손익(환차손익 제외)" : "평가손익";
   const gainText = gain === null
     ? "—"
     : `${arrow}${gain > 0 ? "+" : ""}${money(gain)}${gainRate ? ` (${gainRate > 0 ? "+" : ""}${percent(gainRate)})` : ""}`;
@@ -3597,7 +4406,7 @@ function openAssetDetail(assetId) {
   els.assetDetailDrawer.innerHTML = `
     <div class="detail-head">
       <div class="detail-id">
-        <strong>${escapeHtml(asset.name)}</strong>
+        <strong id="assetDetailTitle">${escapeHtml(asset.name)}</strong>
         <span class="asset-sub">
           ${asset.ticker ? `<span class="ticker">${escapeHtml(asset.ticker)}</span>` : ""}
           <span class="badge">${escapeHtml(assetTypeLabel(asset))}</span>
@@ -3610,7 +4419,7 @@ function openAssetDetail(assetId) {
       <div class="detail-value-card">
         <span class="detail-kicker">평가금액</span>
         <strong class="detail-value">${money(value)}</strong>
-        <span class="detail-gain ${tone}">${gainText}</span>
+        <span class="detail-gain ${tone}">${gainLabel} ${gainText}</span>
       </div>
       <div class="detail-grid">
         <div><span>보유수량</span><strong>${asset.quantity ? formatPlainNumber(asset.quantity) : "—"}</strong></div>
@@ -3624,20 +4433,55 @@ function openAssetDetail(assetId) {
       </div>
     </div>
     <div class="detail-actions">
-      ${canBuyAsset(asset) ? `<button class="primary-button compact-button" type="button" data-action="buy" data-id="${asset.id}">추가매수</button>` : ""}
-      ${canSellAsset(asset) ? `<button class="ghost-button" type="button" data-action="sell" data-id="${asset.id}">매도</button>` : ""}
-      <button class="ghost-button" type="button" data-action="journal" data-id="${asset.id}">일지</button>
-      <button class="ghost-button" type="button" data-action="edit" data-id="${asset.id}">수정</button>
-      <button class="ghost-button danger-action" type="button" data-action="delete" data-id="${asset.id}">삭제</button>
+      ${canBuyAsset(asset) ? `<button class="primary-button compact-button" type="button" data-action="buy" data-id="${escapeHtml(asset.id)}">추가매수</button>` : ""}
+      ${canSellAsset(asset) ? `<button class="ghost-button" type="button" data-action="sell" data-id="${escapeHtml(asset.id)}">매도</button>` : ""}
+      <button class="ghost-button" type="button" data-action="journal" data-id="${escapeHtml(asset.id)}">일지</button>
+      <button class="ghost-button" type="button" data-action="edit" data-id="${escapeHtml(asset.id)}">수정</button>
+      <button class="ghost-button danger-action" type="button" data-action="delete" data-id="${escapeHtml(asset.id)}">삭제</button>
     </div>
   `;
   els.assetDetailOverlay.hidden = false;
+  els.app?.setAttribute("inert", "");
   const closeBtn = els.assetDetailDrawer.querySelector("[data-detail-close]");
   if (closeBtn) closeBtn.focus();
 }
 
-function closeAssetDetail() {
-  if (els.assetDetailOverlay) els.assetDetailOverlay.hidden = true;
+function closeAssetDetail({ restoreFocus = true } = {}) {
+  if (!els.assetDetailOverlay || els.assetDetailOverlay.hidden) return;
+  els.assetDetailOverlay.hidden = true;
+  els.app?.removeAttribute("inert");
+  const opener = assetDetailOpener;
+  assetDetailOpener = null;
+  if (restoreFocus && opener?.isConnected) opener.focus({ preventScroll: true });
+}
+
+function assetDetailFocusableElements() {
+  if (!els.assetDetailDrawer) return [];
+  return [...els.assetDetailDrawer.querySelectorAll(
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )].filter((element) => !element.closest("[hidden]"));
+}
+
+function trapAssetDetailFocus(event) {
+  if (event.key !== "Tab" || !els.assetDetailOverlay || els.assetDetailOverlay.hidden) return;
+  const focusable = assetDetailFocusableElements();
+  if (!focusable.length) {
+    event.preventDefault();
+    els.assetDetailDrawer?.focus();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  } else if (!els.assetDetailDrawer.contains(document.activeElement)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  }
 }
 
 function handleAssetSurfaceClick(event) {
@@ -3664,7 +4508,17 @@ els.assetDetailOverlay?.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && els.assetDetailOverlay && !els.assetDetailOverlay.hidden) closeAssetDetail();
+  if (!els.assetDetailOverlay || els.assetDetailOverlay.hidden) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeAssetDetail();
+    return;
+  }
+  trapAssetDetailFocus(event);
+});
+
+els.appNavItems.forEach((button) => {
+  button.addEventListener("keydown", handleAppNavKeydown);
 });
 
 els.investmentJournalTab?.addEventListener("click", () => {
@@ -3673,6 +4527,22 @@ els.investmentJournalTab?.addEventListener("click", () => {
 
 els.investmentRealizedTab?.addEventListener("click", () => {
   setInvestmentRecordTab("REALIZED");
+});
+
+[els.investmentJournalTab, els.investmentRealizedTab].filter(Boolean).forEach((button) => {
+  button.addEventListener("keydown", handleInvestmentTabKeydown);
+});
+
+els.goalMobileButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    uiState.goalMobilePanel = button.dataset.goalMobilePanel === "RETIREMENT" ? "RETIREMENT" : "HISTORY";
+    renderGoalMobilePanels();
+  });
+});
+
+els.portfolioBreakdownToggle?.addEventListener("click", () => {
+  uiState.portfolioBreakdownExpanded = !uiState.portfolioBreakdownExpanded;
+  renderPortfolioBreakdownToggle();
 });
 
 els.toggleJournalFormBtn?.addEventListener("click", () => {
@@ -3697,6 +4567,14 @@ els.journalForm?.addEventListener("submit", (event) => {
   const entry = journalEntryFromForm();
   if (!entry.name) {
     alert("매매일지의 자산명을 입력하세요.");
+    return;
+  }
+  const longShortField = [entry.name, entry.ticker, entry.account, entry.tags]
+    .some((value) => String(value || "").length > IMPORT_STRING_LIMITS.short);
+  const longNoteField = [entry.reason, entry.risk, entry.review]
+    .some((value) => String(value || "").length > IMPORT_STRING_LIMITS.note);
+  if (longShortField || longNoteField) {
+    alert("매매일지의 기본 정보는 500자, 본문 메모는 10,000자 이하로 입력하세요.");
     return;
   }
   const index = state.tradeJournalEntries.findIndex((item) => item.id === entry.id);
@@ -3831,8 +4709,8 @@ els.cloudSyncBtn.addEventListener("click", async () => {
   if (!cloud.docRef) return;
   try {
     await flushCloudPush();
-    await pullCloudData();
-    setSyncStatus("동기화 완료", true);
+    const completed = await pullCloudData();
+    if (completed) setSyncStatus("동기화 완료", true);
   } catch (error) {
     console.error(error);
     setSyncStatus("동기화 실패");
@@ -3869,11 +4747,11 @@ els.assetName.addEventListener("input", () => {
   if (els.assetName.value.trim() !== uiState.autofilledAssetName) uiState.autofilledAssetName = "";
 });
 
-els.assetTicker.addEventListener("input", fillAssetNameFromTicker);
+els.assetTicker.addEventListener("input", loadSymbolsForAssetForm);
 
-els.assetTicker.addEventListener("blur", fillAssetNameFromTicker);
+els.assetTicker.addEventListener("blur", loadSymbolsForAssetForm);
 
-els.assetTicker.addEventListener("change", fillAssetNameFromTicker);
+els.assetTicker.addEventListener("change", loadSymbolsForAssetForm);
 
 els.assetSearch.addEventListener("input", () => {
   uiState.assetSearch = els.assetSearch.value;
@@ -3931,12 +4809,10 @@ els.dashboardSnapshotBtn?.addEventListener("click", () => {
 
 [els.targetDomestic, els.targetOverseas, els.targetCash, els.targetManual].forEach((input) => {
   input?.addEventListener("input", () => {
-    savePortfolioTargets();
-    render(false);
+    if (savePortfolioTargets()) render(false);
   });
   input?.addEventListener("change", () => {
-    savePortfolioTargets();
-    render();
+    if (savePortfolioTargets()) render();
   });
 });
 
@@ -3951,13 +4827,23 @@ els.realizedYearFilter?.addEventListener("change", () => {
 });
 
 els.snapshotBtn.addEventListener("click", () => {
+  const readiness = snapshotReadiness();
+  if (!readiness.ok) {
+    alert(readiness.message);
+    return;
+  }
+
   const now = new Date().toISOString();
-	  state.snapshots.push({
-	    id: uid(),
-	    createdAt: now,
-	    total: totalAssets(),
-	    note: els.snapshotNote?.value.trim() || "",
-	    assets: state.assets.map((asset) => ({ ...asset })),
+  const snapshotNote = els.snapshotNote?.value.trim() || "";
+  if (snapshotNote.length > IMPORT_STRING_LIMITS.note) {
+    alert("조회 기록 메모는 10,000자 이하로 입력하세요.");
+    return;
+  }
+  const snapshot = {
+    id: uid(),
+    createdAt: now,
+    total: totalAssets(),
+    note: snapshotNote,
     typeTotals: Object.fromEntries(
       state.assets.reduce((map, asset) => {
         const type = assetType(asset);
@@ -3965,10 +4851,16 @@ els.snapshotBtn.addEventListener("click", () => {
         return map;
       }, new Map())
     )
-	  });
-	  if (els.snapshotNote) els.snapshotNote.value = "";
-	  render();
-	});
+  };
+  state.snapshots.push(normalizeSnapshot(snapshot));
+  if (els.snapshotNote) els.snapshotNote.value = "";
+  render();
+  const warning = readiness.warnings.length ? ` ${readiness.warnings.join(" ")}` : "";
+  showUndoNotice(`조회 기록을 저장했습니다.${warning}`, () => {
+    state.snapshots = state.snapshots.filter((item) => item.id !== snapshot.id);
+    render();
+  });
+});
 
 els.historyRows.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-history-delete]");
@@ -3999,12 +4891,10 @@ els.clearHistoryBtn.addEventListener("click", () => {
 });
 
 els.retirementForm.addEventListener("input", () => {
-  saveRetirementInputs();
-  render(false);
+  if (saveRetirementInputs()) render(false);
 });
 els.retirementForm.addEventListener("change", () => {
-  saveRetirementInputs();
-  render();
+  if (saveRetirementInputs()) render();
 });
 
 els.retirementForm.addEventListener("focusout", (event) => {
@@ -4013,8 +4903,7 @@ els.retirementForm.addEventListener("focusout", (event) => {
 
 els.syncAssetsBtn.addEventListener("click", () => {
   els.currentInvestable.value = formatIntegerNumber(Math.ceil(totalAssets()));
-  saveRetirementInputs();
-  render();
+  if (saveRetirementInputs()) render();
 });
 
 document.querySelectorAll("[data-retirement-preset]").forEach((button) => {
@@ -4030,7 +4919,7 @@ document.querySelectorAll("[data-retirement-preset]").forEach((button) => {
       if (!els[key]) return;
       els[key].value = RETIREMENT_MONEY_FIELDS.has(key) ? formatIntegerNumber(value) : value;
     });
-    render();
+    if (saveRetirementInputs()) render();
   });
 });
 
@@ -4038,6 +4927,10 @@ els.saveScenarioBtn.addEventListener("click", () => {
   const name = els.retirementScenarioName.value.trim();
   if (!name) {
     alert("시나리오명을 입력하세요.");
+    return;
+  }
+  if (name.length > IMPORT_STRING_LIMITS.short) {
+    alert("시나리오명은 500자 이하로 입력하세요.");
     return;
   }
   const existing = state.retirementScenarios.find((scenario) => scenario.name === name);
@@ -4077,14 +4970,228 @@ els.deleteScenarioBtn.addEventListener("click", () => {
   });
 });
 
+function downloadTextFile(content, filename) {
+  try {
+    const blob = new Blob([content], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+    return true;
+  } catch (error) {
+    console.error(error);
+    return false;
+  }
+}
+
+function downloadStateFile(data, filename) {
+  return downloadTextFile(JSON.stringify(data, null, 2), filename);
+}
+
+function assertImportString(value, label, limit = IMPORT_STRING_LIMITS.short) {
+  if (value === undefined || value === null) return;
+  if (typeof value !== "string") throw new Error(`${label}은(는) 문자열이어야 합니다.`);
+  if (value.length > limit) throw new Error(`${label}이(가) 허용 길이 ${limit}자를 넘었습니다.`);
+}
+
+function assertImportNumber(value, label, { min = -1e18, max = 1e18 } = {}) {
+  if (value === undefined || value === null) return;
+  if (!["number", "string"].includes(typeof value) || (typeof value === "string" && !value.trim())) {
+    throw new Error(`${label}은(는) 숫자여야 합니다.`);
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < min || number > max) {
+    throw new Error(`${label}에 허용되지 않는 숫자가 있습니다.`);
+  }
+}
+
+function assertImportDate(value, label) {
+  if (value === undefined || value === null || value === "") return;
+  assertImportString(value, label, IMPORT_STRING_LIMITS.short);
+  if (!Number.isFinite(Date.parse(value))) throw new Error(`${label}에 올바르지 않은 날짜가 있습니다.`);
+}
+
+function validateImportCollection(data, key, validateItem) {
+  if (!Array.isArray(data[key])) throw new Error(`${key} 목록이 없습니다.`);
+  if (data[key].length > IMPORT_LIMITS[key]) {
+    throw new Error(`${key} 항목이 허용 개수 ${IMPORT_LIMITS[key].toLocaleString("ko-KR")}개를 넘었습니다.`);
+  }
+  data[key].forEach((item, index) => {
+    if (!isPlainObject(item)) throw new Error(`${key}[${index}] 항목이 객체가 아닙니다.`);
+    validateItem(item, index);
+  });
+}
+
+function validateImportedAsset(asset, index) {
+  const prefix = `assets[${index}]`;
+  ["id", "name", "ticker", "type", "account", "accountClass", "manualSubtype"].forEach((field) => {
+    assertImportString(asset[field], `${prefix}.${field}`, field === "id" ? IMPORT_STRING_LIMITS.id : IMPORT_STRING_LIMITS.short);
+  });
+  assertImportString(asset.note, `${prefix}.note`, IMPORT_STRING_LIMITS.note);
+  assertImportDate(asset.createdAt, `${prefix}.createdAt`);
+  assertImportDate(asset.updatedAt, `${prefix}.updatedAt`);
+  ["amount", "quantity", "averagePrice"].forEach((field) => {
+    assertImportNumber(asset[field], `${prefix}.${field}`, { min: 0, max: 1e15 });
+  });
+  if (!String(asset.id || "").trim()) throw new Error(`${prefix}.id가 없습니다.`);
+  if (!String(asset.name || "").trim()) throw new Error(`${prefix}.name이 없습니다.`);
+  if (asset.type !== undefined && !["KRX", "US", "CASH", "MANUAL"].includes(String(asset.type).toUpperCase())) {
+    throw new Error(`${prefix}.type에 알 수 없는 자산 유형이 있습니다.`);
+  }
+  const type = asset.type ? String(asset.type).toUpperCase() : inferLegacyAssetType(asset);
+  if (isMarketType(type)) {
+    const tickerError = validateTicker(type, asset.ticker);
+    if (tickerError) throw new Error(`${prefix}: ${tickerError}`);
+    if (!Object.hasOwn(asset, "quantity") || !Object.hasOwn(asset, "averagePrice")) {
+      throw new Error(`${prefix}의 보유수량과 평단가가 없습니다.`);
+    }
+  } else if (!Object.hasOwn(asset, "amount") || Number(asset.amount) < 0) {
+    throw new Error(`${prefix}.amount에 올바른 수동 평가금액이 필요합니다.`);
+  }
+}
+
+function validateImportedTrade(trade, index) {
+  const prefix = `realizedTrades[${index}]`;
+  ["id", "assetId", "name", "ticker", "type", "account"].forEach((field) => {
+    assertImportString(trade[field], `${prefix}.${field}`, field.endsWith("Id") || field === "id" ? IMPORT_STRING_LIMITS.id : IMPORT_STRING_LIMITS.short);
+  });
+  assertImportString(trade.memo, `${prefix}.memo`, IMPORT_STRING_LIMITS.note);
+  assertImportDate(trade.soldAt || trade.date, `${prefix}.soldAt`);
+  assertImportDate(trade.createdAt, `${prefix}.createdAt`);
+  ["quantity", "averagePrice", "sellPrice", "fxRate", "fees", "tax", "grossAmount", "costAmount"].forEach((field) => {
+    assertImportNumber(trade[field], `${prefix}.${field}`, { min: 0, max: 1e18 });
+  });
+  ["realizedGain", "realizedGainRate"].forEach((field) => {
+    assertImportNumber(trade[field], `${prefix}.${field}`);
+  });
+  if (!String(trade.id || "").trim()) throw new Error(`${prefix}.id가 없습니다.`);
+}
+
+function validateImportedJournal(entry, index) {
+  const prefix = `tradeJournalEntries[${index}]`;
+  ["id", "assetId", "realizedTradeId"].forEach((field) => {
+    assertImportString(entry[field], `${prefix}.${field}`, IMPORT_STRING_LIMITS.id);
+  });
+  ["name", "ticker", "type", "region", "account", "action", "status", "tags"].forEach((field) => {
+    assertImportString(entry[field], `${prefix}.${field}`);
+  });
+  ["reason", "risk", "review"].forEach((field) => {
+    assertImportString(entry[field], `${prefix}.${field}`, IMPORT_STRING_LIMITS.note);
+  });
+  assertImportDate(entry.date, `${prefix}.date`);
+  assertImportDate(entry.createdAt, `${prefix}.createdAt`);
+  assertImportDate(entry.updatedAt, `${prefix}.updatedAt`);
+  ["quantity", "price"].forEach((field) => {
+    assertImportNumber(entry[field], `${prefix}.${field}`, { min: 0, max: 1e18 });
+  });
+  if (!String(entry.id || "").trim()) throw new Error(`${prefix}.id가 없습니다.`);
+  if (!String(entry.name || "").trim()) throw new Error(`${prefix}.name이 없습니다.`);
+}
+
+function validateImportedSnapshot(snapshot, index) {
+  const prefix = `snapshots[${index}]`;
+  assertImportString(snapshot.id, `${prefix}.id`, IMPORT_STRING_LIMITS.id);
+  assertImportDate(snapshot.createdAt, `${prefix}.createdAt`);
+  assertImportString(snapshot.note, `${prefix}.note`, IMPORT_STRING_LIMITS.note);
+  assertImportNumber(snapshot.total, `${prefix}.total`, { min: 0, max: 1e18 });
+  if (!String(snapshot.id || "").trim()) throw new Error(`${prefix}.id가 없습니다.`);
+  if (!snapshot.createdAt || !Number.isFinite(Date.parse(snapshot.createdAt))) {
+    throw new Error(`${prefix}.createdAt이 없습니다.`);
+  }
+  if (!Object.hasOwn(snapshot, "total")) throw new Error(`${prefix}.total이 없습니다.`);
+  if (snapshot.typeTotals !== undefined && !isPlainObject(snapshot.typeTotals)) {
+    throw new Error(`${prefix}.typeTotals가 객체가 아닙니다.`);
+  }
+  Object.entries(snapshot.typeTotals || {}).forEach(([type, value]) => {
+    if (!["KRX", "US", "CASH", "MANUAL"].includes(type)) {
+      throw new Error(`${prefix}.typeTotals에 알 수 없는 자산 유형이 있습니다.`);
+    }
+    assertImportNumber(value, `${prefix}.typeTotals.${type}`, { min: 0, max: 1e18 });
+  });
+  if (snapshot.assets !== undefined && !Array.isArray(snapshot.assets)) {
+    throw new Error(`${prefix}.assets가 목록이 아닙니다.`);
+  }
+}
+
+function validateImportedScenario(scenario, index) {
+  const prefix = `retirementScenarios[${index}]`;
+  assertImportString(scenario.id, `${prefix}.id`, IMPORT_STRING_LIMITS.id);
+  assertImportString(scenario.name, `${prefix}.name`);
+  assertImportDate(scenario.updatedAt, `${prefix}.updatedAt`);
+  if (scenario.input !== undefined && !isPlainObject(scenario.input)) {
+    throw new Error(`${prefix}.input이 객체가 아닙니다.`);
+  }
+  if (!String(scenario.id || "").trim()) throw new Error(`${prefix}.id가 없습니다.`);
+  if (!String(scenario.name || "").trim()) throw new Error(`${prefix}.name이 없습니다.`);
+}
+
+function validateImportPayload(imported) {
+  if (!isPlainObject(imported)) throw new Error("가져오기 파일의 최상위 값은 객체여야 합니다.");
+  if (imported.schemaVersion !== undefined) {
+    const version = Number(imported.schemaVersion);
+    if (!Number.isSafeInteger(version) || version < 1 || version > STATE_SCHEMA_VERSION) {
+      throw new Error(`지원하지 않는 데이터 스키마 버전입니다. 현재 지원 버전은 ${STATE_SCHEMA_VERSION}입니다.`);
+    }
+  }
+
+  validateImportCollection(imported, "assets", validateImportedAsset);
+  validateImportCollection(imported, "snapshots", validateImportedSnapshot);
+
+  ["realizedTrades", "tradeJournalEntries", "retirementScenarios"].forEach((key) => {
+    if (imported[key] === undefined) imported[key] = [];
+  });
+  validateImportCollection(imported, "realizedTrades", validateImportedTrade);
+  validateImportCollection(imported, "tradeJournalEntries", validateImportedJournal);
+  validateImportCollection(imported, "retirementScenarios", validateImportedScenario);
+
+  if (imported.meta !== undefined && !isPlainObject(imported.meta)) throw new Error("meta가 객체가 아닙니다.");
+  if (imported.portfolioTargets !== undefined && !isPlainObject(imported.portfolioTargets)) {
+    throw new Error("portfolioTargets가 객체가 아닙니다.");
+  }
+  if (imported.retirement !== undefined && !isPlainObject(imported.retirement)) {
+    throw new Error("retirement가 객체가 아닙니다.");
+  }
+
+  Object.entries(imported.portfolioTargets || {}).forEach(([key, value]) => {
+    if (!Object.hasOwn(defaultState().portfolioTargets, key)) return;
+    assertImportNumber(value, `portfolioTargets.${key}`, { min: 0, max: 100 });
+  });
+  Object.entries(imported.retirement || {}).forEach(([key, value]) => {
+    if (!Object.hasOwn(defaultState().retirement, key)) return;
+    assertImportNumber(value, `retirement.${key}`, { min: 0, max: 1e15 });
+  });
+  imported.retirementScenarios.forEach((scenario, index) => {
+    Object.entries(scenario.input || {}).forEach(([key, value]) => {
+      if (!Object.hasOwn(defaultState().retirement, key)) return;
+      assertImportNumber(value, `retirementScenarios[${index}].input.${key}`, { min: 0, max: 1e15 });
+    });
+  });
+
+  const migrated = migrateState(imported);
+  Object.entries(migrated.portfolioTargets).forEach(([key, value]) => {
+    assertImportNumber(value, `portfolioTargets.${key}`, { min: 0, max: 100 });
+  });
+  const targetTotal = Object.values(migrated.portfolioTargets).reduce((sum, value) => sum + Number(value), 0);
+  if (Math.abs(targetTotal - 100) > 0.01) throw new Error("포트폴리오 목표 비중 합계는 100%여야 합니다.");
+
+  const retirementError = validateRetirementInput(migrated.retirement);
+  if (retirementError) throw new Error(`은퇴 설정 오류: ${retirementError}`);
+  migrated.retirementScenarios.forEach((scenario, index) => {
+    const scenarioInput = { ...defaultState().retirement, ...(scenario.input || {}) };
+    const error = validateRetirementInput(scenarioInput);
+    if (error) throw new Error(`은퇴 시나리오 ${index + 1} 오류: ${error}`);
+  });
+  return migrated;
+}
+
 els.exportBtn.addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `finance-ledger-${new Date().toISOString().slice(0, 10)}.json`;
-  link.click();
-  URL.revokeObjectURL(url);
+  const exported = downloadStateFile(
+    storageSafeState(),
+    `finance-ledger-${new Date().toISOString().slice(0, 10)}.json`
+  );
+  if (!exported) alert("데이터 내보내기 파일을 만들지 못했습니다.");
 });
 
 els.importInput.addEventListener("change", async (event) => {
@@ -4092,23 +5199,52 @@ els.importInput.addEventListener("change", async (event) => {
   if (!file) return;
 
   try {
+    if (file.size > IMPORT_FILE_MAX_BYTES) {
+      throw new Error(`가져오기 파일은 ${IMPORT_FILE_MAX_BYTES / 1024 / 1024}MB 이하여야 합니다.`);
+    }
     const imported = JSON.parse(await file.text());
-	    if (!Array.isArray(imported.assets) || !Array.isArray(imported.snapshots)) {
-	      throw new Error("Invalid file");
-	    }
-	    const summary = [
-	      `자산 ${imported.assets.length}개`,
-	      `히스토리 ${imported.snapshots.length}개`,
-	      Array.isArray(imported.tradeJournalEntries) ? `매매일지 ${imported.tradeJournalEntries.length}개` : "매매일지 없음",
-	      imported.retirement ? "은퇴 설정 포함" : "은퇴 설정 없음",
-	      Array.isArray(imported.retirementScenarios) ? `은퇴 시나리오 ${imported.retirementScenarios.length}개` : "은퇴 시나리오 없음"
-	    ].join("\n");
-	    if (!confirm(`가져오기 전에 현재 데이터 내보내기를 권장합니다.\n\n가져올 데이터:\n${summary}\n\n현재 화면 데이터를 이 파일 내용으로 교체할까요?`)) return;
-	    replaceState(imported);
-	    applyPricesToAssets();
-	    render();
-  } catch {
-    alert("가져올 수 없는 JSON 파일입니다.");
+    const candidate = validateImportPayload(imported);
+    const summary = [
+      `자산 ${candidate.assets.length}개`,
+      `히스토리 ${candidate.snapshots.length}개`,
+      `매매일지 ${candidate.tradeJournalEntries.length}개`,
+      "은퇴 설정 포함",
+      `은퇴 시나리오 ${candidate.retirementScenarios.length}개`
+    ].join("\n");
+    if (!confirm(`가져올 데이터:\n${summary}\n\n현재 화면 데이터를 자동 백업한 뒤 이 파일 내용으로 교체할까요?`)) return;
+    const backupTimestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupCreated = protectedStorageRaw
+      ? downloadTextFile(protectedStorageRaw, `finance-ledger-recovery-before-import-${backupTimestamp}.json`)
+      : downloadStateFile(storageSafeState(), `finance-ledger-before-import-${backupTimestamp}.json`);
+    if (!backupCreated) throw new Error("현재 데이터 자동 백업에 실패해 가져오기를 중단했습니다.");
+    const previousState = storageSafeState();
+    const previousStorageWritesBlocked = storageWritesBlocked;
+    const previousProtectedStorageRaw = protectedStorageRaw;
+    candidate.meta.cloudRevision = normalizeRevision(state.meta.cloudRevision);
+    candidate.meta.cloudUpdatedAt = state.meta.cloudUpdatedAt;
+    candidate.meta.lastSavedAt = null;
+    candidate.meta.lastSyncDirection = "local";
+    candidate.meta.syncErrorCode = null;
+    storageWritesBlocked = false;
+    protectedStorageRaw = null;
+    replaceState(candidate);
+    applyPricesToAssets();
+    if (!render(false)) {
+      storageWritesBlocked = previousStorageWritesBlocked;
+      protectedStorageRaw = previousProtectedStorageRaw;
+      replaceState(previousState);
+      render(false);
+      throw new Error("가져온 데이터를 이 기기에 저장하지 못해 기존 화면 데이터로 되돌렸습니다.");
+    }
+    if (cloud.docRef) scheduleCloudPush();
+    if (els.appNotice) {
+      els.appNotice.hidden = false;
+      els.appNotice.setAttribute("role", "status");
+      els.appNotice.textContent = "현재 데이터를 자동 백업하고 새 데이터를 가져왔습니다.";
+    }
+  } catch (error) {
+    console.error(error);
+    alert(error instanceof SyntaxError ? "가져올 수 없는 JSON 파일입니다." : error.message || "가져오기 파일을 확인하세요.");
   } finally {
     event.target.value = "";
   }
@@ -4128,11 +5264,14 @@ window.addEventListener("popstate", () => {
 window.addEventListener("hashchange", () => {
   setActiveView(viewFromHash(), { scroll: false, focus: true });
 });
-let heroSparkResizeRaf = 0;
+let responsiveChartResizeRaf = 0;
 window.addEventListener("resize", () => {
-  if (uiState.activeView !== "DASHBOARD") return;
-  cancelAnimationFrame(heroSparkResizeRaf);
-  heroSparkResizeRaf = requestAnimationFrame(() => drawHeroSparkline());
+  if (!["DASHBOARD", "GOALS"].includes(uiState.activeView)) return;
+  cancelAnimationFrame(responsiveChartResizeRaf);
+  responsiveChartResizeRaf = requestAnimationFrame(() => {
+    if (uiState.activeView === "DASHBOARD") drawHeroSparkline();
+    if (uiState.activeView === "GOALS") drawChart(filteredHistorySnapshots());
+  });
 });
 renderAllViews();
 updateAuthUi();

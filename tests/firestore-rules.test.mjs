@@ -9,6 +9,11 @@ import { deleteDoc, doc, getDoc, setDoc } from "firebase/firestore";
 
 const PROJECT_ID = "assettrail-6f676";
 const DATA_PATH = "users/alice/financeData/primary";
+const ANALYSIS_PATH = "users/alice/analysisRuns/run-1";
+const ANALYSIS_PREFERENCES_PATH = "users/alice/analysisPreferences/primary";
+const ANALYSIS_ENTITLEMENT_PATH = "users/alice/analysisEntitlements/primary";
+const ANALYSIS_USAGE_PATH = "users/alice/analysisUsage/2026-07";
+const ISO_DATE = "2026-05-19T00:00:00.000Z";
 
 const testEnv = await initializeTestEnvironment({
   projectId: PROJECT_ID,
@@ -31,9 +36,19 @@ try {
   const aliceDoc = doc(aliceDb, DATA_PATH);
   const bobViewOfAliceDoc = doc(bobDb, DATA_PATH);
   const guestViewOfAliceDoc = doc(guestDb, DATA_PATH);
-  const priceRequestsForAlice = doc(aliceDb, "priceRequests/us");
-  const priceRequestsForGuest = doc(guestDb, "priceRequests/us");
-  const blockedPriceRequests = doc(aliceDb, "priceRequests/eu");
+  const aliceAnalysisDoc = doc(aliceDb, ANALYSIS_PATH);
+  const bobViewOfAliceAnalysisDoc = doc(bobDb, ANALYSIS_PATH);
+  const aliceAnalysisPreferences = doc(aliceDb, ANALYSIS_PREFERENCES_PATH);
+  const bobViewOfAliceAnalysisPreferences = doc(bobDb, ANALYSIS_PREFERENCES_PATH);
+  const aliceAnalysisEntitlement = doc(aliceDb, ANALYSIS_ENTITLEMENT_PATH);
+  const aliceAnalysisUsage = doc(aliceDb, ANALYSIS_USAGE_PATH);
+  const unexpectedFinanceDoc = doc(aliceDb, "users/alice/financeData/secondary");
+  const unexpectedAlicePath = doc(aliceDb, "users/alice/unexpected/document");
+  const alicePriceRequest = doc(aliceDb, "priceRequests/alice");
+  const bobViewOfAlicePriceRequest = doc(bobDb, "priceRequests/alice");
+  const guestViewOfAlicePriceRequest = doc(guestDb, "priceRequests/alice");
+  const legacyPriceRequest = doc(aliceDb, "priceRequests/us");
+  const nestedPriceRequest = doc(aliceDb, "priceRequests/alice/history/latest");
 
   await assertSucceeds(
     setDoc(aliceDoc, {
@@ -44,7 +59,7 @@ try {
         retireAge: 55,
         lifeAge: 90
       },
-      updatedAt: new Date("2026-05-19T00:00:00.000Z").toISOString()
+      updatedAt: ISO_DATE
     })
   );
 
@@ -56,19 +71,51 @@ try {
   await assertFails(setDoc(bobViewOfAliceDoc, { assets: ["blocked"] }));
   await assertFails(getDoc(guestViewOfAliceDoc));
   await assertFails(setDoc(guestViewOfAliceDoc, { assets: ["blocked"] }));
+  await assertFails(setDoc(unexpectedFinanceDoc, { assets: [] }));
+  await assertFails(setDoc(unexpectedAlicePath, { privateData: true }));
+  await assertFails(getDoc(unexpectedAlicePath));
 
-  await assertSucceeds(getDoc(priceRequestsForGuest));
-  await assertSucceeds(
-    setDoc(priceRequestsForAlice, {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), ANALYSIS_PATH), {
+      schemaVersion: "assettrail.analysis.v1",
+      createdAt: ISO_DATE
+    });
+  });
+  await assertSucceeds(getDoc(aliceAnalysisDoc));
+  await assertFails(setDoc(aliceAnalysisDoc, { createdAt: "blocked" }));
+  await assertFails(getDoc(bobViewOfAliceAnalysisDoc));
+  await assertSucceeds(setDoc(aliceAnalysisPreferences, { primaryBenchmark: "SP500" }));
+  await assertSucceeds(getDoc(aliceAnalysisPreferences));
+  await assertFails(getDoc(bobViewOfAliceAnalysisPreferences));
+  await assertFails(setDoc(bobViewOfAliceAnalysisPreferences, { primaryBenchmark: "KOSPI" }));
+  await assertFails(getDoc(aliceAnalysisEntitlement));
+  await assertFails(setDoc(aliceAnalysisEntitlement, { monthlyLimit: 999 }));
+  await assertFails(getDoc(aliceAnalysisUsage));
+  await assertFails(setDoc(aliceAnalysisUsage, { aiReportCount: 0 }));
+
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "priceRequests/alice"), {
+      tickers: ["AAPL"],
+      updatedAt: ISO_DATE
+    });
+    await setDoc(doc(context.firestore(), "priceRequests/us"), {
       tickers: ["TSLA"],
-      updatedAt: new Date("2026-05-19T00:00:00.000Z").toISOString()
-    })
-  );
-  await assertSucceeds(getDoc(priceRequestsForGuest));
-  await assertFails(setDoc(priceRequestsForGuest, { tickers: ["MSFT"], updatedAt: "2026-05-19T00:00:00.000Z" }));
-  await assertFails(setDoc(blockedPriceRequests, { tickers: ["TSLA"], updatedAt: "2026-05-19T00:00:00.000Z" }));
-  await assertFails(setDoc(priceRequestsForAlice, { tickers: Array(501).fill("AAPL"), updatedAt: "2026-05-19T00:00:00.000Z" }));
-  await assertFails(setDoc(priceRequestsForAlice, { tickers: ["AAPL"], extra: true, updatedAt: "2026-05-19T00:00:00.000Z" }));
+      updatedAt: ISO_DATE
+    });
+    await setDoc(doc(context.firestore(), "priceRequests/alice/history/latest"), {
+      tickers: ["MSFT"],
+      updatedAt: ISO_DATE
+    });
+  });
+
+  await assertFails(getDoc(alicePriceRequest));
+  await assertFails(getDoc(bobViewOfAlicePriceRequest));
+  await assertFails(getDoc(guestViewOfAlicePriceRequest));
+  await assertFails(getDoc(legacyPriceRequest));
+  await assertFails(getDoc(nestedPriceRequest));
+  await assertFails(setDoc(alicePriceRequest, { tickers: ["MSFT"], updatedAt: ISO_DATE }));
+  await assertFails(deleteDoc(alicePriceRequest));
+  await assertFails(deleteDoc(legacyPriceRequest));
 
   await assertSucceeds(deleteDoc(aliceDoc));
 } finally {

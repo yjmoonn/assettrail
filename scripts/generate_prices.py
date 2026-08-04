@@ -2,9 +2,12 @@
 import argparse
 import html
 import json
+import math
+import os
 import re
 import sys
-from datetime import datetime, timezone
+import tempfile
+from datetime import date, datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -20,7 +23,18 @@ NASDAQ_SYMBOL_URLS = (
     "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt",
     "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"
 )
-FIREBASE_CONFIG_PATH = "firebase-config.js"
+MIN_KRX_PRICE_COUNT = 3000
+MIN_US_SUCCESS_RATE = 0.75
+MIN_US_SUCCESS_COUNT = 3
+MIN_USDKRW_RATE = 500
+MAX_USDKRW_RATE = 3000
+MAX_PRICE_AGE_DAYS = 7
+MAX_PRICE_FUTURE_DAYS = 1
+DEFAULT_SYMBOLS_FILENAME = "symbols.json"
+
+
+class PriceQualityError(RuntimeError):
+    pass
 
 
 def normalize_krx_ticker(ticker):
@@ -40,51 +54,6 @@ def read_tickers(path):
     }
 
 
-def merge_tickers(base, extra):
-    return {
-        "KRX": sorted(
-            {normalize_krx_ticker(ticker) for ticker in base.get("KRX", [])}
-            | {normalize_krx_ticker(ticker) for ticker in extra.get("KRX", [])}
-        ),
-        "US": sorted(
-            {normalize_us_ticker(ticker) for ticker in base.get("US", [])}
-            | {normalize_us_ticker(ticker) for ticker in extra.get("US", [])}
-        )
-    }
-
-
-def read_firebase_project_id(path=FIREBASE_CONFIG_PATH):
-    try:
-        text = Path(path).read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return None
-
-    match = re.search(r'projectId:\s*"([^"]+)"', text)
-    return match.group(1) if match else None
-
-
-def parse_firestore_string_array(document, field):
-    values = (
-        document.get("fields", {})
-        .get(field, {})
-        .get("arrayValue", {})
-        .get("values", [])
-    )
-    return [value.get("stringValue") for value in values if value.get("stringValue")]
-
-
-def fetch_requested_us_tickers(project_id):
-    if not project_id:
-        return []
-
-    url = f"https://firestore.googleapis.com/v1/projects/{project_id}/databases/(default)/documents/priceRequests/us"
-    response = requests.get(url, timeout=15)
-    if response.status_code == 404:
-        return []
-    response.raise_for_status()
-    return [normalize_us_ticker(ticker) for ticker in parse_firestore_string_array(response.json(), "tickers")]
-
-
 def parse_price(value):
     text = str(value or "").strip().replace(",", "")
     if not text or text.upper() == "N/A" or text == "-":
@@ -96,11 +65,225 @@ def parse_price(value):
     return price if price > 0 else None
 
 
+def parse_calendar_date(value):
+    if not isinstance(value, str) or re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) is None:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
 def parse_trade_date(value):
     text = str(value or "").strip()
-    if len(text) >= 10 and re.match(r"^\d{4}-\d{2}-\d{2}", text):
-        return text[:10]
-    return datetime.now(KST).date().strftime("%Y-%m-%d")
+    candidate = text[:10] if len(text) >= 10 else text
+    return candidate if parse_calendar_date(candidate) else None
+
+
+def is_positive_finite_number(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(number) and number > 0
+
+
+def resolve_quality_date(today):
+    if today is None:
+        return datetime.now(KST).date()
+    if isinstance(today, datetime):
+        return today.date()
+    if isinstance(today, date):
+        return today
+    parsed = parse_calendar_date(today)
+    if parsed:
+        return parsed
+    raise ValueError("today must be a valid YYYY-MM-DD date")
+
+
+def is_fresh_date(value, today):
+    trade_date = parse_calendar_date(value)
+    if not trade_date:
+        return False
+    age_days = (today - trade_date).days
+    return -MAX_PRICE_FUTURE_DAYS <= age_days <= MAX_PRICE_AGE_DAYS
+
+
+def is_valid_price_entry(entry, today):
+    return (
+        isinstance(entry, dict)
+        and is_positive_finite_number(entry.get("close"))
+        and is_fresh_date(entry.get("date"), today)
+    )
+
+
+def validate_price_quality(
+    output,
+    tickers,
+    min_krx_count=MIN_KRX_PRICE_COUNT,
+    min_us_success_rate=MIN_US_SUCCESS_RATE,
+    min_us_success_count=MIN_US_SUCCESS_COUNT,
+    today=None
+):
+    quality_date = resolve_quality_date(today)
+    failures = []
+    krx_prices = output.get("prices", {}).get("KRX", {})
+    valid_krx_count = sum(
+        1 for entry in krx_prices.values()
+        if is_valid_price_entry(entry, quality_date)
+    )
+    if valid_krx_count < min_krx_count:
+        failures.append(
+            f"KRX fresh price count {valid_krx_count} is below minimum {min_krx_count}"
+        )
+
+    usdkrw = output.get("fx", {}).get("USDKRW")
+    usdkrw_rate = usdkrw.get("rate") if isinstance(usdkrw, dict) else None
+    usdkrw_date = usdkrw.get("date") if isinstance(usdkrw, dict) else None
+    if (
+        not is_positive_finite_number(usdkrw_rate)
+        or not MIN_USDKRW_RATE <= float(usdkrw_rate) <= MAX_USDKRW_RATE
+        or not is_fresh_date(usdkrw_date, quality_date)
+    ):
+        failures.append("USDKRW is missing, stale, or outside the valid date/rate range")
+
+    requested_us = sorted({
+        normalize_us_ticker(ticker)
+        for ticker in tickers.get("US", [])
+        if normalize_us_ticker(ticker)
+    })
+    us_prices = output.get("prices", {}).get("US", {})
+    successful_us = [
+        ticker for ticker in requested_us
+        if is_valid_price_entry(us_prices.get(ticker), quality_date)
+    ]
+    required_us_count = 0
+    if requested_us:
+        required_by_rate = math.ceil(len(requested_us) * min_us_success_rate)
+        required_us_count = max(
+            min(len(requested_us), min_us_success_count),
+            required_by_rate
+        )
+        if len(successful_us) < required_us_count:
+            failures.append(
+                "US baseline fresh price coverage "
+                f"{len(successful_us)}/{len(requested_us)} is below required "
+                f"{required_us_count}/{len(requested_us)}"
+            )
+
+    if failures:
+        raise PriceQualityError("; ".join(failures))
+
+    return {
+        "krx": valid_krx_count,
+        "usdkrw": float(usdkrw_rate),
+        "usRequested": len(requested_us),
+        "usSucceeded": len(successful_us),
+        "usRequired": required_us_count
+    }
+
+
+def default_symbols_output(output_path):
+    return Path(output_path).with_name(DEFAULT_SYMBOLS_FILENAME)
+
+
+def build_price_artifacts(output, output_path, symbols_output_path):
+    generated_at = output.get("generatedAt")
+    if not isinstance(generated_at, str) or not generated_at:
+        raise ValueError("generatedAt is required for price artifacts")
+
+    output_path = Path(output_path)
+    symbols_output_path = Path(symbols_output_path)
+    symbol_file = os.path.relpath(symbols_output_path, start=output_path.parent)
+
+    prices_payload = {
+        "generatedAt": generated_at,
+        "fx": output.get("fx", {}),
+        "prices": output.get("prices", {"KRX": {}, "US": {}}),
+        "errors": output.get("errors", []),
+        "symbolFile": Path(symbol_file).as_posix(),
+        "symbolsGeneratedAt": generated_at
+    }
+    symbols_payload = {
+        "generatedAt": generated_at,
+        "symbols": output.get("symbols", {"KRX": {}, "US": {}})
+    }
+    return prices_payload, symbols_payload
+
+
+def write_temp_file(target, content):
+    target = Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temp_name = tempfile.mkstemp(
+        dir=target.parent,
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+        text=True
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as temp_file:
+            temp_file.write(content)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+    except Exception:
+        Path(temp_name).unlink(missing_ok=True)
+        raise
+    return Path(temp_name)
+
+
+def atomic_write_price_artifacts(prices_payload, symbols_payload, output_path, symbols_output_path):
+    output_path = Path(output_path)
+    symbols_output_path = Path(symbols_output_path)
+    if output_path.absolute() == symbols_output_path.absolute():
+        raise ValueError("price and symbol outputs must use different paths")
+
+    prices_text = json.dumps(
+        prices_payload,
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True
+    ) + "\n"
+    symbols_text = json.dumps(
+        symbols_payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True
+    )
+
+    temp_files = {}
+    try:
+        temp_files[output_path] = write_temp_file(output_path, prices_text)
+        temp_files[symbols_output_path] = write_temp_file(symbols_output_path, symbols_text)
+
+        # The symbol dependency is replaced first and the prices manifest last.
+        # Each replace is atomic, so readers never observe a partially written JSON file.
+        os.replace(temp_files.pop(symbols_output_path), symbols_output_path)
+        os.replace(temp_files.pop(output_path), output_path)
+    finally:
+        for temp_path in temp_files.values():
+            temp_path.unlink(missing_ok=True)
+
+
+def publish_price_artifacts(
+    output,
+    tickers,
+    output_path,
+    symbols_output_path,
+    quality_options=None
+):
+    quality = validate_price_quality(output, tickers, **(quality_options or {}))
+    prices_payload, symbols_payload = build_price_artifacts(
+        output,
+        output_path,
+        symbols_output_path
+    )
+    atomic_write_price_artifacts(
+        prices_payload,
+        symbols_payload,
+        output_path,
+        symbols_output_path
+    )
+    return quality
 
 
 def clean_name(value):
@@ -427,25 +610,36 @@ def main():
     parser = argparse.ArgumentParser(description="Generate AssetTrail prices.json")
     parser.add_argument("--tickers", default="tickers.json")
     parser.add_argument("--output", default="prices.json")
+    parser.add_argument(
+        "--symbols-output",
+        help="Symbol directory output (default: symbols.json next to --output)"
+    )
     parser.add_argument("--lookback-days", type=int, default=10)
-    parser.add_argument("--firebase-project-id", default=read_firebase_project_id())
     args = parser.parse_args()
+    symbols_output = args.symbols_output or default_symbols_output(args.output)
 
     tickers = read_tickers(args.tickers)
-    try:
-        requested_us = fetch_requested_us_tickers(args.firebase_project_id)
-        tickers = merge_tickers(tickers, {"US": requested_us})
-    except Exception as error:
-        print(f"US PRICE REQUESTS: {error}", file=sys.stderr)
-
     output = build_prices(tickers, args.lookback_days)
-    Path(args.output).write_text(
-        json.dumps(output, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8"
-    )
 
     for error in output["errors"]:
         print(f"{error['type']} {error['ticker']}: {error['error']}", file=sys.stderr)
+
+    try:
+        quality = publish_price_artifacts(
+            output,
+            tickers,
+            args.output,
+            symbols_output
+        )
+    except PriceQualityError as error:
+        print(f"PRICE QUALITY: {error}", file=sys.stderr)
+        return 1
+    print(
+        "Price quality passed: "
+        f"KRX {quality['krx']}, "
+        f"US {quality['usSucceeded']}/{quality['usRequested']}, "
+        f"USDKRW {quality['usdkrw']:.2f}"
+    )
 
     return 0
 

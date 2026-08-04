@@ -93,7 +93,33 @@ window.fetch = async () => ({
 });
 
 window.eval(appCode);
-await new Promise((resolve) => window.setTimeout(resolve, 10));
+await new Promise((resolve) => window.setTimeout(resolve, 30));
+
+const appNavItems = [...window.document.querySelectorAll(".app-nav .app-nav-item")];
+assert.equal(appNavItems[0].tabIndex, 0);
+assert.equal(appNavItems.slice(1).every((button) => button.tabIndex === -1), true);
+appNavItems[0].focus();
+appNavItems[0].dispatchEvent(new window.KeyboardEvent("keydown", {
+  key: "ArrowRight",
+  bubbles: true,
+  cancelable: true
+}));
+assert.equal(window.location.hash, "#assets");
+assert.equal(window.document.activeElement, appNavItems[1]);
+assert.equal(appNavItems[1].getAttribute("aria-current"), "page");
+appNavItems[1].dispatchEvent(new window.KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true }));
+assert.equal(window.document.activeElement, appNavItems.at(-1));
+assert.equal(window.location.hash, "#settings");
+appNavItems.at(-1).dispatchEvent(new window.KeyboardEvent("keydown", { key: "Home", bubbles: true, cancelable: true }));
+assert.equal(window.document.activeElement, appNavItems[0]);
+assert.equal(window.location.hash, "#dashboard");
+
+assert.equal(window.document.querySelectorAll("table > caption.sr-only").length, 3);
+assert.equal(
+  [...window.document.querySelectorAll("table thead th")].every((header) => header.getAttribute("scope") === "col"),
+  true
+);
+assert.equal(window.document.querySelector("#historyChart").getAttribute("aria-describedby"), "historyChartDescription");
 
 window.document.querySelector('[data-nav-view="ASSETS"]').click();
 
@@ -110,6 +136,20 @@ function submitAsset() {
     .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
 }
 
+function expectAlert(action, pattern) {
+  let message = "";
+  const originalAlert = window.alert;
+  window.alert = (value) => {
+    message = String(value);
+  };
+  try {
+    action();
+  } finally {
+    window.alert = originalAlert;
+  }
+  assert.match(message, pattern);
+}
+
 assert.equal(window.document.querySelector("#assetFormPanel").hidden, true);
 window.document.querySelector("#toggleAssetFormBtn").click();
 assert.equal(window.document.querySelector("#assetFormPanel").hidden, false);
@@ -121,7 +161,13 @@ setValue("#assetAccount", "삼성증권");
 setValue("#assetTicker", "005930");
 window.document.querySelector("#assetTicker").dispatchEvent(new window.Event("blur", { bubbles: true }));
 assert.equal(window.document.querySelector("#assetName").value, "삼성전자");
+setValue("#assetQuantity", "-1");
+setValue("#assetAveragePrice", "70000");
+expectAlert(submitAsset, /보유수량은 0보다 커야/);
+assert.equal(JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1")).assets.length, 0);
 setValue("#assetQuantity", "10");
+setValue("#assetAveragePrice", "0");
+expectAlert(submitAsset, /평단가는 0보다 커야/);
 setValue("#assetAveragePrice", "70000");
 submitAsset();
 
@@ -153,6 +199,8 @@ submitAsset();
 setValue("#assetCategory", "CASH");
 assert.equal(window.document.querySelector("#assetAmountField").hidden, false);
 setValue("#assetName", "현금");
+setValue("#assetAmount", "0");
+expectAlert(submitAsset, /평가금액은 0보다 커야/);
 setValue("#assetAmount", "1000000");
 submitAsset();
 
@@ -204,6 +252,41 @@ assert.equal(savedAfterBuy.tradeJournalEntries.length, 1);
 assert.equal(savedAfterBuy.tradeJournalEntries[0].action, "BUY");
 assert.equal(savedAfterBuy.tradeJournalEntries[0].ticker, "005930");
 
+const detailOpener = [...window.document.querySelectorAll("#assetRows tr")]
+  .find((row) => row.textContent.includes("삼성전자") && row.textContent.includes("삼성증권"))
+  .querySelector('[data-action="detail"]');
+detailOpener.focus();
+detailOpener.click();
+const detailOverlay = window.document.querySelector("#assetDetailOverlay");
+const detailDrawer = window.document.querySelector("#assetDetailDrawer");
+const detailClose = detailDrawer.querySelector("[data-detail-close]");
+const detailLastAction = detailDrawer.querySelector(".detail-actions button:last-child");
+assert.equal(detailOverlay.hidden, false);
+assert.equal(window.document.querySelector(".app").hasAttribute("inert"), true);
+assert.equal(detailDrawer.getAttribute("aria-labelledby"), "assetDetailTitle");
+assert.equal(window.document.activeElement, detailClose);
+detailClose.dispatchEvent(new window.KeyboardEvent("keydown", {
+  key: "Tab",
+  shiftKey: true,
+  bubbles: true,
+  cancelable: true
+}));
+assert.equal(window.document.activeElement, detailLastAction);
+detailLastAction.dispatchEvent(new window.KeyboardEvent("keydown", {
+  key: "Tab",
+  bubbles: true,
+  cancelable: true
+}));
+assert.equal(window.document.activeElement, detailClose);
+window.document.dispatchEvent(new window.KeyboardEvent("keydown", {
+  key: "Escape",
+  bubbles: true,
+  cancelable: true
+}));
+assert.equal(detailOverlay.hidden, true);
+assert.equal(window.document.querySelector(".app").hasAttribute("inert"), false);
+assert.equal(window.document.activeElement, detailOpener);
+
 const rows = [...window.document.querySelectorAll("#assetRows tr")].map((row) =>
   row.textContent.replace(/\s+/g, " ").trim()
 );
@@ -222,14 +305,81 @@ setValue("#assetTypeFilter", "ALL");
 
 window.document.querySelector('[data-nav-view="GOALS"]').click();
 assert.match(window.document.querySelector("#historySummary").textContent, /기록 상태/);
+const historyMobileButton = window.document.querySelector('[data-goal-mobile-panel="HISTORY"]');
+const retirementMobileButton = window.document.querySelector('[data-goal-mobile-panel="RETIREMENT"]');
+const historyCanvas = window.document.querySelector("#historyChart");
+const historyPanel = window.document.querySelector("#historyPanel");
+Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 2 });
+Object.defineProperty(historyCanvas, "clientWidth", {
+  configurable: true,
+  get: () => historyPanel.classList.contains("goal-panel-mobile-hidden") ? 0 : 320
+});
+Object.defineProperty(historyCanvas, "clientHeight", {
+  configurable: true,
+  get: () => historyPanel.classList.contains("goal-panel-mobile-hidden") ? 0 : 180
+});
+historyCanvas.getBoundingClientRect = () => ({
+  bottom: 180,
+  height: historyCanvas.clientHeight,
+  left: 0,
+  right: 320,
+  top: 0,
+  width: historyCanvas.clientWidth,
+  x: 0,
+  y: 0
+});
+assert.equal(historyMobileButton.getAttribute("aria-pressed"), "true");
+assert.equal(window.document.querySelector("#retirementPanel").classList.contains("goal-panel-mobile-hidden"), true);
+assert.equal(window.eval("drawChart([])"), true);
+assert.equal(historyCanvas.width, 640);
+assert.equal(historyCanvas.height, 360);
+retirementMobileButton.click();
+assert.equal(retirementMobileButton.getAttribute("aria-pressed"), "true");
+assert.equal(window.document.querySelector("#historyPanel").classList.contains("goal-panel-mobile-hidden"), true);
+assert.equal(window.document.querySelector("#retirementPanel").classList.contains("goal-panel-mobile-hidden"), false);
+for (let index = 0; index < 6; index += 1) window.eval("drawChart([])");
+assert.equal(historyCanvas.width, 640);
+assert.equal(historyCanvas.height, 360);
+historyMobileButton.click();
+await new Promise((resolve) => window.setTimeout(resolve, 20));
+assert.equal(window.document.querySelector("#historyPanel").classList.contains("goal-panel-mobile-hidden"), false);
+assert.equal(window.document.querySelector("#retirementPanel").classList.contains("goal-panel-mobile-hidden"), true);
+assert.equal(historyCanvas.width, 640);
+assert.equal(historyCanvas.height, 360);
 window.document.querySelector("#snapshotBtn").click();
 assert.match(window.document.querySelector("#historySummary").textContent, /기록 수/);
 assert.match(window.document.querySelector("#historySummary").textContent, /1회/);
+assert.match(window.document.querySelector("#appNotice").textContent, /조회 기록을 저장했습니다/);
+const savedAfterSnapshot = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
+assert.equal(savedAfterSnapshot.schemaVersion, 2);
+assert.equal(savedAfterSnapshot.snapshots[0].assets, undefined);
+assert.deepEqual(
+  Object.keys(savedAfterSnapshot.snapshots[0]).sort(),
+  ["createdAt", "id", "note", "total", "typeTotals"]
+);
 
+const requiredNestEggBeforePreset = window.document.querySelector("#requiredNestEgg").textContent;
 window.document.querySelector('[data-retirement-preset="growth"]').click();
 assert.equal(window.document.querySelector("#monthlyInvest").value, "1,500,000");
 assert.equal(window.document.querySelector("#postReturnRate").value, "4.5");
+const savedAfterPreset = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
+assert.equal(savedAfterPreset.retirement.monthlyInvest, 1500000);
+assert.equal(savedAfterPreset.retirement.postReturnRate, 4.5);
+assert.notEqual(window.document.querySelector("#requiredNestEgg").textContent, requiredNestEggBeforePreset);
 assert.match(window.document.querySelector("#retirementProgressLabel").textContent, /%/);
+
+setValue("#currentInvestable", "-1");
+assert.match(window.document.querySelector("#retirementValidation").textContent, /0원 이상/);
+assert.equal(JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1")).retirement.currentInvestable, 0);
+setValue("#currentInvestable", "0");
+setValue("#currentAge", "101");
+assert.match(window.document.querySelector("#retirementValidation").textContent, /0~100세/);
+assert.equal(JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1")).retirement.currentAge, 35);
+setValue("#currentAge", "35");
+setValue("#postReturnRate", "31");
+assert.match(window.document.querySelector("#retirementValidation").textContent, /0~30%/);
+assert.equal(JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1")).retirement.postReturnRate, 4.5);
+setValue("#postReturnRate", "4.5");
 
 window.document.querySelector('[data-nav-view="DASHBOARD"]').click();
 assert.equal(window.document.querySelector("#priceStatus").textContent, "가격 5/19 09:00");
@@ -244,6 +394,7 @@ assert.match(rows.join("\n"), /주택청약저축 MANUAL 수동 청약 계좌 - 
 assert.match(rows.join("\n"), /IRP 대기자산 MANUAL 수동 IRP - ₩500,000/);
 assert.match(rows.join("\n"), /DC 대기자산 MANUAL 수동 DC - ₩700,000/);
 window.document.querySelector('[data-nav-view="PORTFOLIO"]').click();
+assert.match(window.document.querySelector(".ledger-panel .panel-header p").textContent, /US 평가손익은 환차손익을 제외/);
 assert.match(window.document.querySelector("#categoryBreakdown").textContent, /계좌 분석/);
 assert.match(window.document.querySelector("#categoryBreakdown").textContent, /연금계좌/);
 assert.match(window.document.querySelector("#categoryBreakdown").textContent, /적금/);
@@ -254,7 +405,28 @@ assert.match(window.document.querySelector("#categoryBreakdown").textContent, /�
 assert.match(window.document.querySelector("#categoryBreakdown").textContent, /해외/);
 assert.equal(window.document.querySelectorAll(".pie-chart").length, 4);
 assert.match(window.document.querySelector(".pie-chart").style.background, /conic-gradient/);
+const portfolioBreakdownToggle = window.document.querySelector("#portfolioBreakdownToggle");
+assert.equal(portfolioBreakdownToggle.hidden, false);
+assert.equal(portfolioBreakdownToggle.getAttribute("aria-expanded"), "false");
+assert.equal(window.document.querySelector("#categoryBreakdown").classList.contains("mobile-collapsed"), true);
+portfolioBreakdownToggle.click();
+assert.equal(portfolioBreakdownToggle.getAttribute("aria-expanded"), "true");
+assert.equal(window.document.querySelector("#categoryBreakdown").classList.contains("mobile-collapsed"), false);
 assert.equal(window.document.querySelector("#assetTableWrap").classList.contains("asset-table-wrap"), true);
+window.document.querySelector("#targetDomestic").value = "40";
+window.document.querySelector("#targetOverseas").value = "30";
+window.document.querySelector("#targetCash").value = "20";
+setValue("#targetManual", "10");
+assert.equal(JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1")).portfolioTargets.domestic, 40);
+setValue("#targetDomestic", "41");
+assert.match(window.document.querySelector("#targetValidation").textContent, /현재 합계는 101%/);
+assert.equal(JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1")).portfolioTargets.domestic, 40);
+setValue("#targetManual", "-1");
+assert.match(window.document.querySelector("#targetValidation").textContent, /0% 이상 100% 이하/);
+assert.equal(JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1")).portfolioTargets.manual, 10);
+window.document.querySelector("#targetDomestic").value = "40";
+setValue("#targetManual", "10");
+assert.match(window.document.querySelector("#targetValidation").textContent, /합계는 100%/);
 assert.deepEqual(
   saved.assets.map((asset) => ({
     amount: asset.amount,
@@ -288,7 +460,7 @@ setValue("#sellPrice", "200");
 setValue("#sellFxRate", "1300");
 setValue("#sellFees", "1000");
 setValue("#sellTax", "500");
-assert.match(window.document.querySelector("#sellPreview").textContent, /실현손익 \+₩24,500/);
+assert.match(window.document.querySelector("#sellPreview").textContent, /실현손익\(환차손익 제외\) \+₩24,500/);
 window.document
   .querySelector("#sellForm")
   .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
@@ -305,11 +477,284 @@ assert.equal(savedAfterSell.assets.find((asset) => asset.ticker === "AAPL").quan
 window.document.querySelector('[data-nav-view="JOURNAL"]').click();
 assert.equal(window.document.querySelector("#realizedTabPanel").hidden, false);
 assert.equal(window.document.querySelector("#journalTabPanel").hidden, true);
+const journalTab = window.document.querySelector("#investmentJournalTab");
+const realizedTab = window.document.querySelector("#investmentRealizedTab");
+assert.equal(realizedTab.tabIndex, 0);
+assert.equal(journalTab.tabIndex, -1);
+realizedTab.focus();
+realizedTab.dispatchEvent(new window.KeyboardEvent("keydown", {
+  key: "ArrowLeft",
+  bubbles: true,
+  cancelable: true
+}));
+assert.equal(window.document.activeElement, journalTab);
+assert.equal(window.document.querySelector("#journalTabPanel").hidden, false);
+journalTab.dispatchEvent(new window.KeyboardEvent("keydown", {
+  key: "ArrowRight",
+  bubbles: true,
+  cancelable: true
+}));
+assert.equal(window.document.activeElement, realizedTab);
+assert.equal(window.document.querySelector("#realizedTabPanel").hidden, false);
+assert.match(window.document.querySelector("#realizedTabPanel > .field-help").textContent, /환차손익은 포함하지 않습니다/);
 assert.match(window.document.querySelector("#realizedSummary").textContent, /누적 실현손익\s+₩24,500/);
+assert.match(window.document.querySelector("#realizedChart").getAttribute("aria-label"), /2026년 월별 실현손익 차트.*6월 ₩24,500/);
 assert.match(window.document.querySelector("#realizedRows").textContent, /Apple Inc\./);
 assert.match(window.document.querySelector("#realizedRows").textContent, /\+₩24,500/);
+assert.match(window.document.querySelector("#realizedRows").textContent, /환차손익 제외/);
 assert.match(window.document.querySelector("#realizedRows").textContent, /일지 보기/);
 window.document.querySelector('[data-realized-action="view-journal"]').click();
 assert.equal(window.document.querySelector("#journalTabPanel").hidden, false);
 assert.equal(window.document.querySelector("#journalRealizedTradeId").value, savedAfterSell.realizedTrades[0].id);
 assert.match(window.document.querySelector("#journalReview").value, /실현손익 \+₩24,500/);
+
+window.document.querySelector('[data-nav-view="ASSETS"]').click();
+setValue("#assetCategory", "US");
+setValue("#assetName", "Microsoft Corporation");
+setValue("#assetTicker", "MSFT");
+setValue("#assetQuantity", "1");
+setValue("#assetAveragePrice", "400");
+submitAsset();
+const snapshotsBeforeMissingPrice = JSON.parse(
+  window.localStorage.getItem("finance-ledger-retirement-v1")
+).snapshots.length;
+expectAlert(
+  () => window.document.querySelector("#snapshotBtn").click(),
+  /가격이 없는 보유 자산.*US:MSFT.*조회 기록을 저장하지 않았습니다/
+);
+assert.equal(
+  JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1")).snapshots.length,
+  snapshotsBeforeMissingPrice
+);
+
+function installSnapshotGuardStubs(testWindow) {
+  testWindow.HTMLCanvasElement.prototype.getContext = () => ({
+    arc() {},
+    beginPath() {},
+    clearRect() {},
+    closePath() {},
+    createLinearGradient: () => ({ addColorStop() {} }),
+    fill() {},
+    fillRect() {},
+    fillText() {},
+    lineTo() {},
+    measureText: (text) => ({ width: String(text).length * 7 }),
+    moveTo() {},
+    rect() {},
+    restore() {},
+    roundRect() {},
+    save() {},
+    setLineDash() {},
+    setTransform() {},
+    stroke() {},
+    strokeRect() {}
+  });
+  testWindow.HTMLElement.prototype.scrollIntoView = () => {};
+  testWindow.confirm = () => true;
+  testWindow.firebaseConfig = {};
+}
+
+async function runSnapshotGuardScenario({ assets, priceData, failPrices = false }) {
+  const scenarioDom = new JSDOM(html, {
+    pretendToBeVisual: true,
+    runScripts: "outside-only",
+    url: "http://localhost/"
+  });
+  const scenarioWindow = scenarioDom.window;
+  const alerts = [];
+  installSnapshotGuardStubs(scenarioWindow);
+  scenarioWindow.alert = (message) => alerts.push(String(message));
+  scenarioWindow.console.error = () => {};
+  scenarioWindow.localStorage.setItem(
+    "finance-ledger-retirement-v1",
+    JSON.stringify({ assets, snapshots: [], retirement: {} })
+  );
+  scenarioWindow.fetch = failPrices
+    ? async () => {
+        throw new TypeError("prices unavailable");
+      }
+    : async () => ({
+        ok: true,
+        json: async () => priceData
+      });
+
+  scenarioWindow.eval(appCode);
+  await new Promise((resolve) => scenarioWindow.setTimeout(resolve, 20));
+  scenarioWindow.document.querySelector("#snapshotBtn").click();
+
+  const stored = JSON.parse(scenarioWindow.localStorage.getItem("finance-ledger-retirement-v1"));
+  const notice = scenarioWindow.document.querySelector("#appNotice").textContent;
+  scenarioWindow.close();
+  return { alerts, notice, stored };
+}
+
+const noAssetsGuard = await runSnapshotGuardScenario({
+  assets: [],
+  priceData: {
+    generatedAt: "2026-07-30T00:00:00.000Z",
+    fx: { USDKRW: { date: "2026-07-30", rate: 1300 } },
+    prices: { KRX: {}, US: {} }
+  }
+});
+assert.match(noAssetsGuard.alerts[0], /자산을 먼저 등록/);
+assert.equal(noAssetsGuard.stored.snapshots.length, 0);
+
+const unloadedPriceGuard = await runSnapshotGuardScenario({
+  assets: [
+    {
+      id: "cash-only",
+      name: "현금",
+      type: "CASH",
+      amount: 1000000
+    }
+  ],
+  priceData: null,
+  failPrices: true
+});
+assert.match(unloadedPriceGuard.alerts[0], /가격표를 아직 불러오지 못했습니다/);
+assert.equal(unloadedPriceGuard.stored.snapshots.length, 0);
+
+const missingFxGuard = await runSnapshotGuardScenario({
+  assets: [
+    {
+      id: "us-aapl-no-fx",
+      name: "Apple Inc.",
+      ticker: "AAPL",
+      type: "US",
+      quantity: 1,
+      averagePrice: 180
+    }
+  ],
+  priceData: {
+    generatedAt: "2026-07-30T00:00:00.000Z",
+    prices: {
+      KRX: {},
+      US: {
+        AAPL: { close: 190, date: "2026-07-30", name: "Apple Inc." }
+      }
+    }
+  }
+});
+assert.match(missingFxGuard.alerts[0], /USD\/KRW 환율이 없습니다/);
+assert.equal(missingFxGuard.stored.snapshots.length, 0);
+
+const staleCloseWarning = await runSnapshotGuardScenario({
+  assets: [
+    {
+      id: "krx-stale-close",
+      name: "오래된 종가",
+      ticker: "005930",
+      type: "KRX",
+      quantity: 1,
+      averagePrice: 70000
+    }
+  ],
+  priceData: {
+    generatedAt: "2099-07-30T00:00:00.000Z",
+    fx: { USDKRW: { date: "2099-07-30", rate: 1300 } },
+    prices: {
+      KRX: {
+        "005930": { close: 74000, date: "2000-01-01", name: "오래된 종가" }
+      },
+      US: {}
+    }
+  }
+});
+assert.equal(staleCloseWarning.alerts.length, 0);
+assert.equal(staleCloseWarning.stored.snapshots.length, 1);
+assert.match(staleCloseWarning.notice, /보유 종목 종가 1개가 최대 .*일 전 기준/);
+
+const undatedCloseWarning = await runSnapshotGuardScenario({
+  assets: [
+    {
+      id: "krx-undated-close",
+      name: "기준일 없는 종가",
+      ticker: "005930",
+      type: "KRX",
+      quantity: 1,
+      averagePrice: 70000
+    }
+  ],
+  priceData: {
+    generatedAt: "2099-07-30T00:00:00.000Z",
+    fx: { USDKRW: { date: "2099-07-30", rate: 1300 } },
+    prices: {
+      KRX: {
+        "005930": { close: 74000, name: "기준일 없는 종가" }
+      },
+      US: {}
+    }
+  }
+});
+assert.equal(undatedCloseWarning.alerts.length, 0);
+assert.equal(undatedCloseWarning.stored.snapshots.length, 1);
+assert.match(undatedCloseWarning.notice, /종가 1개의 기준일을 확인할 수 없습니다/);
+
+{
+  const xssDom = new JSDOM(html, {
+    pretendToBeVisual: true,
+    runScripts: "outside-only",
+    url: "http://localhost/"
+  });
+  const xssWindow = xssDom.window;
+  installSnapshotGuardStubs(xssWindow);
+  xssWindow.alert = () => {};
+  xssWindow.console.error = () => {};
+  xssWindow.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      generatedAt: "2026-07-30T00:00:00.000Z",
+      fx: { USDKRW: { date: "2026-07-30", rate: 1300 } },
+      prices: { KRX: {}, US: {} },
+      errors: []
+    })
+  });
+  const maliciousIds = {
+    asset: 'asset-id" data-injected="asset',
+    journal: 'journal-id" data-injected="journal',
+    trade: 'trade-id" data-injected="trade',
+    snapshot: 'snapshot-id" data-injected="snapshot'
+  };
+  xssWindow.localStorage.setItem("finance-ledger-retirement-v1", JSON.stringify({
+    assets: [{ id: maliciousIds.asset, name: "검증 현금", type: "CASH", amount: 1000000 }],
+    tradeJournalEntries: [{
+      id: maliciousIds.journal,
+      name: "검증 일지",
+      date: "2026-07-30",
+      action: "WATCH",
+      status: "OPEN"
+    }],
+    realizedTrades: [{
+      id: maliciousIds.trade,
+      name: "검증 매도",
+      soldAt: "2026-07-30",
+      quantity: 1,
+      sellPrice: 1000,
+      grossAmount: 1000,
+      realizedGain: 100
+    }],
+    snapshots: [{
+      id: maliciousIds.snapshot,
+      createdAt: "2026-07-30T00:00:00.000Z",
+      total: 1000000,
+      note: "검증"
+    }],
+    retirement: {}
+  }));
+
+  xssWindow.eval(appCode);
+  await new Promise((resolve) => xssWindow.setTimeout(resolve, 20));
+
+  assert.equal(xssWindow.document.querySelector("[data-injected]"), null);
+  const renderedIds = new Set(
+    [...xssWindow.document.querySelectorAll("[data-id]")].map((element) => element.dataset.id)
+  );
+  assert.equal(renderedIds.has(maliciousIds.asset), true);
+  assert.equal(renderedIds.has(maliciousIds.journal), true);
+  assert.equal(renderedIds.has(maliciousIds.trade), true);
+  assert.equal(
+    xssWindow.document.querySelector("[data-history-delete]").dataset.historyDelete,
+    maliciousIds.snapshot
+  );
+  xssDom.window.close();
+}

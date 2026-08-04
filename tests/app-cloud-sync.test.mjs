@@ -46,6 +46,13 @@ window.fetch = async () => ({
   ok: true,
   json: async () => ({
     generatedAt: "2026-05-19T00:00:00.000Z",
+    fx: {
+      USDKRW: {
+        date: "2026-05-18",
+        rate: 1300,
+        source: "yfinance KRW=X"
+      }
+    },
     prices: {
       KRX: {
         "005930": {
@@ -54,7 +61,13 @@ window.fetch = async () => ({
           source: "KRX"
         }
       },
-      US: {}
+      US: {
+        TSLA: {
+          close: 250,
+          date: "2026-05-18",
+          source: "yfinance"
+        }
+      }
     }
   })
 });
@@ -117,18 +130,23 @@ window.localStorage.setItem(
 window.localStorage.setItem(
   "finance-ledger-retirement-v1:user:alice",
   JSON.stringify({
-    assets: [
-      {
-        id: "stale-user-asset",
-        name: "이전 계정 캐시",
-        ticker: "TSLA",
-        type: "US",
-        account: "오래된 캐시",
-        quantity: 1,
-        averagePrice: 200
-      }
-    ],
+    assets: [],
     snapshots: [],
+    retirementScenarios: [{
+      id: "local-plan",
+      name: "로컬 은퇴 계획",
+      input: {
+        currentAge: 35,
+        retireAge: 55,
+        lifeAge: 90,
+        currentInvestable: 0,
+        monthlyInvest: 1000000,
+        monthlySpend: 3500000,
+        inflationRate: 2,
+        postReturnRate: 3.5
+      },
+      updatedAt: "2026-07-30T00:00:00.000Z"
+    }],
     retirement: {}
   })
 );
@@ -151,7 +169,17 @@ function submitAsset() {
 }
 
 assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드: alice@example.com");
-assert.equal(writes.filter((write) => write.path === "users/alice/financeData/primary").length, 0);
+const initialUserWrite = writes.filter((write) => write.path === "users/alice/financeData/primary");
+assert.equal(initialUserWrite.length, 1);
+assert.equal(initialUserWrite[0].data.revision, 1);
+assert.equal(initialUserWrite[0].data.retirementScenarios[0].id, "local-plan");
+assert.equal(initialUserWrite[0].options.merge, false);
+assert.equal(
+  JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1:user:alice"))
+    .retirementScenarios[0].id,
+  "local-plan"
+);
+writes.length = 0;
 window.document.querySelector('[data-nav-view="ASSETS"]').click();
 assert.doesNotMatch(window.document.querySelector("#assetRows").textContent, /게스트 로컬 자산/);
 assert.doesNotMatch(window.document.querySelector("#assetRows").textContent, /이전 계정 캐시/);
@@ -180,8 +208,11 @@ setValue("#monthlySpend", "4200000");
 await new Promise((resolve) => window.setTimeout(resolve, 10));
 
 const lastWrite = writes.filter((write) => write.path === "users/alice/financeData/primary").at(-1);
-assert.equal(lastWrite.options.merge, true);
+assert.equal(lastWrite.options.merge, false);
 assert.equal(lastWrite.path, "users/alice/financeData/primary");
+assert.equal(lastWrite.data.schemaVersion, 2);
+assert.equal(lastWrite.data.revision >= 1, true);
+assert.equal(lastWrite.data.meta.cloudRevision, lastWrite.data.revision);
 assert.equal(lastWrite.data.assets.length, 2);
 assert.equal(lastWrite.data.assets[0].ticker, "005930");
 assert.equal(lastWrite.data.assets[0].type, "KRX");
@@ -190,14 +221,21 @@ assert.equal(lastWrite.data.assets[0].currentPrice, undefined);
 assert.equal(lastWrite.data.assets[1].ticker, "TSLA");
 assert.equal(lastWrite.data.assets[1].type, "US");
 assert.equal(lastWrite.data.snapshots.length, 1);
-assert.equal(lastWrite.data.snapshots[0].total, 222000);
+assert.equal(lastWrite.data.snapshots[0].total, 872000);
+assert.equal(lastWrite.data.snapshots[0].assets, undefined);
+assert.deepEqual(
+  Object.keys(lastWrite.data.snapshots[0]).sort(),
+  ["createdAt", "id", "note", "total", "typeTotals"]
+);
 assert.equal(lastWrite.data.retirement.monthlySpend, 4200000);
 assert.match(lastWrite.data.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
 const userLocalState = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1:user:alice"));
+assert.equal(userLocalState.schemaVersion, 2);
 assert.equal(userLocalState.assets.length, 2);
 assert.equal(userLocalState.assets[0].ticker, "005930");
 
-const priceRequestWrite = writes.filter((write) => write.path === "priceRequests/us").at(-1);
-assert.deepEqual(priceRequestWrite.data.tickers.__arrayUnion, ["TSLA"]);
-assert.equal(priceRequestWrite.options.merge, true);
-assert.match(priceRequestWrite.data.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
+assert.equal(
+  writes.some((write) => write.path.startsWith("priceRequests/")),
+  false,
+  "client holdings must not be copied into a shared price-request document"
+);

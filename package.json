@@ -5,13 +5,16 @@
   "private": true,
   "scripts": {
     "check:js": "node --check app.js",
+    "test:cloud-conflict": "node tests/app-cloud-conflict.test.mjs",
     "test:cloud": "node tests/app-cloud-sync.test.mjs",
     "test:cloud-prices": "node tests/app-cloud-prices.test.mjs",
+    "test:data": "node tests/app-data-durability.test.mjs",
     "test:price-fallback": "node tests/app-price-fallback.test.mjs",
     "test:prices": "node tests/app-prices.test.mjs",
+    "test:symbols": "node tests/app-symbols.test.mjs",
     "test:price-requests": "python3 tests/generate-prices-requests.test.py",
-    "test:firestore": "JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH firebase emulators:exec --only firestore \"node tests/firestore-rules.test.mjs\"",
-    "test": "npm run check:js && npm run test:prices && npm run test:price-fallback && npm run test:cloud && npm run test:cloud-prices && npm run test:price-requests && npm run test:firestore"
+    "test:firestore": "firebase emulators:exec --only firestore \"node tests/firestore-rules.test.mjs\"",
+    "test": "npm run check:js && npm run test:prices && npm run test:price-fallback && npm run test:symbols && npm run test:cloud && npm run test:cloud-conflict && npm run test:cloud-prices && npm run test:data && npm run test:price-requests && npm run test:firestore"
   },
   "repository": {
     "type": "git",
@@ -27,6 +30,7 @@
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.1",
     "firebase": "^12.13.0",
+    "firebase-tools": "^15.25.0",
     "jsdom": "^29.1.1"
   }
 }

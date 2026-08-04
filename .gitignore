@@ -25,6 +25,7 @@ _site/
 
 # Generated app data
 prices.json
+symbols.json
 backups/
 
 # Python cache
