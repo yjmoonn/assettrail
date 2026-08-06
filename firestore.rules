@@ -10,6 +10,23 @@ service cloud.firestore {
       allow read, write: if signedInAs(userId);
     }
 
+    match /users/{userId}/financeData/primary/ledgers/{ledgerId}/events/{eventId} {
+      allow read: if signedInAs(userId);
+      allow create: if signedInAs(userId)
+        && request.resource.data.eventId == eventId;
+      allow update: if signedInAs(userId)
+        && request.resource.data == resource.data;
+      allow delete: if false;
+    }
+
+    match /users/{userId}/financeData/primary/backups/{backupId} {
+      allow read: if signedInAs(userId);
+      allow create: if signedInAs(userId);
+      allow update: if signedInAs(userId)
+        && request.resource.data == resource.data;
+      allow delete: if false;
+    }
+
     match /users/{userId}/analysisPreferences/primary {
       allow read, write: if signedInAs(userId);
     }

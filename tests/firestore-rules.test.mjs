@@ -9,6 +9,8 @@ import { deleteDoc, doc, getDoc, setDoc } from "firebase/firestore";
 
 const PROJECT_ID = "assettrail-6f676";
 const DATA_PATH = "users/alice/financeData/primary";
+const LEDGER_EVENT_PATH = `${DATA_PATH}/ledgers/ledger-1/events/event-1`;
+const LEDGER_BACKUP_PATH = `${DATA_PATH}/backups/schema-v4-revision-1`;
 const ANALYSIS_PATH = "users/alice/analysisRuns/run-1";
 const ANALYSIS_PREFERENCES_PATH = "users/alice/analysisPreferences/primary";
 const ANALYSIS_ENTITLEMENT_PATH = "users/alice/analysisEntitlements/primary";
@@ -36,6 +38,11 @@ try {
   const aliceDoc = doc(aliceDb, DATA_PATH);
   const bobViewOfAliceDoc = doc(bobDb, DATA_PATH);
   const guestViewOfAliceDoc = doc(guestDb, DATA_PATH);
+  const aliceLedgerEvent = doc(aliceDb, LEDGER_EVENT_PATH);
+  const bobViewOfAliceLedgerEvent = doc(bobDb, LEDGER_EVENT_PATH);
+  const guestViewOfAliceLedgerEvent = doc(guestDb, LEDGER_EVENT_PATH);
+  const aliceLedgerBackup = doc(aliceDb, LEDGER_BACKUP_PATH);
+  const unexpectedDirectEvent = doc(aliceDb, `${DATA_PATH}/events/event-1`);
   const aliceAnalysisDoc = doc(aliceDb, ANALYSIS_PATH);
   const bobViewOfAliceAnalysisDoc = doc(bobDb, ANALYSIS_PATH);
   const aliceAnalysisPreferences = doc(aliceDb, ANALYSIS_PREFERENCES_PATH);
@@ -74,6 +81,36 @@ try {
   await assertFails(setDoc(unexpectedFinanceDoc, { assets: [] }));
   await assertFails(setDoc(unexpectedAlicePath, { privateData: true }));
   await assertFails(getDoc(unexpectedAlicePath));
+
+  const eventPayload = {
+    eventId: "event-1",
+    type: "DEPOSIT",
+    accountId: "ACCOUNT:cash-1",
+    cashAssetId: "cash-1",
+    cashAccountId: "ACCOUNT:cash-1",
+    tradeDate: "2026-08-05",
+    settlementDate: "2026-08-05",
+    amount: 1000,
+    currency: "KRW",
+    fxRate: 1
+  };
+  await assertSucceeds(setDoc(aliceLedgerEvent, eventPayload));
+  assert.equal((await assertSucceeds(getDoc(aliceLedgerEvent))).data().eventId, "event-1");
+  await assertSucceeds(setDoc(aliceLedgerEvent, eventPayload));
+  await assertFails(setDoc(aliceLedgerEvent, { ...eventPayload, amount: 2000 }));
+  await assertFails(deleteDoc(aliceLedgerEvent));
+  await assertFails(getDoc(bobViewOfAliceLedgerEvent));
+  await assertFails(setDoc(bobViewOfAliceLedgerEvent, eventPayload));
+  await assertFails(getDoc(guestViewOfAliceLedgerEvent));
+  await assertFails(setDoc(guestViewOfAliceLedgerEvent, eventPayload));
+  await assertFails(setDoc(unexpectedDirectEvent, eventPayload));
+
+  const backupPayload = { sourceSchemaVersion: 4, sourceRevision: 1, createdAt: ISO_DATE, state: { assets: [] } };
+  await assertSucceeds(setDoc(aliceLedgerBackup, backupPayload));
+  await assertSucceeds(getDoc(aliceLedgerBackup));
+  await assertSucceeds(setDoc(aliceLedgerBackup, backupPayload));
+  await assertFails(setDoc(aliceLedgerBackup, { ...backupPayload, sourceRevision: 2 }));
+  await assertFails(deleteDoc(aliceLedgerBackup));
 
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), ANALYSIS_PATH), {

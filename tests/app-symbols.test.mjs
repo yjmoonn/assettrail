@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 
 const html = readFileSync("index.html", "utf8");
-const appCode = readFileSync("app.js", "utf8");
+const appCode = [readFileSync("ledger-engine.js", "utf8"), readFileSync("app.js", "utf8")].join("\n");
 const STORAGE_KEY = "finance-ledger-retirement-v1";
 const GENERATED_AT = "2026-08-03T00:00:00.000Z";
 const EXPECTED_SYMBOL_URL = `https://yjmoonn.github.io/assettrail/symbols.json?v=${encodeURIComponent(GENERATED_AT)}`;

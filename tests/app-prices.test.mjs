@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 
 const html = readFileSync("index.html", "utf8");
-const appCode = readFileSync("app.js", "utf8");
+const appCode = [readFileSync("ledger-engine.js", "utf8"), readFileSync("app.js", "utf8")].join("\n");
 
 const dom = new JSDOM(html, {
   pretendToBeVisual: true,
@@ -94,6 +94,7 @@ window.fetch = async () => ({
 
 window.eval(appCode);
 await new Promise((resolve) => window.setTimeout(resolve, 30));
+const today = window.eval("localDateInputValue()");
 
 const appNavItems = [...window.document.querySelectorAll(".app-nav .app-nav-item")];
 assert.equal(appNavItems[0].tabIndex, 0);
@@ -114,7 +115,7 @@ appNavItems.at(-1).dispatchEvent(new window.KeyboardEvent("keydown", { key: "Hom
 assert.equal(window.document.activeElement, appNavItems[0]);
 assert.equal(window.location.hash, "#dashboard");
 
-assert.equal(window.document.querySelectorAll("table > caption.sr-only").length, 3);
+assert.equal(window.document.querySelectorAll("table > caption.sr-only").length, 4);
 assert.equal(
   [...window.document.querySelectorAll("table thead th")].every((header) => header.getAttribute("scope") === "col"),
   true
@@ -234,7 +235,8 @@ const samsungMainRowBeforeBuy = [...window.document.querySelectorAll("#assetRows
 );
 samsungMainRowBeforeBuy.querySelector('[data-action="buy"]').click();
 assert.equal(window.document.querySelector("#buyFormPanel").hidden, false);
-setValue("#buyDate", "2026-06-19");
+setValue("#buyDate", today);
+setValue("#buySettlementDate", today);
 setValue("#buyQuantity", "5");
 setValue("#buyPrice", "80000");
 setValue("#buyFees", "0");
@@ -351,7 +353,7 @@ assert.match(window.document.querySelector("#historySummary").textContent, /기�
 assert.match(window.document.querySelector("#historySummary").textContent, /1회/);
 assert.match(window.document.querySelector("#appNotice").textContent, /조회 기록을 저장했습니다/);
 const savedAfterSnapshot = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
-assert.equal(savedAfterSnapshot.schemaVersion, 2);
+assert.equal(savedAfterSnapshot.schemaVersion, 5);
 assert.equal(savedAfterSnapshot.snapshots[0].assets, undefined);
 assert.deepEqual(
   Object.keys(savedAfterSnapshot.snapshots[0]).sort(),
@@ -383,12 +385,12 @@ setValue("#postReturnRate", "4.5");
 
 window.document.querySelector('[data-nav-view="DASHBOARD"]').click();
 assert.equal(window.document.querySelector("#priceStatus").textContent, "가격 5/19 09:00");
-assert.equal(window.document.querySelector("#totalAsset").textContent, "₩6,493,645");
+assert.equal(window.document.querySelector("#totalAsset").textContent, "₩6,093,645");
 assert.match(rows.join("\n"), /삼성전자 005930 KRX 국내 삼성증권 15 ₩1,110,000종가 74,000 · 5월 18일 ▲ \+₩10,000/);
 assert.match(rows.join("\n"), /삼성전자 005930 KRX 국내 미래에셋 5 ₩370,000종가 74,000 · 5월 18일 ▲ \+₩10,000/);
 assert.match(rows.join("\n"), /SOL 한국원자력SMR 0092B0 KRX 국내 연금저축 1 ₩19,645종가 19,645 · 5월 19일 ▲ \+₩9,645/);
 assert.match(rows.join("\n"), /Apple Inc\. AAPL US 미국 2 ₩494,000종가 \$190\.00 · 환율 1,300원 · 5월 18일 ▲ \+₩26,000/);
-assert.match(rows.join("\n"), /현금 CASH 현금 - ₩1,000,000/);
+assert.match(rows.join("\n"), /현금 CASH 현금 - ₩600,000/);
 assert.match(rows.join("\n"), /청년 적금 MANUAL 수동 적금 계좌 - ₩2,000,000/);
 assert.match(rows.join("\n"), /주택청약저축 MANUAL 수동 청약 계좌 - ₩300,000/);
 assert.match(rows.join("\n"), /IRP 대기자산 MANUAL 수동 IRP - ₩500,000/);
@@ -440,7 +442,7 @@ assert.deepEqual(
     { amount: 0, account: "미래에셋", currentPrice: undefined, name: "삼성전자", type: "KRX" },
     { amount: 0, account: "연금저축", currentPrice: undefined, name: "SOL 한국원자력SMR", type: "KRX" },
     { amount: 0, account: "", currentPrice: undefined, name: "Apple Inc.", type: "US" },
-    { amount: 1000000, account: "", currentPrice: undefined, name: "현금", type: "CASH" },
+    { amount: 600000, account: "", currentPrice: undefined, name: "현금", type: "CASH" },
     { amount: 2000000, account: "적금 계좌", currentPrice: undefined, name: "청년 적금", type: "MANUAL" },
     { amount: 300000, account: "청약 계좌", currentPrice: undefined, name: "주택청약저축", type: "MANUAL" },
     { amount: 500000, account: "IRP", currentPrice: undefined, name: "IRP 대기자산", type: "MANUAL" },
@@ -454,7 +456,8 @@ const appleRow = [...window.document.querySelectorAll("#assetRows tr")].find((ro
 );
 appleRow.querySelector('[data-action="sell"]').click();
 assert.equal(window.document.querySelector("#sellFormPanel").hidden, false);
-setValue("#sellDate", "2026-06-20");
+setValue("#sellDate", today);
+setValue("#sellSettlementDate", today);
 setValue("#sellQuantity", "1");
 setValue("#sellPrice", "200");
 setValue("#sellFxRate", "1300");
@@ -475,10 +478,14 @@ assert.equal(
 );
 assert.equal(savedAfterSell.assets.find((asset) => asset.ticker === "AAPL").quantity, 1);
 window.document.querySelector('[data-nav-view="JOURNAL"]').click();
-assert.equal(window.document.querySelector("#realizedTabPanel").hidden, false);
+assert.equal(window.document.querySelector("#ledgerTabPanel").hidden, false);
 assert.equal(window.document.querySelector("#journalTabPanel").hidden, true);
 const journalTab = window.document.querySelector("#investmentJournalTab");
 const realizedTab = window.document.querySelector("#investmentRealizedTab");
+const ledgerTab = window.document.querySelector("#investmentLedgerTab");
+assert.equal(ledgerTab.tabIndex, 0);
+realizedTab.click();
+assert.equal(window.document.querySelector("#realizedTabPanel").hidden, false);
 assert.equal(realizedTab.tabIndex, 0);
 assert.equal(journalTab.tabIndex, -1);
 realizedTab.focus();
@@ -498,7 +505,7 @@ assert.equal(window.document.activeElement, realizedTab);
 assert.equal(window.document.querySelector("#realizedTabPanel").hidden, false);
 assert.match(window.document.querySelector("#realizedTabPanel > .field-help").textContent, /환차손익은 포함하지 않습니다/);
 assert.match(window.document.querySelector("#realizedSummary").textContent, /누적 실현손익\s+₩24,500/);
-assert.match(window.document.querySelector("#realizedChart").getAttribute("aria-label"), /2026년 월별 실현손익 차트.*6월 ₩24,500/);
+assert.match(window.document.querySelector("#realizedChart").getAttribute("aria-label"), /2026년 월별 실현손익 차트.*8월 ₩24,500/);
 assert.match(window.document.querySelector("#realizedRows").textContent, /Apple Inc\./);
 assert.match(window.document.querySelector("#realizedRows").textContent, /\+₩24,500/);
 assert.match(window.document.querySelector("#realizedRows").textContent, /환차손익 제외/);

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 
 const html = readFileSync("index.html", "utf8");
-const appCode = readFileSync("app.js", "utf8");
+const appCode = [readFileSync("ledger-engine.js", "utf8"), readFileSync("app.js", "utf8")].join("\n");
 
 const dom = new JSDOM(html, {
   pretendToBeVisual: true,
@@ -132,6 +132,42 @@ window.localStorage.setItem(
   JSON.stringify({
     assets: [],
     snapshots: [],
+    watchlist: [{
+      id: "watch-local",
+      name: "Apple",
+      ticker: "AAPL",
+      type: "US"
+    }],
+    decisionProfiles: [{
+      id: "INSTRUMENT:US:AAPL",
+      subjectKey: "INSTRUMENT:US:AAPL",
+      name: "Apple",
+      ticker: "AAPL",
+      type: "US",
+      investmentRole: "STRUCTURAL_GROWTH",
+      thesis: "서비스 성장",
+      nextReviewAt: "2026-09-01",
+      riskTags: {
+        industry: ["소프트웨어"],
+        country: ["미국"],
+        aiValueChain: ["AI 응용 서비스"]
+      }
+    }],
+    policyProfile: {
+      allocationBands: {
+        domestic: { minPct: 35, targetPct: 45, maxPct: 55 },
+        overseas: { minPct: 25, targetPct: 35, maxPct: 45 },
+        cash: { minPct: 5, targetPct: 10, maxPct: 20 },
+        manual: { minPct: 0, targetPct: 10, maxPct: 20 }
+      },
+      riskBudgets: {
+        coreMinPct: 45,
+        satelliteMaxPct: 55,
+        aiStructuralMaxPct: 20,
+        cycleMaxPct: 20
+      }
+    },
+    contributionPlan: { mode: "MONTHLY", amount: 1500000 },
     retirementScenarios: [{
       id: "local-plan",
       name: "로컬 은퇴 계획",
@@ -172,6 +208,13 @@ assert.equal(window.document.querySelector("#syncStatus").textContent, "클라�
 const initialUserWrite = writes.filter((write) => write.path === "users/alice/financeData/primary");
 assert.equal(initialUserWrite.length, 1);
 assert.equal(initialUserWrite[0].data.revision, 1);
+assert.equal(initialUserWrite[0].data.watchlist[0].id, "watch-local");
+assert.equal(initialUserWrite[0].data.decisionProfiles[0].subjectKey, "INSTRUMENT:US:AAPL");
+assert.equal(initialUserWrite[0].data.decisionProfiles[0].thesis, "서비스 성장");
+assert.deepEqual(initialUserWrite[0].data.decisionProfiles[0].riskTags.aiValueChain, ["AI 응용 서비스"]);
+assert.equal(initialUserWrite[0].data.policyProfile.allocationBands.domestic.targetPct, 45);
+assert.equal(initialUserWrite[0].data.portfolioTargets.domestic, 45);
+assert.deepEqual(initialUserWrite[0].data.contributionPlan, { mode: "MONTHLY", amount: 1500000 });
 assert.equal(initialUserWrite[0].data.retirementScenarios[0].id, "local-plan");
 assert.equal(initialUserWrite[0].options.merge, false);
 assert.equal(
@@ -210,10 +253,12 @@ await new Promise((resolve) => window.setTimeout(resolve, 10));
 const lastWrite = writes.filter((write) => write.path === "users/alice/financeData/primary").at(-1);
 assert.equal(lastWrite.options.merge, false);
 assert.equal(lastWrite.path, "users/alice/financeData/primary");
-assert.equal(lastWrite.data.schemaVersion, 2);
+assert.equal(lastWrite.data.schemaVersion, 5);
 assert.equal(lastWrite.data.revision >= 1, true);
 assert.equal(lastWrite.data.meta.cloudRevision, lastWrite.data.revision);
 assert.equal(lastWrite.data.assets.length, 2);
+assert.equal(lastWrite.data.watchlist[0].ticker, "AAPL");
+assert.equal(lastWrite.data.decisionProfiles[0].investmentRole, "STRUCTURAL_GROWTH");
 assert.equal(lastWrite.data.assets[0].ticker, "005930");
 assert.equal(lastWrite.data.assets[0].type, "KRX");
 assert.equal(lastWrite.data.assets[0].account, "삼성증권");
@@ -230,7 +275,7 @@ assert.deepEqual(
 assert.equal(lastWrite.data.retirement.monthlySpend, 4200000);
 assert.match(lastWrite.data.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
 const userLocalState = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1:user:alice"));
-assert.equal(userLocalState.schemaVersion, 2);
+assert.equal(userLocalState.schemaVersion, 5);
 assert.equal(userLocalState.assets.length, 2);
 assert.equal(userLocalState.assets[0].ticker, "005930");
 
