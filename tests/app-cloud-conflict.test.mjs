@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 
 const html = readFileSync("index.html", "utf8");
-const appCode = readFileSync("app.js", "utf8");
+const appCode = [readFileSync("ledger-engine.js", "utf8"), readFileSync("app.js", "utf8")].join("\n");
 const STORAGE_KEY = "finance-ledger-retirement-v1";
 const USER_STORAGE_KEY = `${STORAGE_KEY}:user:alice`;
 
@@ -109,7 +109,10 @@ async function waitUntil(window, predicate, message) {
   assert.fail(message);
 }
 
-function createScenario(choice = null) {
+function createScenario(choice = null, {
+  local = localState(),
+  remote = remoteState()
+} = {}) {
   const dom = new JSDOM(html, {
     pretendToBeVisual: true,
     runScripts: "outside-only",
@@ -121,7 +124,7 @@ function createScenario(choice = null) {
   const objectUrls = [];
   const revokedUrls = [];
   const resolverCalls = [];
-  const remote = remoteState();
+  const eventDocs = new Map();
 
   window.HTMLCanvasElement.prototype.getContext = canvasContext;
   window.HTMLElement.prototype.scrollIntoView = () => {};
@@ -184,30 +187,58 @@ function createScenario(choice = null) {
     },
     firestore: {
       doc: (_db, ...path) => ({ path: path.join("/") }),
+      collection: (_db, ...path) => ({ path: path.join("/") }),
       getDoc: async () => ({
         exists: () => true,
         data: () => JSON.parse(JSON.stringify(remote))
       }),
+      getDocs: async (ref) => ({
+        forEach(callback) {
+          for (const [path, data] of eventDocs) {
+            if (!path.startsWith(`${ref.path}/`)) continue;
+            callback({ id: path.split("/").at(-1), data: () => JSON.parse(JSON.stringify(data)) });
+          }
+        }
+      }),
       getFirestore: () => ({ app: "test" }),
       arrayUnion: (...values) => ({ __arrayUnion: values }),
+      runTransaction: async (_db, update) => update({
+        get: async () => ({
+          exists: () => true,
+          data: () => JSON.parse(JSON.stringify(remote))
+        }),
+        set: (ref, data, options) => {
+          const saved = JSON.parse(JSON.stringify(data));
+          writes.push({ data: saved, options, path: ref.path });
+          if (ref.path === "users/alice/financeData/primary") {
+            Object.keys(remote).forEach((key) => delete remote[key]);
+            Object.assign(remote, saved);
+          }
+          if (ref.path.includes("/events/")) eventDocs.set(ref.path, saved);
+        }
+      }),
       setDoc: async (ref, data, options) => {
+        const saved = JSON.parse(JSON.stringify(data));
         writes.push({
-          data: JSON.parse(JSON.stringify(data)),
+          data: saved,
           options,
           path: ref.path
         });
+        if (ref.path.includes("/events/")) eventDocs.set(ref.path, saved);
       }
     }
   };
-  window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(localState()));
+  window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(local));
 
   window.eval(appCode);
 
   return {
     dom,
     downloads,
+    eventDocs,
     objectUrls,
     resolverCalls,
+    remote,
     revokedUrls,
     window,
     writes
@@ -224,7 +255,7 @@ function createScenario(choice = null) {
     "커스텀 충돌 선택창이 열리지 않았습니다."
   );
   assert.match(window.document.querySelector("#cloudConflictCloudMeta").textContent, /자산 1개 · 기록 1개/);
-  assert.match(window.document.querySelector("#cloudConflictLocalMeta").textContent, /자산 1개 · 기록 0개/);
+  assert.match(window.document.querySelector("#cloudConflictLocalMeta").textContent, /자산 1개 · 기록 1개/);
   assert.equal(window.document.querySelector(".app").hasAttribute("inert"), true);
   dialog.querySelector('[data-cloud-conflict-choice="later"]').click();
   await waitUntil(
@@ -239,27 +270,142 @@ function createScenario(choice = null) {
 }
 
 {
+  const futureLocal = {
+    ...localState(),
+    schemaVersion: 6,
+    assets: [{
+      id: "future-local-only",
+      name: "미래 버전 로컬 자산",
+      type: "CASH",
+      amount: 9000000
+    }]
+  };
+  const originalRaw = JSON.stringify(futureLocal);
+  const scenario = createScenario(null, { local: futureLocal });
+  const { window } = scenario;
+  await waitUntil(
+    window,
+    () => window.document.querySelector("#syncStatus").textContent === "데이터 버전 보호",
+    "미지원 로컬 스키마의 동기화 차단 상태가 표시되지 않았습니다."
+  );
+
+  assert.equal(window.localStorage.getItem(USER_STORAGE_KEY), originalRaw);
+  assert.equal(scenario.resolverCalls.length, 0);
+  assert.equal(scenario.writes.length, 0);
+  const monthlySpend = window.document.querySelector("#monthlySpend");
+  monthlySpend.value = "4,500,000";
+  monthlySpend.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await new Promise((resolve) => window.setTimeout(resolve, 20));
+  assert.equal(window.localStorage.getItem(USER_STORAGE_KEY), originalRaw);
+  assert.equal(scenario.writes.length, 0);
+  scenario.dom.window.close();
+}
+
+{
+  const futureRemote = {
+    ...remoteState(),
+    schemaVersion: 6,
+    assets: [{
+      id: "future-remote-only",
+      name: "미래 버전 클라우드 자산",
+      type: "CASH",
+      amount: 12000000
+    }]
+  };
+  const scenario = createScenario(null, { remote: futureRemote });
+  const { window } = scenario;
+  await waitUntil(
+    window,
+    () => window.document.querySelector("#syncStatus").textContent === "데이터 버전 보호",
+    "미지원 클라우드 스키마의 동기화 차단 상태가 표시되지 않았습니다."
+  );
+
+  assert.equal(scenario.resolverCalls.length, 0);
+  assert.equal(scenario.writes.length, 0);
+  const monthlySpend = window.document.querySelector("#monthlySpend");
+  monthlySpend.value = "4,600,000";
+  monthlySpend.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await new Promise((resolve) => window.setTimeout(resolve, 20));
+  assert.equal(scenario.writes.length, 0);
+  assert.equal(window.document.querySelector("#syncStatus").textContent, "데이터 버전 보호");
+  scenario.dom.window.close();
+}
+
+{
   const scenario = createScenario("download");
   const { window } = scenario;
   await waitUntil(
     window,
     () => JSON.parse(window.localStorage.getItem(USER_STORAGE_KEY)).assets[0]?.id === "remote-cash",
+    "원격 스키마 변경 전 초기 내려받기가 완료되지 않았습니다."
+  );
+  await waitUntil(
+    window,
+    () => scenario.remote.schemaVersion === 5,
+    "원격 legacy 데이터를 v5 원장으로 승격하지 못했습니다."
+  );
+  const writesAfterPromotion = scenario.writes.length;
+  scenario.remote.schemaVersion = 6;
+  const monthlySpend = window.document.querySelector("#monthlySpend");
+  monthlySpend.value = "4,700,000";
+  monthlySpend.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await waitUntil(
+    window,
+    () => window.document.querySelector("#syncStatus").textContent === "데이터 버전 보호",
+    "쓰기 직전 변경된 원격 스키마를 차단하지 못했습니다."
+  );
+
+  assert.equal(scenario.writes.length, writesAfterPromotion);
+  assert.equal(scenario.remote.schemaVersion, 6);
+  scenario.dom.window.close();
+}
+
+{
+  const scenario = createScenario("download");
+  const { window } = scenario;
+  await waitUntil(
+    window,
+    () => scenario.remote.schemaVersion === 5
+      && JSON.parse(window.localStorage.getItem(USER_STORAGE_KEY)).assets[0]?.id === "remote-cash",
     "클라우드 데이터 내려받기가 완료되지 않았습니다."
   );
 
   assert.equal(scenario.resolverCalls.length, 1);
   assert.equal(scenario.resolverCalls[0].local.assets[0].id, "local-cash");
   assert.equal(scenario.resolverCalls[0].cloud.assets[0].id, "remote-cash");
-  assert.equal(scenario.writes.filter((write) => write.path === "users/alice/financeData/primary").length, 0);
+  const promotedPrimaryWrites = scenario.writes.filter((write) => write.path === "users/alice/financeData/primary");
+  assert.equal(promotedPrimaryWrites.length, 1);
+  assert.equal(promotedPrimaryWrites[0].data.schemaVersion, 5);
+  assert.equal(scenario.writes.some((write) => write.path.includes("/backups/schema-v2-revision-7")), true);
+  assert.equal(scenario.writes.some((write) => write.path.includes("/ledgers/") && write.path.includes("/events/")), true);
   assert.equal(scenario.downloads.length, 1);
   assert.match(scenario.downloads[0], /^assettrail-before-cloud-sync-/);
   assert.deepEqual(scenario.revokedUrls, scenario.objectUrls);
   assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드: alice@example.com");
+  window.document.querySelector("#cloudSyncBtn").click();
+  await new Promise((resolve) => window.setTimeout(resolve, 30));
+  assert.equal(scenario.resolverCalls.length, 1, "the next pull after legacy promotion must not reopen a conflict");
+  assert.equal(
+    scenario.writes.filter((write) => write.path === "users/alice/financeData/primary").length,
+    1,
+    "the next pull after promotion must not write another revision"
+  );
   scenario.dom.window.close();
 }
 
 {
-  const scenario = createScenario("upload");
+  const scenario = createScenario("upload", {
+    remote: {
+      ...remoteState(),
+      schemaVersion: 5,
+      ledgerMeta: {
+        activeLedgerId: "ledger-remote-v5",
+        baselineDate: "2026-08-03",
+        eventCount: 0,
+        eventFingerprint: ""
+      }
+    }
+  });
   const { window } = scenario;
   await waitUntil(
     window,
@@ -273,6 +419,10 @@ function createScenario(choice = null) {
   assert.equal(financeWrites[0].data.assets[0].id, "local-cash");
   assert.equal(financeWrites[0].data.revision, 8);
   assert.equal(financeWrites[0].options.merge, false);
+  const remoteBackup = scenario.writes.find((write) => write.path.includes("/backups/conflict-v5-revision-7"));
+  assert.ok(remoteBackup, "forced v5 upload must preserve the previous remote primary");
+  assert.equal(remoteBackup.data.reason, "FORCED_CONFLICT_UPLOAD");
+  assert.equal(remoteBackup.data.state.ledgerMeta.activeLedgerId, "ledger-remote-v5");
   assert.equal(scenario.downloads.length, 1);
   assert.match(scenario.downloads[0], /^assettrail-before-cloud-sync-/);
   assert.deepEqual(scenario.revokedUrls, scenario.objectUrls);

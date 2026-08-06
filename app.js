@@ -1,12 +1,16 @@
 const STORAGE_KEY = "finance-ledger-retirement-v1";
-const STATE_SCHEMA_VERSION = 2;
+const STATE_SCHEMA_VERSION = 5;
 const CLOUD_DOC_ID = "primary";
 const CLOUD_PAYLOAD_MAX_BYTES = 900 * 1024;
+const CLOUD_TRANSACTION_EVENT_LIMIT = 400;
 const IMPORT_FILE_MAX_BYTES = 15 * 1024 * 1024;
 const IMPORT_LIMITS = {
   assets: 2000,
+  decisionProfiles: 4000,
+  watchlist: 2000,
   realizedTrades: 10000,
   tradeJournalEntries: 10000,
+  events: 50000,
   snapshots: 10000,
   retirementScenarios: 200
 };
@@ -15,6 +19,7 @@ const IMPORT_STRING_LIMITS = {
   short: 500,
   note: 10000
 };
+const DECISION_MIGRATION_CONFLICT_LIMIT = IMPORT_LIMITS.assets + IMPORT_LIMITS.watchlist + 1;
 const PRICE_FILE_PATH = "prices.json";
 const PUBLIC_PRICE_FILE_URL = "https://yjmoonn.github.io/assettrail/prices.json";
 const SYMBOL_FILE_PATH = "symbols.json";
@@ -66,6 +71,78 @@ const JOURNAL_STATUS_LABELS = {
   REVIEW: "복기필요",
   DONE: "완료"
 };
+const LEDGER_EVENT_LABELS = {
+  BUY: "매수",
+  SELL: "매도",
+  DEPOSIT: "입금",
+  WITHDRAWAL: "출금",
+  DIVIDEND: "배당",
+  INTEREST: "이자",
+  FEE: "수수료",
+  TAX: "세금",
+  SPLIT: "주식분할",
+  VALUATION: "평가조정",
+  FX: "환율조정",
+  OPENING_BALANCE: "기초잔액",
+  CANCEL: "취소"
+};
+const CASH_FLOW_EVENT_TYPES = new Set(["DEPOSIT", "WITHDRAWAL", "DIVIDEND", "INTEREST", "FEE", "TAX"]);
+const INVESTMENT_ROLE_LABELS = {
+  UNASSIGNED: "역할 미지정",
+  CORE: "코어",
+  STRUCTURAL_GROWTH: "구조적 성장",
+  CYCLE: "사이클",
+  TACTICAL: "전술",
+  SURVIVAL: "생존"
+};
+const INVESTMENT_HORIZON_LABELS = {
+  UNSET: "기간 미설정",
+  SHORT: "1년 이내",
+  MEDIUM: "1~3년",
+  LONG: "3년 이상"
+};
+const CONVICTION_LABELS = {
+  UNSET: "확신도 미설정",
+  LOW: "낮음",
+  MEDIUM: "보통",
+  HIGH: "높음"
+};
+const REVIEW_STATUS_LABELS = {
+  UNSET: "상태 미설정",
+  ACTIVE: "가설 유효",
+  REVIEW: "재검토",
+  INVALIDATED: "가설 훼손"
+};
+const RISK_TAG_DIMENSION_LABELS = {
+  industry: "업종",
+  country: "국가",
+  currency: "통화",
+  rate: "금리 민감도",
+  duration: "듀레이션",
+  customer: "고객·매출처",
+  aiValueChain: "AI 가치사슬"
+};
+const RISK_TAG_INPUT_NAMES = {
+  industry: "riskTagIndustry",
+  country: "riskTagCountry",
+  currency: "riskTagCurrency",
+  rate: "riskTagRate",
+  duration: "riskTagDuration",
+  customer: "riskTagCustomer",
+  aiValueChain: "riskTagAiValueChain"
+};
+const DEFAULT_RISK_BUDGETS = {
+  coreMinPct: 40,
+  satelliteMaxPct: 60,
+  aiStructuralMaxPct: 25,
+  cycleMaxPct: 25
+};
+const CONTRIBUTION_MODES = new Set(["ONE_TIME", "MONTHLY"]);
+const ALLOCATION_BUCKET_KEYS = ["domestic", "overseas", "cash", "manual"];
+const PERCENT_TARGET_TOLERANCE = 0.01;
+const PERCENT_CONSTRAINT_EPSILON = 1e-8;
+const RISK_TAGS_PER_DIMENSION_LIMIT = 30;
+const RISK_TAG_LENGTH_LIMIT = 80;
 const CHECK_ICON_GLYPHS = {
   price: "₩",
   review: "↻",
@@ -110,7 +187,13 @@ let cloud = {
   lastPushedFingerprint: null,
   lastErrorCode: null,
   conflictPending: false,
-  runTransaction: null
+  schemaBlocked: false,
+  schemaBlockSource: null,
+  schemaBlockVersion: null,
+  runTransaction: null,
+  collection: null,
+  getDocs: null,
+  knownEventIds: new Set()
 };
 let activeStorageKey = STORAGE_KEY;
 
@@ -189,6 +272,9 @@ const els = {
   sellForm: document.querySelector("#sellForm"),
   sellAssetId: document.querySelector("#sellAssetId"),
   sellDate: document.querySelector("#sellDate"),
+  sellSettlementDate: document.querySelector("#sellSettlementDate"),
+  sellCashAssetId: document.querySelector("#sellCashAssetId"),
+  sellCashHelp: document.querySelector("#sellCashHelp"),
   sellQuantity: document.querySelector("#sellQuantity"),
   sellPrice: document.querySelector("#sellPrice"),
   sellFxRateField: document.querySelector("#sellFxRateField"),
@@ -204,6 +290,9 @@ const els = {
   buyForm: document.querySelector("#buyForm"),
   buyAssetId: document.querySelector("#buyAssetId"),
   buyDate: document.querySelector("#buyDate"),
+  buySettlementDate: document.querySelector("#buySettlementDate"),
+  buyCashAssetId: document.querySelector("#buyCashAssetId"),
+  buyCashHelp: document.querySelector("#buyCashHelp"),
   buyQuantity: document.querySelector("#buyQuantity"),
   buyPrice: document.querySelector("#buyPrice"),
   buyFxRateField: document.querySelector("#buyFxRateField"),
@@ -229,11 +318,33 @@ const els = {
   realizedRows: document.querySelector("#realizedRows"),
   realizedYearFilter: document.querySelector("#realizedYearFilter"),
   investmentJournalTab: document.querySelector("#investmentJournalTab"),
+  investmentLedgerTab: document.querySelector("#investmentLedgerTab"),
   investmentRealizedTab: document.querySelector("#investmentRealizedTab"),
   journalTabPanel: document.querySelector("#journalTabPanel"),
+  ledgerTabPanel: document.querySelector("#ledgerTabPanel"),
   realizedTabPanel: document.querySelector("#realizedTabPanel"),
   journalTabCount: document.querySelector("#journalTabCount"),
+  ledgerTabCount: document.querySelector("#ledgerTabCount"),
   realizedTabCount: document.querySelector("#realizedTabCount"),
+  ledgerTypeFilter: document.querySelector("#ledgerTypeFilter"),
+  toggleCashFlowFormBtn: document.querySelector("#toggleCashFlowFormBtn"),
+  cashFlowFormPanel: document.querySelector("#cashFlowFormPanel"),
+  cashFlowForm: document.querySelector("#cashFlowForm"),
+  cashFlowType: document.querySelector("#cashFlowType"),
+  cashFlowDate: document.querySelector("#cashFlowDate"),
+  cashFlowSettlementDate: document.querySelector("#cashFlowSettlementDate"),
+  cashFlowCashAssetId: document.querySelector("#cashFlowCashAssetId"),
+  cashFlowAmount: document.querySelector("#cashFlowAmount"),
+  cashFlowCurrency: document.querySelector("#cashFlowCurrency"),
+  cashFlowFxRateField: document.querySelector("#cashFlowFxRateField"),
+  cashFlowFxRate: document.querySelector("#cashFlowFxRate"),
+  cashFlowSourceAssetId: document.querySelector("#cashFlowSourceAssetId"),
+  cashFlowMemo: document.querySelector("#cashFlowMemo"),
+  cashFlowPreview: document.querySelector("#cashFlowPreview"),
+  cancelCashFlowBtn: document.querySelector("#cancelCashFlowBtn"),
+  ledgerReconciliation: document.querySelector("#ledgerReconciliation"),
+  ledgerEventSummary: document.querySelector("#ledgerEventSummary"),
+  ledgerEventRows: document.querySelector("#ledgerEventRows"),
   historyChart: document.querySelector("#historyChart"),
   historyRows: document.querySelector("#historyRows"),
   historySummary: document.querySelector("#historySummary"),
@@ -285,8 +396,31 @@ const els = {
   targetOverseas: document.querySelector("#targetOverseas"),
   targetCash: document.querySelector("#targetCash"),
   targetManual: document.querySelector("#targetManual"),
+  bandDomesticMin: document.querySelector("#bandDomesticMin"),
+  bandDomesticMax: document.querySelector("#bandDomesticMax"),
+  bandOverseasMin: document.querySelector("#bandOverseasMin"),
+  bandOverseasMax: document.querySelector("#bandOverseasMax"),
+  bandCashMin: document.querySelector("#bandCashMin"),
+  bandCashMax: document.querySelector("#bandCashMax"),
+  bandManualMin: document.querySelector("#bandManualMin"),
+  bandManualMax: document.querySelector("#bandManualMax"),
   targetValidation: document.querySelector("#targetValidation"),
   rebalanceSummary: document.querySelector("#rebalanceSummary"),
+  contributionPlannerForm: document.querySelector("#contributionPlannerForm"),
+  contributionAmount: document.querySelector("#contributionAmount"),
+  contributionModeInputs: [...document.querySelectorAll('[name="contributionMode"]')],
+  contributionValidation: document.querySelector("#contributionValidation"),
+  contributionResult: document.querySelector("#contributionResult"),
+  contributionResultStatus: document.querySelector("#contributionResultStatus"),
+  riskBudgetForm: document.querySelector("#riskBudgetForm"),
+  riskBudgetCoreMin: document.querySelector("#riskBudgetCoreMin"),
+  riskBudgetSatelliteMax: document.querySelector("#riskBudgetSatelliteMax"),
+  riskBudgetAiMax: document.querySelector("#riskBudgetAiMax"),
+  riskBudgetCycleMax: document.querySelector("#riskBudgetCycleMax"),
+  riskBudgetValidation: document.querySelector("#riskBudgetValidation"),
+  riskBudgetSummary: document.querySelector("#riskBudgetSummary"),
+  riskExposureWarnings: document.querySelector("#riskExposureWarnings"),
+  manualExposureMap: document.querySelector("#manualExposureMap"),
   historyRange: document.querySelector("#historyRange"),
   snapshotNote: document.querySelector("#snapshotNote"),
   historyChartDescription: document.querySelector("#historyChartDescription"),
@@ -330,13 +464,42 @@ const els = {
   journalSummary: document.querySelector("#journalSummary"),
   journalList: document.querySelector("#journalList"),
   cancelJournalBtn: document.querySelector("#cancelJournalBtn"),
-  saveJournalBtn: document.querySelector("#saveJournalBtn")
+  saveJournalBtn: document.querySelector("#saveJournalBtn"),
+  decisionMetrics: document.querySelector("#decisionMetrics"),
+  decisionWarnings: document.querySelector("#decisionWarnings"),
+  economicPositionList: document.querySelector("#economicPositionList"),
+  watchlistFormStatus: document.querySelector("#watchlistFormStatus"),
+  watchlistForm: document.querySelector("#watchlistForm"),
+  watchlistId: document.querySelector("#watchlistId"),
+  watchlistName: document.querySelector("#watchlistName"),
+  watchlistTicker: document.querySelector("#watchlistTicker"),
+  watchlistType: document.querySelector("#watchlistType"),
+  watchlistRole: document.querySelector("#watchlistRole"),
+  watchlistHorizon: document.querySelector("#watchlistHorizon"),
+  watchlistConviction: document.querySelector("#watchlistConviction"),
+  watchlistThesis: document.querySelector("#watchlistThesis"),
+  watchlistReturnSource: document.querySelector("#watchlistReturnSource"),
+  watchlistKpis: document.querySelector("#watchlistKpis"),
+  watchlistCatalysts: document.querySelector("#watchlistCatalysts"),
+  watchlistInvalidation: document.querySelector("#watchlistInvalidation"),
+  watchlistDeceleration: document.querySelector("#watchlistDeceleration"),
+  watchlistNextReviewAt: document.querySelector("#watchlistNextReviewAt"),
+  watchlistMigrationConflict: document.querySelector("#watchlistMigrationConflict"),
+  saveWatchlistBtn: document.querySelector("#saveWatchlistBtn"),
+  cancelWatchlistBtn: document.querySelector("#cancelWatchlistBtn"),
+  watchlistList: document.querySelector("#watchlistList")
 };
 
 const initialStateLoad = loadState();
 const state = initialStateLoad.state;
 let storageWritesBlocked = !initialStateLoad.ok;
 let protectedStorageRaw = initialStateLoad.ok ? null : initialStateLoad.raw;
+document.addEventListener("submit", (event) => {
+  if (!storageWritesBlocked) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  reportStorageFailure("보호 중인 원본 데이터가 있어 변경을 저장할 수 없습니다. 올바른 백업 파일을 가져오거나 클라우드 데이터를 다시 불러오세요.");
+}, true);
 const uiState = {
   assetSearch: "",
   assetType: "ALL",
@@ -347,6 +510,7 @@ const uiState = {
   regionFilter: "ALL",
   journalFilter: "ALL",
   investmentRecordTab: "JOURNAL",
+  ledgerType: "ALL",
   activeView: "DASHBOARD",
   historyRange: "ALL",
   realizedYear: "ALL",
@@ -356,12 +520,34 @@ const uiState = {
 };
 let assetDetailOpener = null;
 
+function defaultAllocationBands(targets = {}) {
+  const fallbackTargets = { domestic: 50, overseas: 30, cash: 10, manual: 10 };
+  return Object.fromEntries(Object.keys(fallbackTargets).map((key) => {
+    const target = Number.isFinite(Number(targets[key])) ? Number(targets[key]) : fallbackTargets[key];
+    return [key, {
+      minPct: Math.max(0, target - 10),
+      targetPct: target,
+      maxPct: Math.min(100, target + 10)
+    }];
+  }));
+}
+
 function defaultState() {
+  const portfolioTargets = {
+    domestic: 50,
+    overseas: 30,
+    cash: 10,
+    manual: 10
+  };
   return {
     schemaVersion: STATE_SCHEMA_VERSION,
     assets: [],
+    decisionProfiles: [],
+    watchlist: [],
     realizedTrades: [],
     tradeJournalEntries: [],
+    events: [],
+    ledgerMeta: defaultLedgerMeta(),
     snapshots: [],
     meta: {
       cloudUpdatedAt: null,
@@ -370,11 +556,14 @@ function defaultState() {
       lastSyncDirection: "local",
       syncErrorCode: null
     },
-    portfolioTargets: {
-      domestic: 50,
-      overseas: 30,
-      cash: 10,
-      manual: 10
+    portfolioTargets,
+    policyProfile: {
+      allocationBands: defaultAllocationBands(portfolioTargets),
+      riskBudgets: { ...DEFAULT_RISK_BUDGETS }
+    },
+    contributionPlan: {
+      mode: "ONE_TIME",
+      amount: 0
     },
     retirementScenarios: [],
     retirement: {
@@ -390,6 +579,69 @@ function defaultState() {
   };
 }
 
+function ledgerEngine() {
+  const engine = window.AssetTrailLedgerEngine;
+  if (!engine) throw new Error("거래 원장 엔진을 불러오지 못했습니다.");
+  return engine;
+}
+
+function unwrapLedgerResult(result, context = "거래 원장") {
+  if (result?.ok && result.event) return result.event;
+  const details = (result?.errors || []).map((error) => error.message).filter(Boolean).join(" ");
+  throw new Error(`${context} 데이터가 올바르지 않습니다.${details ? ` ${details}` : ""}`);
+}
+
+function normalizeLedgerEvent(event) {
+  return unwrapLedgerResult(ledgerEngine().normalizeLedgerEvent(event), "거래 원장 이벤트");
+}
+
+function defaultLedgerMeta() {
+  return {
+    activeLedgerId: `ledger-${uid()}`,
+    baselineDate: null,
+    migratedAt: null,
+    migratedFromSchema: null
+  };
+}
+
+function normalizeLedgerMeta(value, fallback = defaultLedgerMeta()) {
+  const source = isPlainObject(value) ? value : {};
+  const activeLedgerId = String(source.activeLedgerId || fallback.activeLedgerId || `ledger-${uid()}`).slice(0, IMPORT_STRING_LIMITS.id);
+  return {
+    activeLedgerId,
+    baselineDate: normalizeDateKey(source.baselineDate || fallback.baselineDate) || null,
+    migratedAt: normalizeStoredDate(source.migratedAt) || fallback.migratedAt || null,
+    migratedFromSchema: Number.isSafeInteger(Number(source.migratedFromSchema))
+      ? Number(source.migratedFromSchema)
+      : fallback.migratedFromSchema ?? null
+  };
+}
+
+function ledgerBaselineDate(source = {}) {
+  return normalizeStoredDate(source?.meta?.lastSavedAt || source?.updatedAt)?.slice(0, 10)
+    || localDateInputValue();
+}
+
+function openingEventsFromAssets(assets, source = {}) {
+  const engine = ledgerEngine();
+  const migrationDate = ledgerBaselineDate(source);
+  return assets.map((asset, index) => unwrapLedgerResult(engine.createOpeningBalanceEvent(asset, {
+    eventId: `opening-${String(asset.id || index).replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 120)}-${index}`,
+    openingDate: migrationDate,
+    accountId: accountIdForAsset(asset),
+    ...(isMarketType(assetType(asset)) ? { instrumentKey: decisionSubjectKeyForAsset(asset) } : {}),
+    sourceSystem: "ASSETTRAIL_SCHEMA_MIGRATION",
+    sourceId: String(asset.id || `asset-${index}`),
+    note: "기존 보유 자산을 매수로 추정하지 않고 기초잔액으로 이전"
+  }), "기초잔액 이벤트"));
+}
+
+function normalizeLedgerEvents(source, assets) {
+  const engine = ledgerEngine();
+  if (Array.isArray(source.events)) return source.events.map(normalizeLedgerEvent);
+  return openingEventsFromAssets(assets, source);
+}
+
 function storageKeyForUser(user) {
   return user?.uid ? `${STORAGE_KEY}:user:${user.uid}` : STORAGE_KEY;
 }
@@ -403,7 +655,29 @@ function loadState(storageKey = activeStorageKey) {
     if (!raw) return { ok: true, state: fallback, error: null, raw: null };
     const saved = JSON.parse(raw);
     if (!isPlainObject(saved)) throw new Error("저장 데이터가 객체가 아닙니다.");
-    return { ok: true, state: migrateState(saved), error: null, raw };
+    const sourceVersion = Number(saved.schemaVersion || 1);
+    const migrated = migrateState(saved);
+    if (Number.isSafeInteger(sourceVersion) && sourceVersion < STATE_SCHEMA_VERSION) {
+      const backupKey = `${storageKey}:migration-backup:v${sourceVersion}-to-v${STATE_SCHEMA_VERSION}`;
+      try {
+        localStorage.setItem(backupKey, raw);
+        if (localStorage.getItem(backupKey) !== raw) throw new Error("마이그레이션 백업 검증에 실패했습니다.");
+        const migratedRaw = JSON.stringify(storageSafeState(migrated));
+        localStorage.setItem(storageKey, migratedRaw);
+        if (localStorage.getItem(storageKey) !== migratedRaw) throw new Error("v5 데이터 저장 검증에 실패했습니다.");
+      } catch (error) {
+        if (localStorage.getItem(storageKey) !== raw) {
+          try {
+            localStorage.setItem(storageKey, raw);
+          } catch (restoreError) {
+            console.error("AssetTrail migration rollback failed", restoreError);
+          }
+        }
+        reportStorageFailure("기존 데이터 백업 후 v5 전환 저장에 실패했습니다. 원본은 보존했으며 자동 저장을 중단했습니다.");
+        return { ok: false, state: migrated, error, raw };
+      }
+    }
+    return { ok: true, state: migrated, error: null, raw };
   } catch (error) {
     reportStorageFailure("로컬 데이터를 읽지 못했습니다. 브라우저 저장 권한과 저장 공간을 확인하세요.");
     return { ok: false, state: fallback, error, raw };
@@ -429,11 +703,18 @@ function hasFirebaseConfig() {
   return ["apiKey", "authDomain", "projectId", "appId"].every((key) => Boolean(firebaseConfig[key]));
 }
 
-function cloudSafeState(revision, updatedAt = new Date().toISOString()) {
+function cloudSafeState(revision, updatedAt = new Date().toISOString(), { activeLedgerId = null } = {}) {
   const safeState = storageSafeState();
+  const { events, ...primaryState } = safeState;
   const cloudRevision = normalizeRevision(revision);
   return {
-    ...safeState,
+    ...primaryState,
+    ledgerMeta: {
+      ...safeState.ledgerMeta,
+      ...(activeLedgerId ? { activeLedgerId } : {}),
+      eventCount: events.length,
+      eventFingerprint: ledgerEventFingerprint(events)
+    },
     revision: cloudRevision,
     meta: {
       ...safeState.meta,
@@ -445,17 +726,56 @@ function cloudSafeState(revision, updatedAt = new Date().toISOString()) {
   };
 }
 
-function storageSafeState() {
+function ledgerEventFingerprint(events = state.events) {
+  const canonical = JSON.stringify((events || [])
+    .map(normalizeLedgerEvent)
+    .sort(compareLedgerEventIds));
+  let h1 = 1779033703;
+  let h2 = 3144134277;
+  let h3 = 1013904242;
+  let h4 = 2773480762;
+  for (let index = 0; index < canonical.length; index += 1) {
+    const code = canonical.charCodeAt(index);
+    h1 = h2 ^ Math.imul(h1 ^ code, 597399067);
+    h2 = h3 ^ Math.imul(h2 ^ code, 2869860233);
+    h3 = h4 ^ Math.imul(h3 ^ code, 951274213);
+    h4 = h1 ^ Math.imul(h4 ^ code, 2716044179);
+  }
+  h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067);
+  h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233);
+  h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213);
+  h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179);
+  const digest = [h1, h2, h3, h4]
+    .map((value) => (value >>> 0).toString(16).padStart(8, "0"))
+    .join("");
+  return `cyrb128-v1:${digest}`;
+}
+
+function compareLedgerEventIds(a, b) {
+  const left = String(a?.eventId || "");
+  const right = String(b?.eventId || "");
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+function storageSafeState(source = state) {
   return {
     schemaVersion: STATE_SCHEMA_VERSION,
-    assets: state.assets.map(serializeAsset),
-    realizedTrades: state.realizedTrades.map(serializeRealizedTrade),
-    tradeJournalEntries: state.tradeJournalEntries.map(serializeTradeJournalEntry),
-    snapshots: state.snapshots.map(normalizeSnapshot),
-    meta: { ...state.meta },
-    portfolioTargets: { ...state.portfolioTargets },
-    retirementScenarios: state.retirementScenarios.map(normalizeRetirementScenario),
-    retirement: { ...state.retirement }
+    assets: source.assets.map(serializeAsset),
+    decisionProfiles: source.decisionProfiles.map(serializeDecisionProfile),
+    watchlist: source.watchlist.map(serializeWatchlistItem),
+    realizedTrades: source.realizedTrades.map(serializeRealizedTrade),
+    tradeJournalEntries: source.tradeJournalEntries.map(serializeTradeJournalEntry),
+    events: source.events.map(normalizeLedgerEvent),
+    ledgerMeta: normalizeLedgerMeta(source.ledgerMeta),
+    snapshots: source.snapshots.map(normalizeSnapshot),
+    meta: { ...source.meta },
+    portfolioTargets: { ...source.portfolioTargets },
+    policyProfile: normalizePolicyProfile(source.policyProfile, source.portfolioTargets),
+    contributionPlan: normalizeContributionPlan(source.contributionPlan),
+    retirementScenarios: source.retirementScenarios.map(normalizeRetirementScenario),
+    retirement: { ...source.retirement }
   };
 }
 
@@ -464,17 +784,42 @@ function migrateState(nextState) {
   const source = isPlainObject(nextState) ? nextState : {};
   assertSupportedStateSchema(source);
   const meta = isPlainObject(source.meta) ? source.meta : {};
+  const assets = Array.isArray(source.assets)
+    ? source.assets.map((asset, index) => {
+        const serialized = serializeAsset(asset);
+        if (!serialized.id) serialized.id = `legacy-asset-${index}`;
+        return normalizeAsset(serialized);
+      })
+    : [];
+  const watchlist = Array.isArray(source.watchlist)
+    ? source.watchlist.map((item, index) => normalizeWatchlistItem(item, index))
+    : [];
+  const decisionProfiles = migrateDecisionProfiles(source, assets, watchlist);
+  const legacyPortfolioTargets = normalizePortfolioTargets(source.portfolioTargets, fallback.portfolioTargets);
+  const policyProfile = normalizePolicyProfile(source.policyProfile, legacyPortfolioTargets);
+  const portfolioTargets = Object.fromEntries(
+    Object.entries(policyProfile.allocationBands).map(([key, band]) => [key, band.targetPct])
+  );
+  const sourceVersion = Number.isSafeInteger(Number(source.schemaVersion)) ? Number(source.schemaVersion) : 1;
+  if (sourceVersion >= 5 && !Array.isArray(source.events)) {
+    throw new Error("v5 거래 원장 이벤트 목록이 없습니다.");
+  }
+  const events = normalizeLedgerEvents(source, assets);
+  const ledgerMeta = normalizeLedgerMeta(source.ledgerMeta, {
+    ...defaultLedgerMeta(),
+    baselineDate: sourceVersion < STATE_SCHEMA_VERSION && assets.length ? ledgerBaselineDate(source) : null,
+    migratedAt: sourceVersion < STATE_SCHEMA_VERSION ? new Date().toISOString() : null,
+    migratedFromSchema: sourceVersion < STATE_SCHEMA_VERSION ? sourceVersion : null
+  });
   return {
     schemaVersion: STATE_SCHEMA_VERSION,
-    assets: Array.isArray(source.assets)
-      ? source.assets.map((asset, index) => {
-          const serialized = serializeAsset(asset);
-          if (!serialized.id) serialized.id = `legacy-asset-${index}`;
-          return normalizeAsset(serialized);
-        })
-      : [],
+    assets,
+    decisionProfiles,
+    watchlist,
     realizedTrades: Array.isArray(source.realizedTrades) ? source.realizedTrades.map(normalizeRealizedTrade) : [],
     tradeJournalEntries: Array.isArray(source.tradeJournalEntries) ? source.tradeJournalEntries.map(normalizeTradeJournalEntry) : [],
+    events,
+    ledgerMeta,
     snapshots: Array.isArray(source.snapshots) ? source.snapshots.map(normalizeSnapshot) : [],
     meta: {
       cloudUpdatedAt: normalizeStoredDate(source.updatedAt || meta.cloudUpdatedAt),
@@ -485,7 +830,9 @@ function migrateState(nextState) {
         : fallback.meta.lastSyncDirection,
       syncErrorCode: null
     },
-    portfolioTargets: normalizePortfolioTargets(source.portfolioTargets, fallback.portfolioTargets),
+    portfolioTargets,
+    policyProfile,
+    contributionPlan: normalizeContributionPlan(source.contributionPlan, fallback.contributionPlan),
     retirementScenarios: Array.isArray(source.retirementScenarios)
       ? source.retirementScenarios.map(normalizeRetirementScenario)
       : [],
@@ -497,16 +844,23 @@ function replaceState(nextState) {
   const migrated = migrateState(nextState);
   state.schemaVersion = STATE_SCHEMA_VERSION;
   state.assets = migrated.assets;
+  state.decisionProfiles = migrated.decisionProfiles;
+  state.watchlist = migrated.watchlist;
   state.realizedTrades = migrated.realizedTrades;
   state.tradeJournalEntries = migrated.tradeJournalEntries;
+  state.events = migrated.events;
+  state.ledgerMeta = migrated.ledgerMeta;
   state.snapshots = migrated.snapshots;
   state.meta = migrated.meta;
   state.portfolioTargets = migrated.portfolioTargets;
+  state.policyProfile = migrated.policyProfile;
+  state.contributionPlan = migrated.contributionPlan;
   state.retirementScenarios = migrated.retirementScenarios;
   state.retirement = migrated.retirement;
   applyPricesToAssets();
   hydrateRetirementInputs();
   hydratePortfolioTargetInputs();
+  hydrateActionSupportInputs();
   renderRetirementScenarioOptions();
   return true;
 }
@@ -544,6 +898,82 @@ function normalizePortfolioTargets(targets, fallback = defaultState().portfolioT
       return [key, Number.isFinite(value) ? value : fallbackValue];
     })
   );
+}
+
+function normalizedPercentage(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 && number <= 100 ? number : fallback;
+}
+
+function normalizeAllocationBands(bands, portfolioTargets) {
+  const targets = normalizePortfolioTargets(portfolioTargets, {
+    domestic: 50,
+    overseas: 30,
+    cash: 10,
+    manual: 10
+  });
+  const source = isPlainObject(bands) ? bands : {};
+  const defaults = defaultAllocationBands(targets);
+  const candidateTargets = Object.fromEntries(ALLOCATION_BUCKET_KEYS.map((key) => {
+    const band = isPlainObject(source[key]) ? source[key] : {};
+    return [key, normalizedPercentage(band.targetPct ?? band.target, targets[key])];
+  }));
+  const candidateTargetTotal = Object.values(candidateTargets).reduce((sum, value) => sum + value, 0);
+  const normalizedTargets = Math.abs(candidateTargetTotal - 100) <= PERCENT_TARGET_TOLERANCE ? candidateTargets : targets;
+  let normalized = Object.fromEntries(ALLOCATION_BUCKET_KEYS.map((key) => {
+    const band = isPlainObject(source[key]) ? source[key] : {};
+    const targetPct = normalizedTargets[key];
+    const fallbackBand = defaultAllocationBands(normalizedTargets)[key];
+    const minPct = normalizedPercentage(band.minPct ?? band.min, fallbackBand.minPct);
+    const maxPct = normalizedPercentage(band.maxPct ?? band.max, fallbackBand.maxPct);
+    return [key, {
+      minPct: minPct <= targetPct ? minPct : fallbackBand.minPct,
+      targetPct,
+      maxPct: maxPct >= targetPct ? maxPct : fallbackBand.maxPct
+    }];
+  }));
+  const minTotal = Object.values(normalized).reduce((sum, band) => sum + band.minPct, 0);
+  const maxTotal = Object.values(normalized).reduce((sum, band) => sum + band.maxPct, 0);
+  if (minTotal > 100 + PERCENT_CONSTRAINT_EPSILON || maxTotal < 100 - PERCENT_CONSTRAINT_EPSILON) {
+    const safeDefaults = defaultAllocationBands(normalizedTargets);
+    normalized = Object.fromEntries(ALLOCATION_BUCKET_KEYS.map((key) => [key, {
+      minPct: safeDefaults[key].minPct,
+      targetPct: normalizedTargets[key],
+      maxPct: safeDefaults[key].maxPct
+    }]));
+  }
+  return normalized;
+}
+
+function normalizeRiskBudgets(riskBudgets, fallback = DEFAULT_RISK_BUDGETS) {
+  const source = isPlainObject(riskBudgets) ? riskBudgets : {};
+  return Object.fromEntries(Object.entries(fallback).map(([key, fallbackValue]) => [
+    key,
+    normalizedPercentage(source[key], fallbackValue)
+  ]));
+}
+
+function normalizePolicyProfile(policyProfile, portfolioTargets) {
+  const source = isPlainObject(policyProfile) ? policyProfile : {};
+  return {
+    allocationBands: normalizeAllocationBands(source.allocationBands, portfolioTargets),
+    riskBudgets: normalizeRiskBudgets(source.riskBudgets)
+  };
+}
+
+function normalizeContributionPlan(contributionPlan, fallback = { mode: "ONE_TIME", amount: 0 }) {
+  const source = isPlainObject(contributionPlan) ? contributionPlan : {};
+  const rawMode = String(source.mode || fallback.mode || "ONE_TIME").trim().toUpperCase();
+  const rawAmount = Number(source.amount);
+  const fallbackAmount = Number(fallback.amount);
+  return {
+    mode: CONTRIBUTION_MODES.has(rawMode) ? rawMode : "ONE_TIME",
+    amount: Number.isSafeInteger(rawAmount) && rawAmount >= 0 && rawAmount <= 1e15
+      ? rawAmount
+      : Number.isSafeInteger(fallbackAmount) && fallbackAmount >= 0 && fallbackAmount <= 1e15
+        ? fallbackAmount
+        : 0
+  };
 }
 
 function normalizeRetirementState(retirement, fallback = defaultState().retirement) {
@@ -624,6 +1054,13 @@ function showUndoNotice(message, undo) {
     els.appNotice.hidden = true;
     els.appNotice.textContent = "";
   }, { once: true });
+}
+
+function showStatusNotice(message) {
+  if (!els.appNotice) return;
+  els.appNotice.hidden = false;
+  els.appNotice.setAttribute("role", "status");
+  els.appNotice.textContent = message;
 }
 
 async function initPrices() {
@@ -781,7 +1218,9 @@ async function initFirebase() {
     cloud.getRedirectResult = authModule.getRedirectResult;
     cloud.signOut = authModule.signOut;
     cloud.doc = firestoreModule.doc;
+    cloud.collection = firestoreModule.collection || null;
     cloud.getDoc = firestoreModule.getDoc;
+    cloud.getDocs = firestoreModule.getDocs || null;
     cloud.setDoc = firestoreModule.setDoc;
     cloud.runTransaction = firestoreModule.runTransaction || null;
     cloud.enabled = true;
@@ -829,7 +1268,11 @@ async function completeCloudSignIn(user) {
   cloud.user = user;
   cloud.docRef = null;
   cloud.lastPushedFingerprint = null;
+  cloud.knownEventIds = new Set();
   cloud.conflictPending = false;
+  cloud.schemaBlocked = false;
+  cloud.schemaBlockSource = null;
+  cloud.schemaBlockVersion = null;
   activeStorageKey = storageKeyForUser(user);
   const localLoad = loadState(activeStorageKey);
   storageWritesBlocked = !localLoad.ok;
@@ -843,7 +1286,148 @@ async function completeCloudSignIn(user) {
   }
 
   cloud.docRef = cloud.doc(cloud.db, "users", user.uid, "financeData", CLOUD_DOC_ID);
+  if (storageWritesBlocked) {
+    setCloudSchemaBlock("local");
+    updateAuthUi();
+    return;
+  }
   await pullCloudData();
+}
+
+function cloudEventRef(eventId, ledgerId = state.ledgerMeta?.activeLedgerId) {
+  if (!cloud.docRef || !cloud.doc || !ledgerId || !eventId) return null;
+  return cloud.doc(cloud.db, "users", cloud.user.uid, "financeData", CLOUD_DOC_ID, "ledgers", ledgerId, "events", eventId);
+}
+
+function cloudLedgerCollectionRef(ledgerId) {
+  if (!cloud.docRef || !cloud.collection || !ledgerId) return null;
+  return cloud.collection(cloud.db, "users", cloud.user.uid, "financeData", CLOUD_DOC_ID, "ledgers", ledgerId, "events");
+}
+
+function cloudBackupRef(backupId) {
+  if (!cloud.docRef || !cloud.doc || !backupId) return null;
+  return cloud.doc(cloud.db, "users", cloud.user.uid, "financeData", CLOUD_DOC_ID, "backups", backupId);
+}
+
+function cloudRemoteBackup(snapshot, remoteRevision, { forcedOverwrite = false } = {}) {
+  if (!snapshot?.exists?.()) return null;
+  const data = snapshot.data();
+  const version = Number(data?.schemaVersion || 1);
+  if (!Number.isSafeInteger(version)) return null;
+  if (version >= STATE_SCHEMA_VERSION && !forcedOverwrite) return null;
+  const kind = version < STATE_SCHEMA_VERSION ? "schema" : "conflict";
+  return {
+    id: `${kind}-v${version}-revision-${remoteRevision}`,
+    payload: {
+      sourceSchemaVersion: version,
+      sourceRevision: remoteRevision,
+      reason: version < STATE_SCHEMA_VERSION ? "SCHEMA_MIGRATION" : "FORCED_CONFLICT_UPLOAD",
+      createdAt: normalizeStoredDate(data?.updatedAt || data?.meta?.lastSavedAt) || "1970-01-01T00:00:00.000Z",
+      state: data
+    }
+  };
+}
+
+async function pullCloudEvents(cloudData) {
+  const ledgerId = String(cloudData?.ledgerMeta?.activeLedgerId || "");
+  if (!ledgerId) {
+    const events = Array.isArray(cloudData?.events) ? cloudData.events.map(normalizeLedgerEvent) : [];
+    return { events, complete: true };
+  }
+  const collectionRef = cloudLedgerCollectionRef(ledgerId);
+  const expectedCount = Number(cloudData?.ledgerMeta?.eventCount || 0);
+  if (!collectionRef || typeof cloud.getDocs !== "function") {
+    if (expectedCount === 0) {
+      return { events: [], complete: true };
+    }
+    throw createCloudSyncError(
+      "assettrail/cloud-ledger-unavailable",
+      "클라우드 원장 하위 컬렉션을 읽을 수 없어 동기화를 중단했습니다."
+    );
+  }
+  const snapshot = await cloud.getDocs(collectionRef);
+  const events = [];
+  snapshot.forEach((documentSnapshot) => {
+    events.push(normalizeLedgerEvent({
+      ...documentSnapshot.data(),
+      eventId: documentSnapshot.id || documentSnapshot.data()?.eventId
+    }));
+  });
+  const expectedFingerprint = String(cloudData?.ledgerMeta?.eventFingerprint || "");
+  const complete = events.length === expectedCount
+    && (!expectedFingerprint || ledgerEventFingerprint(events) === expectedFingerprint);
+  return { events, complete };
+}
+
+function cloudLedgerHead(data) {
+  return JSON.stringify({
+    revision: normalizeRevision(data?.revision ?? data?.meta?.cloudRevision),
+    schemaVersion: Number(data?.schemaVersion || 1),
+    activeLedgerId: String(data?.ledgerMeta?.activeLedgerId || ""),
+    eventCount: Number(data?.ledgerMeta?.eventCount || 0),
+    eventFingerprint: String(data?.ledgerMeta?.eventFingerprint || "")
+  });
+}
+
+async function readCloudStateConsistently(maxAttempts = 3) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const firstSnapshot = await cloud.getDoc(cloud.docRef);
+    if (!firstSnapshot.exists()) return { snapshot: firstSnapshot, data: null };
+    const firstData = firstSnapshot.data();
+    try {
+      assertSupportedStateSchema(firstData);
+    } catch {
+      const error = createCloudSyncError(
+        "assettrail/cloud-schema-unsupported",
+        `현재 앱이 지원하지 않는 클라우드 데이터 버전(${firstData?.schemaVersion ?? "알 수 없음"})입니다.`
+      );
+      error.schemaVersion = firstData?.schemaVersion;
+      throw error;
+    }
+    const pulled = await pullCloudEvents(firstData);
+    const secondSnapshot = await cloud.getDoc(cloud.docRef);
+    if (secondSnapshot.exists() && cloudLedgerHead(firstData) === cloudLedgerHead(secondSnapshot.data())) {
+      if (!pulled.complete) {
+        throw createCloudSyncError(
+          "assettrail/cloud-ledger-incomplete",
+          "클라우드 거래 원장이 완전하지 않아 기존 데이터를 유지했습니다."
+        );
+      }
+      const data = { ...secondSnapshot.data() };
+      if (data.ledgerMeta?.activeLedgerId || Array.isArray(data.events)) data.events = pulled.events;
+      cloud.knownEventIds = new Set(pulled.events.map((event) => event.eventId));
+      return { snapshot: secondSnapshot, data };
+    }
+  }
+  throw createCloudSyncError(
+    "assettrail/cloud-ledger-moving",
+    "다른 기기에서 원장이 계속 변경되어 세 번 확인 후 동기화를 중단했습니다."
+  );
+}
+
+function rotateLedgerGeneration() {
+  state.ledgerMeta = {
+    ...normalizeLedgerMeta(state.ledgerMeta),
+    activeLedgerId: `ledger-${uid()}`
+  };
+  cloud.knownEventIds = new Set();
+}
+
+function setCloudSchemaBlock(source, version = null) {
+  cloud.schemaBlocked = true;
+  cloud.schemaBlockSource = source;
+  cloud.schemaBlockVersion = Number.isSafeInteger(Number(version)) ? Number(version) : null;
+  cloud.lastErrorCode = "assettrail/cloud-schema-unsupported";
+  cancelCloudPush();
+  updateAuthUi();
+}
+
+function clearCloudSchemaBlock(source = null) {
+  if (source && cloud.schemaBlockSource !== source) return;
+  cloud.schemaBlocked = false;
+  cloud.schemaBlockSource = null;
+  cloud.schemaBlockVersion = null;
+  if (cloud.lastErrorCode === "assettrail/cloud-schema-unsupported") cloud.lastErrorCode = null;
 }
 
 function updateAuthUi() {
@@ -855,7 +1439,13 @@ function updateAuthUi() {
   if (!cloud.enabled) {
     setSyncStatus("로컬 저장");
   } else if (signedIn) {
-    if (cloud.conflictPending) {
+    if (cloud.schemaBlocked) {
+      setSyncStatus("데이터 버전 보호");
+      const versionText = cloud.schemaBlockVersion ? ` v${cloud.schemaBlockVersion}` : "";
+      setSyncDetail(cloud.schemaBlockSource === "remote"
+        ? `현재 앱이 지원하지 않는 클라우드 데이터${versionText}를 감지해 읽기·쓰기를 중단했습니다.`
+        : "이 기기의 저장 데이터를 안전하게 읽을 수 없어 클라우드 동기화를 중단했습니다.");
+    } else if (cloud.conflictPending) {
       setSyncStatus("동기화 충돌");
       setSyncDetail("클라우드와 이 기기 중 사용할 데이터를 선택해야 합니다.");
     } else {
@@ -869,7 +1459,7 @@ function updateAuthUi() {
 }
 
 function cloudConflictRecordCount(data) {
-  return ["snapshots", "realizedTrades", "tradeJournalEntries", "retirementScenarios"]
+  return ["decisionProfiles", "watchlist", "snapshots", "realizedTrades", "tradeJournalEntries", "events", "retirementScenarios"]
     .reduce((sum, key) => sum + (Array.isArray(data?.[key]) ? data[key].length : 0), 0);
 }
 
@@ -944,11 +1534,34 @@ function backupBeforeCloudConflictResolution() {
 
 async function pullCloudData() {
   if (!cloud.docRef) return false;
+  if (storageWritesBlocked) {
+    setCloudSchemaBlock("local");
+    return false;
+  }
   setSyncStatus("클라우드 확인중", true);
-  const snapshot = await cloud.getDoc(cloud.docRef);
+  let cloudRead;
+  try {
+    cloudRead = await readCloudStateConsistently();
+  } catch (error) {
+    if (error?.code === "assettrail/cloud-schema-unsupported") {
+      setCloudSchemaBlock("remote", error.schemaVersion);
+      return false;
+    }
+    throw error;
+  }
+  const { snapshot, data: consistentCloudData } = cloudRead;
   if (snapshot.exists()) {
-    const cloudData = snapshot.data();
-    assertSupportedStateSchema(cloudData);
+    const cloudData = consistentCloudData;
+    const remoteSchemaVersion = Number(cloudData?.schemaVersion || 1);
+    const remoteRevision = normalizeRevision(cloudData?.revision ?? cloudData?.meta?.cloudRevision);
+    try {
+      assertSupportedStateSchema(cloudData);
+    } catch (error) {
+      console.error(error);
+      setCloudSchemaBlock("remote", cloudData?.schemaVersion);
+      return false;
+    }
+    clearCloudSchemaBlock("remote");
     if (shouldWarnCloudConflict(cloudData)) {
       const choice = await chooseCloudConflict(cloudData);
       if (choice === "later") {
@@ -965,6 +1578,7 @@ async function pullCloudData() {
       }
       cloud.conflictPending = false;
       if (choice === "upload") {
+        rotateLedgerGeneration();
         await pushCloudData("upload", {
           expectedRemoteRevision: normalizeRevision(cloudData.revision ?? cloudData.meta?.cloudRevision)
         });
@@ -976,8 +1590,21 @@ async function pullCloudData() {
     storageWritesBlocked = false;
     protectedStorageRaw = null;
     state.meta.lastSyncDirection = "download";
-    cloud.lastPushedFingerprint = dataFingerprint(storageSafeState());
     render(false);
+    if (remoteSchemaVersion < STATE_SCHEMA_VERSION) {
+      try {
+        await pushCloudData("upload", { expectedRemoteRevision: remoteRevision });
+      } catch (error) {
+        console.error(error);
+        setSyncStatus("원장 이전 실패");
+        setSyncDetail("로컬 v5 데이터는 보존했지만 클라우드 원장 승격에 실패했습니다. 다시 동기화하세요.");
+        reportStorageFailure("클라우드 구버전 백업·원장 승격을 완료하지 못했습니다. 이 기기의 v5 데이터는 보존했습니다.");
+        updateAuthUi();
+        return false;
+      }
+    } else {
+      cloud.lastPushedFingerprint = dataFingerprint(storageSafeState());
+    }
   } else {
     state.meta.cloudUpdatedAt = null;
     state.meta.cloudRevision = 0;
@@ -995,16 +1622,19 @@ async function pullCloudData() {
 }
 
 async function pushCloudData(direction = "save", options = {}) {
-  if (!cloud.docRef) return;
-  const fingerprint = dataFingerprint(storageSafeState());
-  if (direction !== "upload" && fingerprint === cloud.lastPushedFingerprint) {
+  if (!cloud.docRef || storageWritesBlocked || cloud.schemaBlocked) {
+    updateAuthUi();
+    return false;
+  }
+  const fingerprintBeforeWrite = dataFingerprint(storageSafeState());
+  if (direction !== "upload" && fingerprintBeforeWrite === cloud.lastPushedFingerprint) {
     updateAuthUi();
     return;
   }
   setSyncStatus("클라우드 저장중", true);
   try {
     const payload = await writeCloudState(options);
-    cloud.lastPushedFingerprint = fingerprint;
+    cloud.lastPushedFingerprint = dataFingerprint(storageSafeState());
     cloud.lastErrorCode = null;
     state.meta.cloudUpdatedAt = payload.updatedAt;
     state.meta.cloudRevision = normalizeRevision(payload.revision);
@@ -1025,28 +1655,101 @@ async function writeCloudState({ expectedRemoteRevision = null } = {}) {
   const docRef = cloud.docRef;
   if (!docRef) throw createCloudSyncError("assettrail/cloud-unavailable", "클라우드 연결이 없습니다.");
   const localRevision = normalizeRevision(state.meta.cloudRevision);
+  const localEvents = state.events.map(normalizeLedgerEvent);
+  const pendingEvents = localEvents.filter((event) => !cloud.knownEventIds.has(event.eventId));
+  const writeEvent = (writer, event, ledgerId = state.ledgerMeta?.activeLedgerId) => {
+    const eventRef = cloudEventRef(event.eventId, ledgerId);
+    if (!eventRef) throw createCloudSyncError("assettrail/cloud-ledger-unavailable", "클라우드 원장 저장 경로를 만들 수 없습니다.");
+    writer.set(eventRef, event, { merge: false });
+  };
   if (typeof cloud.runTransaction === "function") {
-    return cloud.runTransaction(db, async (transaction) => {
+    const isBulkGeneration = pendingEvents.length > CLOUD_TRANSACTION_EVENT_LIMIT;
+    const writeLedgerId = isBulkGeneration ? `ledger-${uid()}` : state.ledgerMeta.activeLedgerId;
+    if (isBulkGeneration) {
+      if (typeof cloud.setDoc !== "function") {
+        throw createCloudSyncError("assettrail/cloud-ledger-unavailable", "대량 원장 이전을 지원하지 않는 클라우드 연결입니다.");
+      }
+      assertCloudPayloadSize(cloudSafeState(localRevision + 1, undefined, { activeLedgerId: writeLedgerId }));
+      for (let index = 0; index < localEvents.length; index += 100) {
+        const chunk = localEvents.slice(index, index + 100);
+        await Promise.all(chunk.map((event) => cloud.setDoc(
+          cloudEventRef(event.eventId, writeLedgerId),
+          event,
+          { merge: false }
+        )));
+      }
+    }
+    const transactionEvents = isBulkGeneration ? [] : pendingEvents;
+    const payload = await cloud.runTransaction(db, async (transaction) => {
       const remoteSnapshot = await transaction.get(docRef);
+      assertRemoteSchemaSupported(remoteSnapshot);
       const remoteRevision = revisionFromSnapshot(remoteSnapshot);
       assertRemoteRevisionIsCurrent(localRevision, remoteRevision, expectedRemoteRevision);
-      const payload = cloudSafeState(Math.max(localRevision, remoteRevision) + 1);
+      const payload = cloudSafeState(Math.max(localRevision, remoteRevision) + 1, undefined, {
+        activeLedgerId: writeLedgerId
+      });
       assertCloudPayloadSize(payload);
+      const backup = cloudRemoteBackup(remoteSnapshot, remoteRevision, {
+        forcedOverwrite: expectedRemoteRevision !== null
+      });
+      if (backup) transaction.set(cloudBackupRef(backup.id), backup.payload, { merge: false });
+      transactionEvents.forEach((event) => writeEvent(transaction, event, writeLedgerId));
       transaction.set(docRef, payload, { merge: false });
       return payload;
     });
+    if (isBulkGeneration) {
+      state.ledgerMeta.activeLedgerId = writeLedgerId;
+      cloud.knownEventIds = new Set(localEvents.map((event) => event.eventId));
+    } else {
+      pendingEvents.forEach((event) => cloud.knownEventIds.add(event.eventId));
+    }
+    return payload;
   }
 
   let remoteRevision = 0;
+  let remoteSnapshot = null;
   if (typeof cloud.getDoc === "function") {
-    const remoteSnapshot = await cloud.getDoc(docRef);
+    remoteSnapshot = await cloud.getDoc(docRef);
+    assertRemoteSchemaSupported(remoteSnapshot);
     remoteRevision = revisionFromSnapshot(remoteSnapshot);
   }
   assertRemoteRevisionIsCurrent(localRevision, remoteRevision, expectedRemoteRevision);
+  if (expectedRemoteRevision !== null && remoteSnapshot?.exists?.()) {
+    throw createCloudSyncError(
+      "assettrail/cloud-atomicity-required",
+      "원격 데이터를 보존하는 강제 업로드에는 Firestore transaction 지원이 필요합니다."
+    );
+  }
+  if (pendingEvents.length > CLOUD_TRANSACTION_EVENT_LIMIT) {
+    throw createCloudSyncError(
+      "assettrail/cloud-atomicity-required",
+      "대량 원장은 새 세대로 안전하게 전환해야 하므로 Firestore transaction 지원이 필요합니다."
+    );
+  }
   const payload = cloudSafeState(Math.max(localRevision, remoteRevision) + 1);
   assertCloudPayloadSize(payload);
+  const backup = cloudRemoteBackup(remoteSnapshot, remoteRevision);
+  if (backup) await cloud.setDoc(cloudBackupRef(backup.id), backup.payload, { merge: false });
+  for (let index = 0; index < pendingEvents.length; index += 100) {
+    const chunk = pendingEvents.slice(index, index + 100);
+    await Promise.all(chunk.map((event) => cloud.setDoc(cloudEventRef(event.eventId), event, { merge: false })));
+  }
   await cloud.setDoc(docRef, payload, { merge: false });
+  pendingEvents.forEach((event) => cloud.knownEventIds.add(event.eventId));
   return payload;
+}
+
+function assertRemoteSchemaSupported(snapshot) {
+  if (!snapshot?.exists?.()) return;
+  const remoteData = snapshot.data();
+  try {
+    assertSupportedStateSchema(remoteData);
+  } catch (error) {
+    throw createCloudSyncError(
+      "assettrail/cloud-schema-unsupported",
+      `현재 앱이 지원하지 않는 클라우드 데이터 버전(${remoteData?.schemaVersion ?? "알 수 없음"})이라 저장을 중단했습니다.`
+    );
+  }
 }
 
 function revisionFromSnapshot(snapshot) {
@@ -1098,8 +1801,19 @@ function exposeCloudSyncError(error) {
     setSyncDetail(error.message);
     return;
   }
+  if (code === "assettrail/cloud-schema-unsupported") {
+    setCloudSchemaBlock("remote");
+    setSyncDetail(error.message);
+    return;
+  }
   if (code === "assettrail/cloud-payload-too-large") {
     setSyncStatus("클라우드 용량 초과");
+    setSyncDetail(error.message);
+    reportStorageFailure(error.message);
+    return;
+  }
+  if (["assettrail/cloud-ledger-unavailable", "assettrail/cloud-ledger-incomplete", "assettrail/cloud-ledger-moving"].includes(code)) {
+    setSyncStatus("원장 동기화 중단");
     setSyncDetail(error.message);
     reportStorageFailure(error.message);
     return;
@@ -1118,7 +1832,7 @@ function cloudPushDelayMs() {
 }
 
 function scheduleCloudPush() {
-  if (!cloud.docRef || cloud.conflictPending) return;
+  if (!cloud.docRef || cloud.conflictPending || cloud.schemaBlocked || storageWritesBlocked) return;
   cloudPushPending = true;
   if (cloudPushTimer !== null) window.clearTimeout(cloudPushTimer);
   cloudPushTimer = window.setTimeout(() => {
@@ -1132,7 +1846,7 @@ async function flushCloudPush() {
     window.clearTimeout(cloudPushTimer);
     cloudPushTimer = null;
   }
-  if (cloud.conflictPending) {
+  if (cloud.conflictPending || cloud.schemaBlocked || storageWritesBlocked) {
     cloudPushPending = false;
     return;
   }
@@ -1191,11 +1905,16 @@ function localHasUserData() {
   const defaults = defaultState();
   return Boolean(
     state.assets.length
+    || state.decisionProfiles.length
+    || state.watchlist.length
     || state.realizedTrades.length
     || state.tradeJournalEntries.length
+    || state.events.length
     || state.snapshots.length
     || state.retirementScenarios.length
     || JSON.stringify(state.portfolioTargets) !== JSON.stringify(defaults.portfolioTargets)
+    || JSON.stringify(state.policyProfile) !== JSON.stringify(defaults.policyProfile)
+    || JSON.stringify(state.contributionPlan) !== JSON.stringify(defaults.contributionPlan)
     || JSON.stringify(state.retirement) !== JSON.stringify(defaults.retirement)
   );
 }
@@ -1203,10 +1922,16 @@ function localHasUserData() {
 function dataFingerprint(data) {
   return JSON.stringify({
     assets: (data.assets || []).map(normalizeAsset).map(serializeAsset),
+    decisionProfiles: (data.decisionProfiles || []).map(normalizeDecisionProfile).map(serializeDecisionProfile),
+    watchlist: (data.watchlist || []).map(normalizeWatchlistItem).map(serializeWatchlistItem),
     realizedTrades: (data.realizedTrades || []).map(normalizeRealizedTrade).map(serializeRealizedTrade),
     tradeJournalEntries: (data.tradeJournalEntries || []).map(normalizeTradeJournalEntry).map(serializeTradeJournalEntry),
+    events: (data.events || []).map(normalizeLedgerEvent).sort(compareLedgerEventIds),
+    ledgerMeta: normalizeLedgerMeta(data.ledgerMeta),
     snapshots: (data.snapshots || []).map(normalizeSnapshot),
     portfolioTargets: normalizePortfolioTargets(data.portfolioTargets),
+    policyProfile: normalizePolicyProfile(data.policyProfile, data.portfolioTargets),
+    contributionPlan: normalizeContributionPlan(data.contributionPlan),
     retirement: normalizeRetirementState(data.retirement),
     retirementScenarios: (data.retirementScenarios || []).map(normalizeRetirementScenario)
   });
@@ -1293,6 +2018,299 @@ function uid() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function normalizeEnum(value, labels, fallback) {
+  const key = String(value || fallback).trim().toUpperCase();
+  return Object.hasOwn(labels, key) ? key : fallback;
+}
+
+function normalizeDateKey(value) {
+  const key = String(value || "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return "";
+  const parsed = new Date(`${key}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === key ? key : "";
+}
+
+function normalizeRiskTagList(value) {
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[\n,]/)
+      : [];
+  const unique = new Map();
+  values.slice(0, RISK_TAGS_PER_DIMENSION_LIMIT * 2).forEach((entry) => {
+    const tag = String(entry || "").trim().replace(/\s+/g, " ").slice(0, RISK_TAG_LENGTH_LIMIT);
+    if (!tag) return;
+    const key = tag.toLocaleLowerCase("ko-KR");
+    if (!unique.has(key) && unique.size < RISK_TAGS_PER_DIMENSION_LIMIT) unique.set(key, tag);
+  });
+  return [...unique.values()];
+}
+
+function normalizeRiskTags(value) {
+  const source = isPlainObject(value) ? value : {};
+  return Object.fromEntries(Object.keys(RISK_TAG_DIMENSION_LABELS).map((key) => [
+    key,
+    normalizeRiskTagList(source[key])
+  ]));
+}
+
+function riskTagsHaveData(value) {
+  return Object.values(normalizeRiskTags(value)).some((tags) => tags.length);
+}
+
+function normalizeDecisionProfileFields(source) {
+  const profile = isPlainObject(source) ? source : {};
+  return {
+    investmentRole: normalizeEnum(profile.investmentRole || profile.role, INVESTMENT_ROLE_LABELS, "UNASSIGNED"),
+    thesis: String(profile.thesis || "").trim().slice(0, IMPORT_STRING_LIMITS.note),
+    returnSource: String(profile.returnSource || profile.expectedReturnSource || "").trim().slice(0, IMPORT_STRING_LIMITS.note),
+    horizon: normalizeEnum(profile.horizon, INVESTMENT_HORIZON_LABELS, "UNSET"),
+    conviction: normalizeEnum(profile.conviction, CONVICTION_LABELS, "UNSET"),
+    kpis: String(profile.kpis || profile.monitoringKpis || "").trim().slice(0, IMPORT_STRING_LIMITS.note),
+    catalysts: String(profile.catalysts || "").trim().slice(0, IMPORT_STRING_LIMITS.note),
+    invalidation: String(profile.invalidation || profile.invalidationRules || "").trim().slice(0, IMPORT_STRING_LIMITS.note),
+    deceleration: String(profile.deceleration || profile.decelerationRules || "").trim().slice(0, IMPORT_STRING_LIMITS.note),
+    nextReviewAt: normalizeDateKey(profile.nextReviewAt),
+    lastReviewedAt: normalizeDateKey(profile.lastReviewedAt),
+    reviewStatus: normalizeEnum(profile.reviewStatus, REVIEW_STATUS_LABELS, "UNSET")
+  };
+}
+
+function normalizeDecisionMigrationConflict(conflict, index = 0) {
+  const source = isPlainObject(conflict) ? conflict : {};
+  const sourceType = ["asset", "watchlist", "profile"].includes(source.sourceType)
+    ? source.sourceType
+    : "profile";
+  return {
+    sourceType,
+    sourceId: String(source.sourceId || `legacy-source-${index}`).trim().slice(0, IMPORT_STRING_LIMITS.id),
+    sourceName: String(source.sourceName || "").trim().slice(0, IMPORT_STRING_LIMITS.short),
+    account: String(source.account || "").trim().slice(0, IMPORT_STRING_LIMITS.short),
+    fields: {
+      ...normalizeDecisionProfileFields(source.fields),
+      riskTags: normalizeRiskTags(source.fields?.riskTags)
+    }
+  };
+}
+
+function normalizeDecisionMigrationConflicts(conflicts) {
+  if (!Array.isArray(conflicts)) return [];
+  const unique = new Map();
+  conflicts.slice(0, DECISION_MIGRATION_CONFLICT_LIMIT).forEach((conflict, index) => {
+    const normalized = normalizeDecisionMigrationConflict(conflict, index);
+    unique.set(JSON.stringify(normalized), normalized);
+  });
+  return [...unique.values()];
+}
+
+function decisionProfileFieldsFingerprint(source) {
+  return JSON.stringify({
+    ...normalizeDecisionProfileFields(source),
+    riskTags: normalizeRiskTags(source?.riskTags)
+  });
+}
+
+function decisionMigrationConflictFor(sourceType, rawSource, subject = {}) {
+  return normalizeDecisionMigrationConflict({
+    sourceType,
+    sourceId: subject.id || rawSource?.id,
+    sourceName: subject.name || rawSource?.name,
+    account: subject.account || rawSource?.account,
+    fields: rawSource
+  });
+}
+
+function hasDecisionProfileData(source) {
+  const profile = normalizeDecisionProfileFields(source);
+  return profile.investmentRole !== "UNASSIGNED"
+    || profile.horizon !== "UNSET"
+    || profile.conviction !== "UNSET"
+    || profile.reviewStatus !== "UNSET"
+    || [
+      profile.thesis,
+      profile.returnSource,
+      profile.kpis,
+      profile.catalysts,
+      profile.invalidation,
+      profile.deceleration,
+      profile.nextReviewAt,
+      profile.lastReviewedAt
+    ].some(Boolean)
+    || riskTagsHaveData(source?.riskTags);
+}
+
+function decisionSubjectKeyForAsset(asset) {
+  const type = assetType(asset);
+  const ticker = normalizeTicker(type, asset?.ticker);
+  if (isMarketType(type) && ticker) return `INSTRUMENT:${type}:${ticker}`;
+  return `ASSET:${String(asset?.id || "")}`;
+}
+
+function decisionSubjectKeyForWatchlist(item) {
+  const type = ["KRX", "US"].includes(String(item?.type || "").toUpperCase())
+    ? String(item.type).toUpperCase()
+    : "KRX";
+  return `INSTRUMENT:${type}:${normalizeTicker(type, item?.ticker)}`;
+}
+
+function normalizeDecisionProfile(profile, index = 0) {
+  const source = isPlainObject(profile) ? profile : {};
+  const subjectKey = String(source.subjectKey || source.id || `PROFILE:legacy-${index}`)
+    .trim()
+    .slice(0, IMPORT_STRING_LIMITS.short);
+  const type = ["KRX", "US", "CASH", "MANUAL"].includes(String(source.type || "").toUpperCase())
+    ? String(source.type).toUpperCase()
+    : "MANUAL";
+  return {
+    id: String(source.id || subjectKey).slice(0, IMPORT_STRING_LIMITS.short),
+    subjectKey,
+    name: String(source.name || "").trim().slice(0, IMPORT_STRING_LIMITS.short),
+    type,
+    ticker: normalizeTicker(type, source.ticker),
+    ...normalizeDecisionProfileFields(source),
+    riskTags: normalizeRiskTags(source.riskTags),
+    migrationConflicts: normalizeDecisionMigrationConflicts(source.migrationConflicts),
+    createdAt: normalizeStoredDate(source.createdAt) || new Date(0).toISOString(),
+    updatedAt: normalizeStoredDate(source.updatedAt) || new Date(0).toISOString()
+  };
+}
+
+function serializeDecisionProfile(profile) {
+  return normalizeDecisionProfile(profile);
+}
+
+function normalizeWatchlistItem(item, index = 0) {
+  const source = isPlainObject(item) ? item : {};
+  const rawType = String(source.type || "KRX").trim().toUpperCase();
+  const type = ["KRX", "US"].includes(rawType) ? rawType : "KRX";
+  return {
+    id: String(source.id || `legacy-watchlist-${index}`).trim().slice(0, IMPORT_STRING_LIMITS.id),
+    name: String(source.name || "").trim().slice(0, IMPORT_STRING_LIMITS.short),
+    ticker: normalizeTicker(type, source.ticker),
+    type,
+    createdAt: normalizeStoredDate(source.createdAt) || new Date(0).toISOString(),
+    updatedAt: normalizeStoredDate(source.updatedAt) || new Date(0).toISOString()
+  };
+}
+
+function serializeWatchlistItem(item) {
+  return normalizeWatchlistItem(item);
+}
+
+function migrateDecisionProfiles(source, assets, watchlist) {
+  const profiles = new Map();
+  const origins = new Map();
+  const addProfile = (profile, index) => {
+    const normalized = normalizeDecisionProfile(profile, index);
+    if (!normalized.subjectKey) return null;
+    profiles.set(normalized.subjectKey, normalized);
+    return normalized;
+  };
+
+  const mergeLegacyProfile = (profile, origin, index) => {
+    const normalized = normalizeDecisionProfile(profile, index);
+    const existing = profiles.get(normalized.subjectKey);
+    if (!existing) {
+      profiles.set(normalized.subjectKey, normalized);
+      origins.set(normalized.subjectKey, origin);
+      return;
+    }
+    if (decisionProfileFieldsFingerprint(existing) === decisionProfileFieldsFingerprint(normalized)) return;
+    const conflicts = [...existing.migrationConflicts];
+    const existingOrigin = origins.get(normalized.subjectKey)
+      || decisionMigrationConflictFor("profile", existing, existing);
+    conflicts.push(existingOrigin, origin);
+    profiles.set(normalized.subjectKey, normalizeDecisionProfile({
+      ...existing,
+      reviewStatus: existing.reviewStatus === "INVALIDATED" ? "INVALIDATED" : "REVIEW",
+      migrationConflicts: conflicts
+    }, index));
+  };
+
+  (Array.isArray(source.decisionProfiles) ? source.decisionProfiles : []).forEach((profile, index) => {
+    const normalized = addProfile(profile, index);
+    if (normalized) origins.set(
+      normalized.subjectKey,
+      decisionMigrationConflictFor("profile", profile, normalized)
+    );
+  });
+  (Array.isArray(source.assets) ? source.assets : []).forEach((rawAsset, index) => {
+    if (!hasDecisionProfileData(rawAsset)) return;
+    const asset = assets[index];
+    if (!asset) return;
+    const subjectKey = decisionSubjectKeyForAsset(asset);
+    mergeLegacyProfile({
+      ...rawAsset,
+      id: subjectKey,
+      subjectKey,
+      name: asset.name,
+      type: assetType(asset),
+      ticker: asset.ticker
+    }, decisionMigrationConflictFor("asset", rawAsset, asset), profiles.size);
+  });
+  (Array.isArray(source.watchlist) ? source.watchlist : []).forEach((rawItem, index) => {
+    if (!hasDecisionProfileData(rawItem)) return;
+    const item = watchlist[index];
+    if (!item) return;
+    const subjectKey = decisionSubjectKeyForWatchlist(item);
+    mergeLegacyProfile({
+      ...rawItem,
+      id: subjectKey,
+      subjectKey,
+      name: item.name,
+      type: item.type,
+      ticker: item.ticker
+    }, decisionMigrationConflictFor("watchlist", rawItem, item), profiles.size);
+  });
+
+  return [...profiles.values()];
+}
+
+function decisionProfileForSubject(subjectKey, fallback = {}) {
+  const profile = state.decisionProfiles.find((item) => item.subjectKey === subjectKey);
+  return profile || normalizeDecisionProfile({
+    id: subjectKey,
+    subjectKey,
+    ...fallback
+  });
+}
+
+function decisionProfileForAsset(asset) {
+  return decisionProfileForSubject(decisionSubjectKeyForAsset(asset), {
+    name: asset?.name,
+    type: assetType(asset),
+    ticker: asset?.ticker
+  });
+}
+
+function decisionProfileForWatchlist(item) {
+  return decisionProfileForSubject(decisionSubjectKeyForWatchlist(item), {
+    name: item?.name,
+    type: item?.type,
+    ticker: item?.ticker
+  });
+}
+
+function upsertDecisionProfile(subjectKey, nextFields, subject = {}) {
+  const index = state.decisionProfiles.findIndex((item) => item.subjectKey === subjectKey);
+  const previous = index >= 0 ? state.decisionProfiles[index] : null;
+  const now = new Date().toISOString();
+  const profile = normalizeDecisionProfile({
+    ...(previous || {}),
+    ...nextFields,
+    id: previous?.id || subjectKey,
+    subjectKey,
+    name: subject.name || previous?.name || "",
+    type: subject.type || previous?.type || "MANUAL",
+    ticker: subject.ticker || previous?.ticker || "",
+    createdAt: previous?.createdAt || now,
+    updatedAt: now
+  });
+  if (index >= 0) state.decisionProfiles[index] = profile;
+  else state.decisionProfiles.push(profile);
+  return profile;
+}
+
 function normalizeAsset(asset) {
   const { category, ...rest } = asset || {};
   const type = normalizeAssetType(rest.type || inferLegacyAssetType(asset));
@@ -1353,6 +2371,7 @@ function normalizeRealizedTrade(trade) {
   return {
     id: trade?.id || uid(),
     assetId: trade?.assetId || "",
+    ledgerEventId: String(trade?.ledgerEventId || ""),
     soldAt,
     name: String(trade?.name || "").trim(),
     ticker: String(trade?.ticker || "").trim().toUpperCase(),
@@ -1369,7 +2388,8 @@ function normalizeRealizedTrade(trade) {
     realizedGain,
     realizedGainRate,
     memo: String(trade?.memo || "").trim(),
-    createdAt: trade?.createdAt || new Date().toISOString()
+    createdAt: trade?.createdAt || new Date().toISOString(),
+    cancelledAt: normalizeStoredDate(trade?.cancelledAt)
   };
 }
 
@@ -1383,6 +2403,7 @@ function normalizeTradeJournalEntry(entry) {
     id: entry?.id || uid(),
     assetId: String(entry?.assetId || ""),
     realizedTradeId: String(entry?.realizedTradeId || ""),
+    ledgerEventId: String(entry?.ledgerEventId || ""),
     date: normalizeJournalDate(entry?.date || entry?.createdAt),
     name: String(entry?.name || "").trim(),
     ticker: String(entry?.ticker || "").trim().toUpperCase(),
@@ -1471,7 +2492,7 @@ function marketPriceMissing(asset) {
 
 function assetIdentity(asset) {
   const type = assetType(asset);
-  const ticker = normalizeAssetKey(asset.ticker);
+  const ticker = normalizeAssetKey(normalizeTicker(type, asset.ticker));
   const account = normalizeAssetKey(asset.account);
   if (isMarketType(type) && ticker) return `${type}:${ticker}:${account}`;
   return `${type}:${normalizeAssetKey(asset.name)}:${account}`;
@@ -1650,6 +2671,334 @@ function assetValue(asset) {
   const currentPrice = Number(asset.currentPrice || 0);
   if (quantity > 0 && currentPrice > 0) return quantity * currentPrice * priceMultiplier(type);
   return 0;
+}
+
+function emptyDecisionAnalysis() {
+  return {
+    totalValue: 0,
+    ledgerRowCount: state.assets.length,
+    economicPositionCount: 0,
+    top1Weight: 0,
+    top5Weight: 0,
+    hhi: 0,
+    effectivePositionCount: 0,
+    positions: [],
+    reviews: { overdue: [], dueToday: [], upcoming: [], unscheduled: [], invalid: [] },
+    quality: {
+      valuedRowCount: 0,
+      missingValueCount: state.assets.length,
+      roleAssignedCount: 0,
+      thesisCount: 0,
+      reviewScheduledCount: 0,
+      completeDecisionCount: 0
+    },
+    warnings: []
+  };
+}
+
+function decisionRows() {
+  return state.assets.map((asset) => {
+    const profile = decisionProfileForAsset(asset);
+    const value = assetValue(asset);
+    return {
+      id: asset.id,
+      type: assetType(asset),
+      ticker: asset.ticker,
+      name: asset.name,
+      account: asset.account || "",
+      value,
+      hasValue: value > 0,
+      ...normalizeDecisionProfileFields(profile)
+    };
+  });
+}
+
+function allocationBucketKeyForAsset(asset) {
+  return { KRX: "domestic", US: "overseas", CASH: "cash", MANUAL: "manual" }[assetType(asset)] || "manual";
+}
+
+function assetHasUsableValuation(asset) {
+  const type = assetType(asset);
+  if (isMarketType(type)) return !marketPriceMissing(asset) && Number.isFinite(assetValue(asset));
+  return Number.isFinite(Number(asset.amount)) && Number(asset.amount) >= 0;
+}
+
+function actionSupportRows() {
+  return state.assets.map((asset) => {
+    const profile = decisionProfileForAsset(asset);
+    return {
+      id: asset.id,
+      type: assetType(asset),
+      ticker: asset.ticker,
+      name: asset.name,
+      account: asset.account || "",
+      bucket: allocationBucketKeyForAsset(asset),
+      value: assetValue(asset),
+      hasValue: assetHasUsableValuation(asset),
+      investmentRole: profile.investmentRole,
+      conviction: profile.conviction,
+      reviewStatus: profile.reviewStatus,
+      nextReviewAt: profile.nextReviewAt,
+      lastReviewedAt: profile.lastReviewedAt,
+      thesis: profile.thesis,
+      riskTags: normalizeRiskTags(profile.riskTags),
+      migrationConflictCount: normalizeDecisionMigrationConflicts(profile.migrationConflicts).length
+    };
+  });
+}
+
+function analyzeDecisionPortfolio(todayKey = localDateInputValue()) {
+  const engine = window.AssetTrailDecisionEngine;
+  if (!engine?.analyzeDecisionPortfolio) return emptyDecisionAnalysis();
+  return engine.analyzeDecisionPortfolio(decisionRows(), { todayKey });
+}
+
+function reviewTimingForProfile(profile, todayKey = localDateInputValue()) {
+  const engine = window.AssetTrailDecisionEngine;
+  if (engine?.reviewTiming) return engine.reviewTiming(profile, { todayKey });
+  const reviewDate = normalizeDateKey(profile?.nextReviewAt);
+  if (!reviewDate) return "unscheduled";
+  if (reviewDate < todayKey) return "overdue";
+  if (reviewDate === todayKey) return "dueToday";
+  return "upcoming";
+}
+
+function roleLabel(profile) {
+  return INVESTMENT_ROLE_LABELS[normalizeEnum(profile?.investmentRole, INVESTMENT_ROLE_LABELS, "UNASSIGNED")];
+}
+
+function decisionRoleBadge(profile) {
+  const role = normalizeEnum(profile?.investmentRole, INVESTMENT_ROLE_LABELS, "UNASSIGNED");
+  if (role === "UNASSIGNED") return "";
+  return `<span class="role-badge decision-role-badge role-${escapeHtml(role.toLowerCase())}">${escapeHtml(INVESTMENT_ROLE_LABELS[role])}</span>`;
+}
+
+function decisionSelectOptions(labels, selected) {
+  return Object.entries(labels)
+    .map(([value, label]) => `<option value="${escapeHtml(value)}"${value === selected ? " selected" : ""}>${escapeHtml(label)}</option>`)
+    .join("");
+}
+
+const DECISION_MIGRATION_SOURCE_LABELS = { asset: "보유 자산", watchlist: "관심종목", profile: "공유 프로필" };
+
+function riskTagSummary(value) {
+  return Object.entries(normalizeRiskTags(value))
+    .filter(([, tags]) => tags.length)
+    .map(([key, tags]) => `${RISK_TAG_DIMENSION_LABELS[key]}: ${tags.join(", ")}`)
+    .join(" / ");
+}
+
+function riskTagEditorHtml(profile) {
+  const riskTags = normalizeRiskTags(profile?.riskTags);
+  const tagCount = Object.values(riskTags).reduce((sum, tags) => sum + tags.length, 0);
+  const placeholders = {
+    industry: "예: 반도체, 클라우드",
+    country: "예: 한국, 미국, 중국",
+    currency: "예: KRW, USD",
+    rate: "예: 금리 상승 취약, 변동금리 수혜",
+    duration: "예: 단기, 장기",
+    customer: "예: 데이터센터, 스마트폰 제조사",
+    aiValueChain: "예: AI 반도체, 클라우드, 응용 서비스"
+  };
+  return `
+    <details class="risk-tag-editor"${tagCount ? " open" : ""}>
+      <summary>수동 위험 태그${tagCount ? ` · ${tagCount}개` : ""}</summary>
+      <fieldset>
+        <legend class="sr-only">업종 국가 통화 금리 듀레이션 고객 AI 가치사슬 태그</legend>
+        <p class="field-help">쉼표 또는 줄바꿈으로 구분합니다. 같은 종목을 보유한 모든 계좌가 이 태그를 공유합니다.</p>
+        <div class="risk-tag-grid">
+          ${Object.entries(RISK_TAG_DIMENSION_LABELS).map(([key, label]) => `
+            <label>
+              ${escapeHtml(label)}
+              <textarea name="${escapeHtml(RISK_TAG_INPUT_NAMES[key])}" rows="2" maxlength="5000" placeholder="${escapeHtml(placeholders[key])}">${escapeHtml(riskTags[key].join(", "))}</textarea>
+            </label>
+          `).join("")}
+        </div>
+        <p class="field-help">각 태그는 연결된 포지션의 전체 평가금액으로 집계되며 여러 태그의 합계는 비가산입니다.</p>
+      </fieldset>
+    </details>
+  `;
+}
+
+function decisionMigrationRecordHtml(conflict) {
+  const fields = conflict.fields;
+  const values = [
+    ["역할", INVESTMENT_ROLE_LABELS[fields.investmentRole]],
+    ["투자 기간", INVESTMENT_HORIZON_LABELS[fields.horizon]],
+    ["확신도", CONVICTION_LABELS[fields.conviction]],
+    ["검토 상태", REVIEW_STATUS_LABELS[fields.reviewStatus]],
+    ["투자 가설", fields.thesis],
+    ["기대수익 원천", fields.returnSource],
+    ["관찰 KPI", fields.kpis],
+    ["촉매", fields.catalysts],
+    ["무효화 조건", fields.invalidation],
+    ["감속 조건", fields.deceleration],
+    ["다음 검토일", fields.nextReviewAt],
+    ["마지막 검토일", fields.lastReviewedAt],
+    ["수동 위험 태그", riskTagSummary(fields.riskTags)]
+  ].filter(([, value]) => value && !["역할 미지정", "기간 미지정", "미설정"].includes(value));
+  const sourceLabel = [conflict.sourceName, conflict.account, conflict.sourceId]
+    .filter(Boolean)
+    .join(" · ") || DECISION_MIGRATION_SOURCE_LABELS[conflict.sourceType];
+  return `
+    <article class="decision-migration-record">
+      <strong>${escapeHtml(DECISION_MIGRATION_SOURCE_LABELS[conflict.sourceType])} · ${escapeHtml(sourceLabel)}</strong>
+      ${values.length ? `<dl>${values.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>` : "<p>기록된 판단 값이 없습니다.</p>"}
+    </article>
+  `;
+}
+
+function decisionMigrationConflictHtml(profile) {
+  const conflicts = normalizeDecisionMigrationConflicts(profile?.migrationConflicts);
+  if (!conflicts.length) return "";
+  const cards = conflicts.map(decisionMigrationRecordHtml).join("");
+  return `
+    <aside class="decision-migration-warning" role="status">
+      <strong>이전 계좌별 판단 ${conflicts.length}건이 서로 달랐습니다.</strong>
+      <p>첫 기록을 현재값으로 표시했습니다. 아래 원본을 비교해 현재 기준을 정한 뒤 저장하면 이 충돌 표시가 해소됩니다.</p>
+      <details>
+        <summary>이전 판단 원본 보기</summary>
+        <div class="decision-migration-records">${cards}</div>
+      </details>
+    </aside>
+  `;
+}
+
+function existingDecisionProfileHtml(profile) {
+  const current = decisionMigrationConflictFor("profile", profile, profile);
+  return `
+    <div class="watchlist-existing-decision">
+      <aside class="decision-migration-warning" role="status">
+        <strong>이 종목의 기존 판단 기록이 있습니다.</strong>
+        <p>현재 작성 중인 초안은 유지했습니다. 아래 기존 기록을 확인한 뒤 다시 저장하면 초안 내용으로 갱신됩니다.</p>
+        <details open>
+          <summary>기존 판단 기록 보기</summary>
+          <div class="decision-migration-records">${decisionMigrationRecordHtml(current)}</div>
+        </details>
+      </aside>
+      ${decisionMigrationConflictHtml(profile)}
+    </div>
+  `;
+}
+
+function decisionCoverageLabel(analysis) {
+  const total = analysis.ledgerRowCount || 0;
+  const complete = analysis.quality?.completeDecisionCount || 0;
+  return total ? `${complete}/${total}개 완성` : "자산 등록 대기";
+}
+
+function renderDecisionCenter() {
+  if (!els.decisionMetrics || !els.economicPositionList || !els.watchlistList) return;
+  const analysis = analyzeDecisionPortfolio();
+  const topPosition = analysis.positions[0];
+  const top1Name = topPosition?.name || "포지션 없음";
+  const weightText = (weight) => `${(Number(weight || 0) * 100).toFixed(1)}%`;
+  const hhiPoints = Math.round(Number(analysis.hhi || 0) * 10000);
+  els.decisionMetrics.innerHTML = `
+    <article class="decision-metric">
+      <span>Top 1</span>
+      <strong>${weightText(analysis.top1Weight)}</strong>
+      <small>${escapeHtml(top1Name)}</small>
+    </article>
+    <article class="decision-metric">
+      <span>Top 5</span>
+      <strong>${weightText(analysis.top5Weight)}</strong>
+      <small>상위 5개 경제적 포지션</small>
+    </article>
+    <article class="decision-metric">
+      <span>HHI</span>
+      <strong>${hhiPoints.toLocaleString("ko-KR")}</strong>
+      <small>유효 포지션 ${Number(analysis.effectivePositionCount || 0).toFixed(1)}개</small>
+    </article>
+    <article class="decision-metric">
+      <span>의사결정 데이터</span>
+      <strong>${escapeHtml(decisionCoverageLabel(analysis))}</strong>
+      <small>역할·가설·다음 검토일 기준</small>
+    </article>
+  `;
+  const warnings = [...(analysis.warnings || [])];
+  const migratedConflictCount = state.decisionProfiles.reduce(
+    (sum, profile) => sum + normalizeDecisionMigrationConflicts(profile.migrationConflicts).length,
+    0
+  );
+  if (migratedConflictCount) {
+    warnings.unshift({
+      severity: "medium",
+      title: "이전 계좌별 판단이 서로 달랐습니다.",
+      detail: `${migratedConflictCount}개 원본을 보존했습니다. 자산 상세 또는 관심종목 수정에서 비교하고 현재 기준을 저장하세요.`
+    });
+  }
+  if (!window.AssetTrailDecisionEngine) {
+    warnings.unshift({
+      severity: "high",
+      title: "집중도 엔진을 불러오지 못했습니다",
+      detail: "페이지를 새로고침한 뒤 다시 확인하세요."
+    });
+  }
+  els.decisionWarnings.innerHTML = warnings.length
+    ? warnings.map((warning) => `
+        <li class="decision-warning warning-${escapeHtml(warning.severity || "info")}">
+          <strong>${escapeHtml(warning.title || "확인 필요")}</strong>
+          <span>${escapeHtml(warning.detail || "")}</span>
+        </li>
+      `).join("")
+    : `<li class="decision-warning decision-warning-ok"><strong>계산 데이터가 준비됐습니다</strong><span>현재 입력 기준으로 별도 품질 경고가 없습니다.</span></li>`;
+
+  els.economicPositionList.innerHTML = analysis.positions.length
+    ? analysis.positions.slice(0, 20).map((position) => {
+        const assetId = position.assetIds?.[0] || "";
+        const merged = position.assetIds?.length > 1 ? ` · ${position.assetIds.length}개 계좌 행 합산` : "";
+        const content = `
+          <span class="position-name"><strong>${escapeHtml(position.name || position.ticker || "이름 없음")}</strong><small>${escapeHtml(position.type || "")} ${escapeHtml(position.ticker || "")}${escapeHtml(merged)}</small></span>
+          <span class="position-value"><strong>${money(position.value)}</strong><small>${weightText(position.weight)}</small></span>
+        `;
+        return assetId
+          ? `<li><button class="economic-position" type="button" data-position-asset-id="${escapeHtml(assetId)}">${content}</button></li>`
+          : `<li><div class="economic-position">${content}</div></li>`;
+      }).join("")
+    : `<li class="decision-empty">보유 자산을 등록하면 계좌를 합친 경제적 포지션이 표시됩니다.</li>`;
+
+  renderWatchlist();
+}
+
+function renderWatchlist() {
+  if (!els.watchlistList) return;
+  const sorted = [...state.watchlist].sort((a, b) => {
+    const aProfile = decisionProfileForWatchlist(a);
+    const bProfile = decisionProfileForWatchlist(b);
+    const rank = { overdue: 0, dueToday: 1, upcoming: 2, unscheduled: 3, invalid: 4 };
+    return (rank[reviewTimingForProfile(aProfile)] ?? 5) - (rank[reviewTimingForProfile(bProfile)] ?? 5)
+      || KO_COLLATOR.compare(a.name, b.name);
+  });
+  els.watchlistList.innerHTML = sorted.length
+    ? sorted.map((item) => {
+        const profile = decisionProfileForWatchlist(item);
+        const timing = reviewTimingForProfile(profile);
+        const reviewLabel = timing === "overdue"
+          ? `검토기한 초과 · ${profile.nextReviewAt}`
+          : timing === "dueToday"
+            ? "오늘 검토"
+            : profile.nextReviewAt
+              ? `다음 검토 ${profile.nextReviewAt}`
+              : "검토일 미설정";
+        return `
+          <article class="watchlist-card ${timing === "overdue" ? "review-overdue" : ""}" data-watchlist-id="${escapeHtml(item.id)}">
+            <div class="watchlist-card-head">
+              <div>
+                <strong>${escapeHtml(item.name)}</strong>
+                <span><b>${escapeHtml(item.ticker)}</b> · ${escapeHtml(item.type)} · ${escapeHtml(roleLabel(profile))}</span>
+              </div>
+              <span class="decision-status status-${escapeHtml(timing)}">${escapeHtml(reviewLabel)}</span>
+            </div>
+            <p>${profile.thesis ? escapeHtml(profile.thesis) : "투자 가설을 아직 작성하지 않았습니다."}</p>
+            <div class="watchlist-actions watchlist-card-actions">
+              <button class="ghost-button" type="button" data-watchlist-action="edit" data-id="${escapeHtml(item.id)}">수정</button>
+              <button class="ghost-button danger-action" type="button" data-watchlist-action="delete" data-id="${escapeHtml(item.id)}">삭제</button>
+            </div>
+          </article>
+        `;
+      }).join("")
+    : `<div class="decision-empty">관심종목은 보유 자산과 별도로 관리됩니다. 검토하고 싶은 종목을 추가하세요.</div>`;
 }
 
 function assetCost(asset) {
@@ -1877,15 +3226,18 @@ const VIEW_RENDERERS = {
   ASSETS: () => {
     renderAssets();
     renderPriceNotice();
+    renderDecisionCenter();
   },
   JOURNAL: () => {
     renderJournal();
     renderRealized();
+    renderLedger();
     renderInvestmentRecordTabs();
   },
   PORTFOLIO: () => {
     renderBreakdown();
     renderPortfolioBreakdownToggle();
+    renderActionSupport();
   },
   GOALS: () => {
     renderHistory();
@@ -2040,7 +3392,12 @@ function renderDashboard() {
   els.dashboardChecklist.innerHTML = tasks.length
     ? tasks
         .map(
-          (task) => `<li class="check-card"><span class="check-icon kind-${escapeHtml(task.kind || "snapshot")}" aria-hidden="true">${CHECK_ICON_GLYPHS[task.kind] || "•"}</span><div class="check-text"><strong>${escapeHtml(task.title)}</strong><span>${escapeHtml(task.detail)}</span></div></li>`
+          (task) => {
+            const content = `<span class="check-icon kind-${escapeHtml(task.kind || "snapshot")}" aria-hidden="true">${CHECK_ICON_GLYPHS[task.kind] || "•"}</span><span class="check-text"><strong>${escapeHtml(task.title)}</strong><span>${escapeHtml(task.detail)}</span></span>`;
+            return task.action
+              ? `<li class="check-card"><button class="check-action" type="button" data-dashboard-action="${escapeHtml(task.action)}"${task.assetId ? ` data-id="${escapeHtml(task.assetId)}"` : ""}>${content}</button></li>`
+              : `<li class="check-card">${content}</li>`;
+          }
         )
         .join("")
     : `<li class="check-card check-card-ok"><span class="check-icon kind-ok" aria-hidden="true">✓</span><div class="check-text"><strong>모두 정상이에요</strong><span>가격, 목표 비중, 복기 기록이 안정적인 상태예요.</span></div></li>`;
@@ -2136,7 +3493,7 @@ function renderDashboardRecentList() {
       day: shortDay(when)
     });
   });
-  (state.realizedTrades || []).forEach((trade) => {
+  activeRealizedTrades().forEach((trade) => {
     records.push({
       time: new Date(trade.soldAt).getTime() || 0,
       action: "SELL",
@@ -2160,6 +3517,27 @@ function renderDashboardRecentList() {
 
 function dashboardTasks() {
   const tasks = [];
+  const reviewSubjects = new Map();
+  state.assets.forEach((asset) => {
+    const subjectKey = decisionSubjectKeyForAsset(asset);
+    if (!reviewSubjects.has(subjectKey)) {
+      reviewSubjects.set(subjectKey, { asset, profile: decisionProfileForAsset(asset) });
+    }
+  });
+  const overdueReviews = [...reviewSubjects.values()]
+    .filter(({ profile }) => reviewTimingForProfile(profile) === "overdue")
+    .sort((a, b) => a.profile.nextReviewAt.localeCompare(b.profile.nextReviewAt));
+  if (overdueReviews.length) {
+    const first = overdueReviews[0];
+    tasks.push({
+      kind: "review",
+      action: "review-asset",
+      assetId: first.asset.id,
+      title: `검토기한 초과 자산 ${overdueReviews.length}개`,
+      detail: `${first.asset.name}부터 투자 가설과 다음 행동을 확인하세요.`
+    });
+  }
+
   const missingPrices = marketAssetsMissingPrices();
   if (missingPrices.length) {
     tasks.push({
@@ -2335,6 +3713,7 @@ function renderAssets() {
   }
 
   filtered.forEach((asset) => {
+    const decisionProfile = decisionProfileForAsset(asset);
     const gain = assetGain(asset);
     const gainRate = gain === null ? null : gain / assetCost(asset);
     const valueDetail = assetValueDetail(asset);
@@ -2354,6 +3733,7 @@ function renderAssets() {
         <span class="asset-sub">
           ${asset.ticker ? `<span class="ticker">${escapeHtml(asset.ticker)}</span>` : ""}
           <span class="badge">${escapeHtml(assetTypeLabel(asset))}</span>
+          ${decisionRoleBadge(decisionProfile)}
           ${asset.account ? `<span class="asset-account">${escapeHtml(asset.account)}</span>` : ""}
         </span>
         ${asset.note ? `<span class="asset-note-line">${escapeHtml(asset.note)}</span>` : ""}
@@ -2371,11 +3751,11 @@ function renderAssets() {
       </td>
     `;
     els.assetRows.append(row);
-    renderAssetCard(asset, gain, gainRate, valueDetail, buyButton, sellButton, journalButton);
+    renderAssetCard(asset, decisionProfile, gain, gainRate, valueDetail, buyButton, sellButton, journalButton);
   });
 }
 
-function renderAssetCard(asset, gain, gainRate, valueDetail, buyButton, sellButton, journalButton) {
+function renderAssetCard(asset, decisionProfile, gain, gainRate, valueDetail, buyButton, sellButton, journalButton) {
   if (!els.assetCards) return;
   const type = assetType(asset);
   const gainTone = gain > 0 ? "positive" : gain < 0 ? "negative" : "";
@@ -2403,7 +3783,7 @@ function renderAssetCard(asset, gain, gainRate, valueDetail, buyButton, sellButt
       </div>
       ${valueDetail}
     </div>
-    ${metaParts.length ? `<div class="asset-card-meta">${metaParts.join("")}</div>` : ""}
+    ${decisionProfile.investmentRole !== "UNASSIGNED" || metaParts.length ? `<div class="asset-card-meta">${decisionRoleBadge(decisionProfile)}${metaParts.join("")}</div>` : ""}
     ${asset.note ? `<p class="asset-card-note">${escapeHtml(asset.note)}</p>` : ""}
     <div class="asset-card-actions">
       ${isMarketType(type) ? `${buyButton}${sellButton}` : ""}
@@ -2448,12 +3828,21 @@ function assetMatchesFilters(asset) {
 
   const query = normalizeAssetKey(uiState.assetSearch);
   if (!query) return true;
+  const profile = decisionProfileForAsset(asset);
 
   const haystack = [
     asset.name,
     asset.account,
     asset.ticker,
     asset.note,
+    profile.investmentRole,
+    roleLabel(profile),
+    profile.thesis,
+    profile.returnSource,
+    profile.kpis,
+    profile.catalysts,
+    profile.invalidation,
+    profile.deceleration,
     type,
     assetTypeLabel(asset)
   ].map(normalizeAssetKey).join(" ");
@@ -2794,46 +4183,166 @@ function pieGradient(entries) {
 
 function hydratePortfolioTargetInputs() {
   const targets = state.portfolioTargets || {};
+  const bands = normalizePolicyProfile(state.policyProfile, targets).allocationBands;
   if (els.targetDomestic) els.targetDomestic.value = targets.domestic ?? 50;
   if (els.targetOverseas) els.targetOverseas.value = targets.overseas ?? 30;
   if (els.targetCash) els.targetCash.value = targets.cash ?? 10;
   if (els.targetManual) els.targetManual.value = targets.manual ?? 10;
+  if (els.bandDomesticMin) els.bandDomesticMin.value = bands.domestic.minPct;
+  if (els.bandDomesticMax) els.bandDomesticMax.value = bands.domestic.maxPct;
+  if (els.bandOverseasMin) els.bandOverseasMin.value = bands.overseas.minPct;
+  if (els.bandOverseasMax) els.bandOverseasMax.value = bands.overseas.maxPct;
+  if (els.bandCashMin) els.bandCashMin.value = bands.cash.minPct;
+  if (els.bandCashMax) els.bandCashMax.value = bands.cash.maxPct;
+  if (els.bandManualMin) els.bandManualMin.value = bands.manual.minPct;
+  if (els.bandManualMax) els.bandManualMax.value = bands.manual.maxPct;
   setTargetValidation("");
+}
+
+function allocationBandInputs() {
+  return {
+    domestic: { min: els.bandDomesticMin, target: els.targetDomestic, max: els.bandDomesticMax },
+    overseas: { min: els.bandOverseasMin, target: els.targetOverseas, max: els.bandOverseasMax },
+    cash: { min: els.bandCashMin, target: els.targetCash, max: els.bandCashMax },
+    manual: { min: els.bandManualMin, target: els.targetManual, max: els.bandManualMax }
+  };
+}
+
+function hydrateActionSupportInputs() {
+  const contributionPlan = normalizeContributionPlan(state.contributionPlan);
+  if (els.contributionAmount) els.contributionAmount.value = formatIntegerNumber(contributionPlan.amount);
+  els.contributionModeInputs.forEach((input) => {
+    input.checked = input.value === contributionPlan.mode;
+  });
+  const budgets = normalizeRiskBudgets(state.policyProfile?.riskBudgets);
+  if (els.riskBudgetCoreMin) els.riskBudgetCoreMin.value = budgets.coreMinPct;
+  if (els.riskBudgetSatelliteMax) els.riskBudgetSatelliteMax.value = budgets.satelliteMaxPct;
+  if (els.riskBudgetAiMax) els.riskBudgetAiMax.value = budgets.aiStructuralMaxPct;
+  if (els.riskBudgetCycleMax) els.riskBudgetCycleMax.value = budgets.cycleMaxPct;
+  setContributionValidation("");
+  setRiskBudgetValidation("");
 }
 
 function setTargetValidation(message) {
   if (!els.targetValidation) return;
   const hasError = Boolean(message);
-  els.targetValidation.textContent = message || "각 비중은 0~100%, 네 항목 합계는 100%로 입력하세요.";
+  els.targetValidation.textContent = message || "각 행은 최소≤목표≤최대, 목표 합계는 100%로 입력하세요.";
   els.targetValidation.classList.toggle("warning", hasError);
-  [els.targetDomestic, els.targetOverseas, els.targetCash, els.targetManual].forEach((input) => {
+  Object.values(allocationBandInputs()).flatMap((band) => Object.values(band)).forEach((input) => {
     input?.setAttribute("aria-invalid", hasError ? "true" : "false");
   });
 }
 
 function savePortfolioTargets() {
-  const nextTargets = {
-    domestic: parseNumericValue(els.targetDomestic?.value),
-    overseas: parseNumericValue(els.targetOverseas?.value),
-    cash: parseNumericValue(els.targetCash?.value),
-    manual: parseNumericValue(els.targetManual?.value)
-  };
-  const values = Object.values(nextTargets);
+  const nextBands = Object.fromEntries(Object.entries(allocationBandInputs()).map(([key, inputs]) => [key, {
+    minPct: parseNumericValue(inputs.min?.value),
+    targetPct: parseNumericValue(inputs.target?.value),
+    maxPct: parseNumericValue(inputs.max?.value)
+  }]));
+  const values = Object.values(nextBands).flatMap((band) => Object.values(band));
   if (values.some((value) => !Number.isFinite(value))) {
-    setTargetValidation("목표 비중을 모두 숫자로 입력하세요.");
+    setTargetValidation("최소·목표·최대 비중을 모두 숫자로 입력하세요.");
     return false;
   }
   if (values.some((value) => value < 0 || value > 100)) {
-    setTargetValidation("목표 비중은 각각 0% 이상 100% 이하로 입력하세요.");
+    setTargetValidation("비중은 각각 0% 이상 100% 이하로 입력하세요.");
     return false;
   }
-  const total = values.reduce((sum, value) => sum + value, 0);
-  if (Math.abs(total - 100) > 0.01) {
-    setTargetValidation(`현재 합계는 ${Number(total.toFixed(2))}%입니다. 합계를 100%로 맞춰주세요.`);
+  const invalidBand = Object.entries(nextBands).find(([, band]) => band.minPct > band.targetPct || band.targetPct > band.maxPct);
+  if (invalidBand) {
+    const label = PORTFOLIO_BUCKETS.find((bucket) => bucket.key === invalidBand[0])?.label || invalidBand[0];
+    setTargetValidation(`${label} 비중은 최소≤목표≤최대 순서로 입력하세요.`);
     return false;
   }
+  const targetTotal = Object.values(nextBands).reduce((sum, band) => sum + band.targetPct, 0);
+  if (Math.abs(targetTotal - 100) > PERCENT_TARGET_TOLERANCE) {
+    setTargetValidation(`현재 합계는 ${Number(targetTotal.toFixed(2))}%입니다. 목표 합계를 100%로 맞춰주세요.`);
+    return false;
+  }
+  const minTotal = Object.values(nextBands).reduce((sum, band) => sum + band.minPct, 0);
+  if (minTotal > 100 + PERCENT_CONSTRAINT_EPSILON) {
+    setTargetValidation(`최소 비중 합계가 ${Number(minTotal.toFixed(2))}%입니다. 100% 이하로 맞춰주세요.`);
+    return false;
+  }
+  const maxTotal = Object.values(nextBands).reduce((sum, band) => sum + band.maxPct, 0);
+  if (maxTotal < 100 - PERCENT_CONSTRAINT_EPSILON) {
+    setTargetValidation(`최대 비중 합계가 ${Number(maxTotal.toFixed(2))}%입니다. 100% 이상이어야 합니다.`);
+    return false;
+  }
+  const nextTargets = Object.fromEntries(Object.entries(nextBands).map(([key, band]) => [key, band.targetPct]));
   state.portfolioTargets = nextTargets;
+  state.policyProfile = {
+    ...normalizePolicyProfile(state.policyProfile, nextTargets),
+    allocationBands: nextBands
+  };
   setTargetValidation("");
+  return true;
+}
+
+function setContributionValidation(message, { invalid = Boolean(message) } = {}) {
+  if (!els.contributionValidation) return;
+  els.contributionValidation.textContent = message || "1원 이상 금액을 입력하면 자산군별 검토 예산을 계산합니다.";
+  els.contributionValidation.classList.toggle("warning", invalid);
+  els.contributionAmount?.setAttribute("aria-invalid", invalid ? "true" : "false");
+}
+
+function selectedContributionMode() {
+  const selected = els.contributionModeInputs.find((input) => input.checked)?.value || "ONE_TIME";
+  return CONTRIBUTION_MODES.has(selected) ? selected : "ONE_TIME";
+}
+
+function saveContributionPlan() {
+  const amount = parseAmount(els.contributionAmount?.value || "0");
+  if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1e15) {
+    setContributionValidation("신규자금은 1원 단위 정수로 1원 이상 1,000조원 이하까지 입력하세요.");
+    els.contributionAmount?.focus();
+    return false;
+  }
+  state.contributionPlan = normalizeContributionPlan({
+    mode: selectedContributionMode(),
+    amount
+  });
+  if (els.contributionAmount) els.contributionAmount.value = formatIntegerNumber(state.contributionPlan.amount);
+  setContributionValidation("");
+  return true;
+}
+
+function setRiskBudgetValidation(message, { invalid = Boolean(message) } = {}) {
+  if (!els.riskBudgetValidation) return;
+  els.riskBudgetValidation.textContent = message
+    || "각 기준은 0~100%로 입력하세요. AI·사이클은 위성 자산과 중복되는 오버레이입니다.";
+  els.riskBudgetValidation.classList.toggle("warning", invalid);
+  [
+    els.riskBudgetCoreMin,
+    els.riskBudgetSatelliteMax,
+    els.riskBudgetAiMax,
+    els.riskBudgetCycleMax
+  ].forEach((input) => input?.setAttribute("aria-invalid", invalid ? "true" : "false"));
+}
+
+function saveRiskBudgets() {
+  const riskBudgets = {
+    coreMinPct: parseNumericValue(els.riskBudgetCoreMin?.value),
+    satelliteMaxPct: parseNumericValue(els.riskBudgetSatelliteMax?.value),
+    aiStructuralMaxPct: parseNumericValue(els.riskBudgetAiMax?.value),
+    cycleMaxPct: parseNumericValue(els.riskBudgetCycleMax?.value)
+  };
+  const invalidEntry = Object.entries(riskBudgets).find(([, value]) => !Number.isFinite(value) || value < 0 || value > 100);
+  if (invalidEntry) {
+    setRiskBudgetValidation("위험예산 기준은 각각 0% 이상 100% 이하로 입력하세요.");
+    ({
+      coreMinPct: els.riskBudgetCoreMin,
+      satelliteMaxPct: els.riskBudgetSatelliteMax,
+      aiStructuralMaxPct: els.riskBudgetAiMax,
+      cycleMaxPct: els.riskBudgetCycleMax
+    })[invalidEntry[0]]?.focus();
+    return false;
+  }
+  state.policyProfile = {
+    ...normalizePolicyProfile(state.policyProfile, state.portfolioTargets),
+    riskBudgets
+  };
+  setRiskBudgetValidation("");
   return true;
 }
 
@@ -2875,12 +4384,196 @@ function renderRebalanceSummary() {
   }).join("");
 }
 
+function allocationBucketsForEngine(riskAnalysis) {
+  const bands = normalizePolicyProfile(state.policyProfile, state.portfolioTargets).allocationBands;
+  const totals = bucketTotals();
+  const positionStats = Object.fromEntries(ALLOCATION_BUCKET_KEYS.map((key) => [key, {
+    positionCount: 0,
+    reviewRequiredCount: 0
+  }]));
+  (riskAnalysis?.positions || []).forEach((position) => {
+    const key = { KRX: "domestic", US: "overseas", CASH: "cash", MANUAL: "manual" }[position.type] || "manual";
+    positionStats[key].positionCount += 1;
+    if (position.reviewRequired) positionStats[key].reviewRequiredCount += 1;
+  });
+  return Object.fromEntries(ALLOCATION_BUCKET_KEYS.map((key) => [key, {
+    currentValue: Math.max(0, Number(totals[key] || 0)),
+    ...bands[key],
+    ...positionStats[key]
+  }]));
+}
+
+function contributionModeLabel(mode) {
+  return mode === "MONTHLY" ? "월 정기" : "일회성";
+}
+
+function renderContributionResult(riskAnalysis) {
+  if (!els.contributionResult || !els.contributionResultStatus) return;
+  const plan = normalizeContributionPlan(state.contributionPlan);
+  if (!plan.amount) {
+    els.contributionResultStatus.textContent = "금액 입력 대기";
+    els.contributionResult.innerHTML = `<p class="decision-empty">신규자금과 비중 밴드를 입력하면 현재 비중, 배분액과 배분 후 비중을 비교합니다.</p>`;
+    return;
+  }
+  const missingValueCount = Math.max(0, Number(riskAnalysis?.quality?.missingValuePositionCount || 0));
+  if (missingValueCount > 0) {
+    els.contributionResultStatus.textContent = "평가금액 확인 필요";
+    els.contributionResult.innerHTML = `
+      <div class="allocation-failure" role="alert">
+        <strong>평가금액이 확인되지 않은 시장 자산이 ${missingValueCount}개 있습니다.</strong>
+        <p>가격표가 준비된 뒤 다시 계산하세요. 불완전한 총자산으로 배분안을 만들지 않았습니다.</p>
+      </div>
+    `;
+    return;
+  }
+  const engine = window.AssetTrailActionEngine;
+  if (!engine?.planContribution) {
+    els.contributionResultStatus.textContent = "계산 엔진 오류";
+    els.contributionResult.innerHTML = `<div class="allocation-failure" role="alert"><strong>행동 지원 계산 엔진을 불러오지 못했습니다.</strong><p>페이지를 새로고침한 뒤 다시 확인하세요.</p></div>`;
+    return;
+  }
+  const result = engine.planContribution({
+    mode: plan.mode,
+    amount: plan.amount,
+    buckets: allocationBucketsForEngine(riskAnalysis)
+  });
+  if (!result.ok) {
+    els.contributionResultStatus.textContent = "배분 불가";
+    els.contributionResult.innerHTML = `
+      <div class="allocation-failure" role="alert">
+        <strong>현재 조건으로는 신규자금 전액을 안전하게 배분할 수 없습니다.</strong>
+        <p>${escapeHtml(result.message || "비중 밴드와 현재 평가금액을 확인하세요.")}</p>
+        <small>부분 금액을 임의로 제안하지 않았습니다. 최소·최대 비중 또는 신규자금 금액을 조정하세요.</small>
+      </div>
+    `;
+    return;
+  }
+  const bucketLabels = Object.fromEntries(PORTFOLIO_BUCKETS.map((bucket) => [bucket.key, bucket.label]));
+  const allocations = (result.allocations || []).map((allocation) => `
+    <article class="allocation-result-card ${allocation.reviewRequired && allocation.amount > 0 ? "needs-review" : ""}">
+      <div class="allocation-result-title">
+        <div><span>${escapeHtml(bucketLabels[allocation.key] || allocation.key)}</span><strong>${escapeHtml(money(allocation.amount))}</strong></div>
+        <span>${(Number(allocation.currentWeight || 0) * 100).toFixed(1)}% → ${(Number(allocation.projectedWeight || 0) * 100).toFixed(1)}%</span>
+      </div>
+      <div class="allocation-band-track" role="img" aria-label="${escapeHtml(bucketLabels[allocation.key] || allocation.key)} 배분 후 ${(Number(allocation.projectedWeight || 0) * 100).toFixed(1)}%, 최소 ${allocation.minPct}%, 목표 ${allocation.targetPct}%, 최대 ${allocation.maxPct}%">
+        <span class="allocation-band-range" style="left:${Math.max(0, Number(allocation.minPct || 0))}%;width:${Math.max(0, Number(allocation.maxPct || 0) - Number(allocation.minPct || 0))}%"></span>
+        <span class="allocation-band-target" style="left:${Math.max(0, Math.min(100, Number(allocation.targetPct || 0)))}%"></span>
+        <span class="allocation-band-current" style="left:${Math.max(0, Math.min(100, Number(allocation.projectedWeight || 0) * 100))}%"></span>
+      </div>
+      <p>${escapeHtml((allocation.reasons || []).join(" · "))}</p>
+      ${allocation.reviewRequired && allocation.amount > 0
+        ? `<small class="allocation-review-note">이 자산군에 검토가 필요한 포지션 ${allocation.reviewRequiredCount}개가 있습니다. 종목 선택 전에 가설과 검토 상태를 확인하세요.</small>`
+        : ""}
+    </article>
+  `).join("");
+  els.contributionResultStatus.textContent = `${contributionModeLabel(plan.mode)} · ${money(result.totalAllocated)} 배분`;
+  els.contributionResult.innerHTML = `
+    <div class="allocation-result-summary">
+      <span>신규자금</span><strong>${escapeHtml(money(result.amount))}</strong>
+      <span>배분 후 총자산</span><strong>${escapeHtml(money(result.projectedTotal))}</strong>
+    </div>
+    <div class="allocation-result-list">${allocations}</div>
+    ${(result.warnings || []).length ? `<div class="allocation-warning"><strong>종목 선택 전 검토 필요</strong><p>${escapeHtml(result.warnings.map((warning) => warning.message).join(" "))}</p></div>` : ""}
+  `;
+}
+
+function riskBudgetDisplayLabel(key) {
+  return {
+    core: "코어",
+    satellite: "위성",
+    aiStructural: "AI 구조적 성장",
+    cycle: "사이클"
+  }[key] || key;
+}
+
+function renderRiskExposure(riskAnalysis) {
+  if (!els.riskBudgetSummary || !els.riskExposureWarnings || !els.manualExposureMap) return;
+  if (!riskAnalysis) {
+    els.riskBudgetSummary.innerHTML = `<p class="decision-empty">위험 노출 계산 엔진을 불러오지 못했습니다.</p>`;
+    els.riskExposureWarnings.innerHTML = "";
+    els.manualExposureMap.innerHTML = "";
+    return;
+  }
+  els.riskBudgetSummary.innerHTML = Object.entries(riskAnalysis.budgets || {}).map(([key, budget]) => {
+    const actualPct = Math.max(0, Number(budget.actualPct || 0));
+    const limitPct = Number(budget.limitPct);
+    const statusText = budget.status === "BREACHED"
+      ? budget.rule === "MIN" ? "최소 미달" : "최대 초과"
+      : budget.status === "NO_DATA" ? "평가 대기"
+        : budget.status === "UNSET" || budget.status === "INVALID" ? "기준 미설정"
+          : "예산 범위";
+    const limitText = Number.isFinite(limitPct)
+      ? `${budget.rule === "MIN" ? "최소" : "최대"} ${limitPct}%`
+      : "기준 없음";
+    return `
+      <article class="risk-budget-card ${budget.status === "BREACHED" ? "budget-breached" : ""}">
+        <div><span>${escapeHtml(riskBudgetDisplayLabel(key))}${["aiStructural", "cycle"].includes(key) ? " · 오버레이" : ""}</span><strong>${actualPct.toFixed(1)}%</strong></div>
+        <meter min="0" max="100" value="${Math.min(100, actualPct)}" aria-label="${escapeHtml(riskBudgetDisplayLabel(key))} 현재 ${actualPct.toFixed(1)}%, ${escapeHtml(limitText)}"></meter>
+        <p>${escapeHtml(statusText)} · ${escapeHtml(limitText)} · ${escapeHtml(money(budget.actualValue))}</p>
+      </article>
+    `;
+  }).join("");
+  const warningItems = (riskAnalysis.warnings || []).filter((warning) => warning.code !== "NON_ADDITIVE_TAGS");
+  els.riskExposureWarnings.innerHTML = warningItems.length
+    ? warningItems.map((warning) => `
+        <li class="decision-warning warning-${warning.code === "RISK_BUDGET_BREACH" ? "medium" : "low"}">
+          <strong>${escapeHtml(warning.code === "RISK_BUDGET_BREACH" ? "위험예산 확인" : "데이터 품질 확인")}</strong>
+          <span>${escapeHtml(warning.message || "입력값을 확인하세요.")}</span>
+        </li>
+      `).join("")
+    : `<li class="decision-warning decision-warning-ok"><strong>위험 지도 데이터가 준비됐습니다</strong><span>현재 입력 기준으로 별도 품질 경고가 없습니다.</span></li>`;
+
+  const grouped = new Map();
+  (riskAnalysis.tagExposures || []).forEach((exposure) => {
+    if (!grouped.has(exposure.dimension)) grouped.set(exposure.dimension, []);
+    grouped.get(exposure.dimension).push(exposure);
+  });
+  const sections = Object.entries(RISK_TAG_DIMENSION_LABELS).map(([dimension, label]) => {
+    const exposures = (grouped.get(dimension) || []).sort((a, b) => b.value - a.value || String(a.tag).localeCompare(String(b.tag), "ko-KR"));
+    if (!exposures.length) return "";
+    return `
+      <section class="exposure-dimension-card">
+        <div class="exposure-dimension-head"><h4>${escapeHtml(label)}</h4><span>${exposures.length}개 태그</span></div>
+        <div class="exposure-tag-list">
+          ${exposures.map((exposure) => `
+            <div class="exposure-tag-row">
+              <div><strong>${escapeHtml(exposure.tag)}</strong><span>${exposure.positionCount}개 경제적 포지션</span></div>
+              <div><strong>${escapeHtml(money(exposure.value))}</strong><span>${(Number(exposure.weight || 0) * 100).toFixed(1)}%</span></div>
+            </div>
+          `).join("")}
+        </div>
+      </section>
+    `;
+  }).filter(Boolean).join("");
+  els.manualExposureMap.innerHTML = sections || `
+    <div class="decision-empty exposure-empty">
+      <strong>아직 수동 위험 태그가 없습니다.</strong>
+      <p>자산 상세의 투자 의사결정에서 태그를 추가하면 ${riskAnalysis.economicPositionCount || 0}개 경제적 포지션의 공통 노출을 확인할 수 있습니다.</p>
+    </div>
+  `;
+}
+
+function renderActionSupport() {
+  const engine = window.AssetTrailActionEngine;
+  const riskAnalysis = engine?.analyzeRiskExposure
+    ? engine.analyzeRiskExposure(actionSupportRows(), state.policyProfile?.riskBudgets, {
+        todayKey: localDateInputValue(),
+        staleDays: 180
+      })
+    : null;
+  renderContributionResult(riskAnalysis);
+  renderRiskExposure(riskAnalysis);
+}
+
 function renderInvestmentRecordTabs() {
-  const active = uiState.investmentRecordTab === "REALIZED" ? "REALIZED" : "JOURNAL";
+  const active = ["JOURNAL", "REALIZED", "LEDGER"].includes(uiState.investmentRecordTab)
+    ? uiState.investmentRecordTab
+    : "JOURNAL";
   uiState.investmentRecordTab = active;
   const tabPairs = [
     ["JOURNAL", els.investmentJournalTab, els.journalTabPanel],
-    ["REALIZED", els.investmentRealizedTab, els.realizedTabPanel]
+    ["REALIZED", els.investmentRealizedTab, els.realizedTabPanel],
+    ["LEDGER", els.investmentLedgerTab, els.ledgerTabPanel]
   ];
 
   tabPairs.forEach(([tab, button, panel]) => {
@@ -2892,27 +4585,474 @@ function renderInvestmentRecordTabs() {
   });
 
   if (els.journalTabCount) els.journalTabCount.textContent = `${state.tradeJournalEntries.length}건`;
-  if (els.realizedTabCount) els.realizedTabCount.textContent = `${state.realizedTrades.length}건`;
+  if (els.realizedTabCount) els.realizedTabCount.textContent = `${activeRealizedTrades().length}건`;
+  if (els.ledgerTabCount) els.ledgerTabCount.textContent = `${state.events.length}건`;
+}
+
+function activeRealizedTrades() {
+  return (state.realizedTrades || []).filter((trade) => !trade.cancelledAt);
 }
 
 function setInvestmentRecordTab(tab, { scroll = false } = {}) {
-  if (!["JOURNAL", "REALIZED"].includes(tab)) return;
+  if (!["JOURNAL", "REALIZED", "LEDGER"].includes(tab)) return;
   uiState.investmentRecordTab = tab;
   renderInvestmentRecordTabs();
   if (scroll) {
-    const panel = tab === "REALIZED" ? els.realizedTabPanel : els.journalTabPanel;
+    const panel = tab === "REALIZED"
+      ? els.realizedTabPanel
+      : tab === "LEDGER"
+        ? els.ledgerTabPanel
+        : els.journalTabPanel;
     panel?.scrollIntoView?.({ behavior: "smooth", block: "start" });
   }
 }
 
 function handleInvestmentTabKeydown(event) {
-  const items = [els.investmentJournalTab, els.investmentRealizedTab].filter(Boolean);
+  const items = [els.investmentJournalTab, els.investmentRealizedTab, els.investmentLedgerTab].filter(Boolean);
   const targetIndex = rovingTargetIndex(event, items);
   if (targetIndex < 0) return;
   event.preventDefault();
   const target = items[targetIndex];
   setInvestmentRecordTab(target.dataset.investmentTab);
   target.focus();
+}
+
+function ledgerIntegrityIssue(code, message, details = {}) {
+  return { code, message, ...details };
+}
+
+function ledgerReferenceErrors(events, assets, realizedTrades = [], tradeJournalEntries = [], auditTrail = {}) {
+  const errors = [];
+  const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
+  const eventsById = new Map(events.map((event) => [event.eventId, event]));
+  const cancelledEventIds = new Set((auditTrail.cancellations || []).map((item) => item.targetEventId));
+  const supersededEventIds = new Set(auditTrail.supersededEventIds || []);
+  const assetEventTypes = new Set(["BUY", "SELL", "DIVIDEND", "SPLIT", "VALUATION"]);
+  const cashEventTypes = new Set(["BUY", "SELL", "DEPOSIT", "WITHDRAWAL", "DIVIDEND", "INTEREST", "FEE", "TAX", "FX"]);
+
+  function requireAsset(event, assetId, expectedType, field = "assetId") {
+    const asset = assetsById.get(assetId);
+    if (!asset) {
+      errors.push(ledgerIntegrityIssue(
+        "LEDGER_ASSET_NOT_FOUND",
+        `이벤트 ${event.eventId}의 ${field}(${assetId || "없음"})가 자산 목록에 없습니다.`,
+        { eventId: event.eventId, field, assetId }
+      ));
+      return null;
+    }
+    const type = assetType(asset);
+    if (expectedType === "MARKET" && !isMarketType(type)) {
+      errors.push(ledgerIntegrityIssue("LEDGER_ASSET_TYPE_MISMATCH", `이벤트 ${event.eventId}는 KRX/US 자산을 참조해야 합니다.`, { eventId: event.eventId, assetId }));
+    }
+    if (expectedType && expectedType !== "MARKET" && type !== expectedType) {
+      errors.push(ledgerIntegrityIssue("LEDGER_ASSET_TYPE_MISMATCH", `이벤트 ${event.eventId}의 ${field}는 ${expectedType} 자산이어야 합니다.`, { eventId: event.eventId, assetId }));
+    }
+    return asset;
+  }
+
+  events.forEach((event) => {
+    if (supersededEventIds.has(event.eventId)) return;
+    let expectedAssetType = null;
+    if (["BUY", "SELL", "DIVIDEND", "SPLIT"].includes(event.type)) expectedAssetType = "MARKET";
+    if (event.type === "VALUATION") expectedAssetType = "MANUAL";
+    if (event.type === "OPENING_BALANCE") {
+      if (event.balanceKind === "POSITION") expectedAssetType = "MARKET";
+      if (event.balanceKind === "VALUATION") expectedAssetType = "MANUAL";
+    }
+    if (assetEventTypes.has(event.type) || expectedAssetType) {
+      const asset = requireAsset(event, event.assetId, expectedAssetType);
+      if (asset) {
+        if (event.accountId !== accountIdForAsset(asset)) {
+          errors.push(ledgerIntegrityIssue("LEDGER_ACCOUNT_MISMATCH", `이벤트 ${event.eventId}의 자산 계좌 ID가 현재 자산과 일치하지 않습니다.`, { eventId: event.eventId, assetId: asset.id }));
+        }
+        if (isMarketType(assetType(asset)) && event.instrumentKey !== decisionSubjectKeyForAsset(asset)) {
+          errors.push(ledgerIntegrityIssue("LEDGER_INSTRUMENT_KEY_MISMATCH", `이벤트 ${event.eventId}의 종목 식별자가 현재 자산과 일치하지 않습니다.`, { eventId: event.eventId, assetId: asset.id }));
+        }
+      }
+    }
+
+    const openingCash = event.type === "OPENING_BALANCE" && event.balanceKind === "CASH";
+    if (cashEventTypes.has(event.type) || openingCash) {
+      const cashAsset = requireAsset(event, event.cashAssetId, "CASH", "cashAssetId");
+      if (cashAsset && event.cashAccountId !== accountIdForAsset(cashAsset)) {
+        errors.push(ledgerIntegrityIssue("LEDGER_CASH_ACCOUNT_MISMATCH", `이벤트 ${event.eventId}의 CASH 계좌 ID가 현재 자산과 일치하지 않습니다.`, { eventId: event.eventId, cashAssetId: cashAsset.id }));
+      }
+    }
+    if (event.type === "FX") {
+      const counterCash = requireAsset(event, event.counterCashAssetId, "CASH", "counterCashAssetId");
+      if (counterCash && event.counterCashAccountId !== accountIdForAsset(counterCash)) {
+        errors.push(ledgerIntegrityIssue("LEDGER_COUNTER_CASH_ACCOUNT_MISMATCH", `이벤트 ${event.eventId}의 상대 CASH 계좌 ID가 현재 자산과 일치하지 않습니다.`, { eventId: event.eventId, cashAssetId: counterCash.id }));
+      }
+    }
+  });
+
+  realizedTrades.forEach((trade) => {
+    if (!trade.ledgerEventId) return;
+    const linked = eventsById.get(trade.ledgerEventId);
+    if (!linked || linked.type !== "SELL") {
+      errors.push(ledgerIntegrityIssue("REALIZED_LEDGER_LINK_INVALID", `실현손익 ${trade.id}의 원장 연결이 유효한 매도 이벤트가 아닙니다.`, { tradeId: trade.id, eventId: trade.ledgerEventId }));
+      return;
+    }
+    const linkedAsset = assetsById.get(linked.assetId);
+    if (trade.assetId !== linked.assetId) {
+      errors.push(ledgerIntegrityIssue("REALIZED_LEDGER_ASSET_MISMATCH", `실현손익 ${trade.id}의 자산이 연결된 매도 이벤트와 다릅니다.`, { tradeId: trade.id, eventId: linked.eventId }));
+    }
+    if (trade.soldAt !== linked.tradeDate
+      || Math.abs(Number(trade.quantity || 0) - Number(linked.quantity || 0)) > 1e-8
+      || Math.abs(Number(trade.sellPrice || 0) - Number(linked.price || 0)) > 1e-8
+      || Math.abs(Number(trade.fxRate || 1) - Number(linked.fxRate || 1)) > 1e-8
+      || Math.abs(Number(trade.fees || 0) - Number(linked.feeKRW || 0)) > 0.01
+      || Math.abs(Number(trade.tax || 0) - Number(linked.taxKRW || 0)) > 0.01) {
+      errors.push(ledgerIntegrityIssue("REALIZED_LEDGER_FIELDS_MISMATCH", `실현손익 ${trade.id}의 거래일·수량·가격·환율·비용이 연결된 매도 이벤트와 다릅니다.`, { tradeId: trade.id, eventId: linked.eventId }));
+    }
+    if (linkedAsset && (trade.type !== assetType(linkedAsset)
+      || normalizeTicker(assetType(linkedAsset), trade.ticker) !== normalizeTicker(assetType(linkedAsset), linkedAsset.ticker))) {
+      errors.push(ledgerIntegrityIssue("REALIZED_LEDGER_SUBJECT_MISMATCH", `실현손익 ${trade.id}의 종목·계좌 정보가 연결된 자산과 다릅니다.`, { tradeId: trade.id, eventId: linked.eventId }));
+    }
+    const cancelled = cancelledEventIds.has(linked.eventId);
+    if (cancelled !== Boolean(trade.cancelledAt)) {
+      errors.push(ledgerIntegrityIssue("REALIZED_LEDGER_CANCEL_MISMATCH", `실현손익 ${trade.id}의 취소 상태가 연결된 매도 이벤트와 다릅니다.`, { tradeId: trade.id, eventId: linked.eventId }));
+    }
+    if (supersededEventIds.has(linked.eventId) && !cancelled) {
+      errors.push(ledgerIntegrityIssue("REALIZED_LEDGER_SUPERSEDED", `실현손익 ${trade.id}가 정정으로 대체된 원본 매도 이벤트를 가리킵니다.`, { tradeId: trade.id, eventId: linked.eventId }));
+    }
+  });
+  tradeJournalEntries.forEach((entry) => {
+    if (!entry.ledgerEventId) return;
+    const linked = eventsById.get(entry.ledgerEventId);
+    if (!linked || !["BUY", "SELL"].includes(linked.type)) {
+      errors.push(ledgerIntegrityIssue("JOURNAL_LEDGER_LINK_INVALID", `매매일지 ${entry.id}의 원장 연결이 유효하지 않습니다.`, { journalId: entry.id, eventId: entry.ledgerEventId }));
+      return;
+    }
+    if (entry.assetId !== linked.assetId || entry.action !== linked.type) {
+      errors.push(ledgerIntegrityIssue("JOURNAL_LEDGER_SUBJECT_MISMATCH", `매매일지 ${entry.id}의 자산·행동이 연결된 거래 이벤트와 다릅니다.`, { journalId: entry.id, eventId: linked.eventId }));
+    }
+    if (entry.date !== linked.tradeDate
+      || Math.abs(Number(entry.quantity || 0) - Number(linked.quantity || 0)) > 1e-8
+      || Math.abs(Number(entry.price || 0) - Number(linked.price || 0)) > 1e-8) {
+      errors.push(ledgerIntegrityIssue("JOURNAL_LEDGER_FIELDS_MISMATCH", `매매일지 ${entry.id}의 거래일·수량·가격이 연결된 거래 이벤트와 다릅니다.`, { journalId: entry.id, eventId: linked.eventId }));
+    }
+    if (cancelledEventIds.has(linked.eventId) && entry.status !== "REVIEW") {
+      errors.push(ledgerIntegrityIssue("JOURNAL_LEDGER_CANCEL_MISMATCH", `취소된 거래와 연결된 매매일지 ${entry.id}는 복기필요 상태여야 합니다.`, { journalId: entry.id, eventId: linked.eventId }));
+    }
+    if (entry.realizedTradeId) {
+      const trade = realizedTrades.find((item) => item.id === entry.realizedTradeId);
+      if (!trade || trade.ledgerEventId !== linked.eventId) {
+        errors.push(ledgerIntegrityIssue("JOURNAL_REALIZED_LINK_MISMATCH", `매매일지 ${entry.id}의 실현손익 연결이 같은 매도 이벤트를 가리키지 않습니다.`, { journalId: entry.id, eventId: linked.eventId }));
+      }
+    }
+  });
+  return errors;
+}
+
+function projectLedgerState({
+  events,
+  assets,
+  ledgerMeta,
+  realizedTrades = [],
+  tradeJournalEntries = []
+}) {
+  const projection = ledgerEngine().projectLedger(events, {
+    baselineDate: ledgerMeta?.baselineDate || undefined
+  });
+  const referenceErrors = ledgerReferenceErrors(events, assets, realizedTrades, tradeJournalEntries, projection.auditTrail);
+  const errors = [...(projection.errors || []), ...referenceErrors];
+  return { ...projection, ok: errors.length === 0, errors };
+}
+
+function ledgerProjection(events = state.events) {
+  return projectLedgerState({
+    events,
+    assets: state.assets,
+    ledgerMeta: state.ledgerMeta,
+    realizedTrades: state.realizedTrades,
+    tradeJournalEntries: state.tradeJournalEntries
+  });
+}
+
+function ledgerProjectionErrorMessage(projection) {
+  return (projection?.errors || []).map((error) => error.message).filter(Boolean).join(" ")
+    || "원장 계산에 실패했습니다.";
+}
+
+function applyLedgerProjectionToAssets(projection) {
+  if (!projection?.ok) throw new Error(ledgerProjectionErrorMessage(projection));
+  const positions = new Map(projection.positions.map((position) => [position.assetId, position]));
+  const cashBalances = new Map(projection.cashBalances.map((balance) => [balance.cashAssetId, balance]));
+  const valuations = new Map(projection.valuations.map((valuation) => [valuation.assetId, valuation]));
+  state.assets = state.assets.map((asset) => {
+    const type = assetType(asset);
+    if (isMarketType(type)) {
+      const position = positions.get(asset.id);
+      return normalizeAsset({
+        ...asset,
+        quantity: position?.quantity || 0,
+        averagePrice: position?.averageCostNative || 0
+      });
+    }
+    if (type === "CASH") {
+      return normalizeAsset({ ...asset, amount: cashBalances.get(asset.id)?.amountKRW || 0 });
+    }
+    if (type === "MANUAL") {
+      return normalizeAsset({ ...asset, amount: valuations.get(asset.id)?.valueKRW || 0 });
+    }
+    return asset;
+  });
+}
+
+function appendLedgerEvents(rawEvents, { materialize = true } = {}) {
+  const normalized = rawEvents.map(normalizeLedgerEvent);
+  const eventIds = new Set(state.events.map((event) => event.eventId));
+  normalized.forEach((event) => {
+    if (eventIds.has(event.eventId)) throw new Error(`이미 저장된 원장 이벤트입니다: ${event.eventId}`);
+    eventIds.add(event.eventId);
+  });
+  const candidate = [...state.events, ...normalized];
+  const projection = ledgerProjection(candidate);
+  if (!projection.ok) throw new Error(ledgerProjectionErrorMessage(projection));
+  state.events = candidate;
+  if (materialize) applyLedgerProjectionToAssets(projection);
+  return { events: normalized, projection };
+}
+
+function ledgerSequence() {
+  return Date.now();
+}
+
+function createBuyLedgerEvent(result) {
+  const type = assetType(result.asset);
+  return normalizeLedgerEvent({
+    eventId: `event-${uid()}`,
+    type: "BUY",
+    accountId: accountIdForAsset(result.asset),
+    cashAssetId: result.cashAsset.id,
+    cashAccountId: accountIdForAsset(result.cashAsset),
+    assetId: result.asset.id,
+    instrumentKey: decisionSubjectKeyForAsset(result.asset),
+    tradeDate: result.boughtAt,
+    settlementDate: result.settlementDate,
+    sequence: ledgerSequence(),
+    quantity: result.quantity,
+    price: result.buyPrice,
+    currency: type === "US" ? "USD" : "KRW",
+    fxRate: result.fxRate,
+    feeKRW: result.fees,
+    taxKRW: 0,
+    note: result.memo,
+    createdAt: new Date().toISOString()
+  });
+}
+
+function createSellLedgerEvent(result) {
+  const type = assetType(result.asset);
+  return normalizeLedgerEvent({
+    eventId: `event-${uid()}`,
+    type: "SELL",
+    accountId: accountIdForAsset(result.asset),
+    cashAssetId: result.cashAsset.id,
+    cashAccountId: accountIdForAsset(result.cashAsset),
+    assetId: result.asset.id,
+    instrumentKey: decisionSubjectKeyForAsset(result.asset),
+    tradeDate: result.trade.soldAt,
+    settlementDate: result.settlementDate,
+    sequence: ledgerSequence(),
+    quantity: result.trade.quantity,
+    price: result.trade.sellPrice,
+    currency: type === "US" ? "USD" : "KRW",
+    fxRate: result.trade.fxRate,
+    feeKRW: result.trade.fees,
+    taxKRW: result.trade.tax,
+    note: result.trade.memo,
+    createdAt: new Date().toISOString()
+  });
+}
+
+function renderCurrentViewWithoutPersist() {
+  markAllViewsDirty();
+  renderView(uiState.activeView);
+  setActiveView(uiState.activeView, { scroll: false });
+}
+
+function commitLedgerMutation(mutator) {
+  const before = storageSafeState();
+  try {
+    const output = mutator();
+    applyPricesToAssets();
+    if (!render()) throw new Error("변경 내용을 로컬 저장소에 기록하지 못했습니다.");
+    return { ok: true, output };
+  } catch (error) {
+    console.error(error);
+    replaceState(before);
+    renderCurrentViewWithoutPersist();
+    alert(`거래 원장을 저장하지 않았습니다. ${error.message}`);
+    return { ok: false, error };
+  }
+}
+
+function cancelLedgerEvent(eventId, reason = "사용자 요청으로 취소") {
+  const target = state.events.find((event) => event.eventId === eventId);
+  if (!target || ["CANCEL", "OPENING_BALANCE"].includes(target.type)) return false;
+  const auditDate = localDateInputValue();
+  const cancellation = normalizeLedgerEvent({
+    eventId: `event-${uid()}`,
+    type: "CANCEL",
+    accountId: target.accountId,
+    targetEventId: target.eventId,
+    tradeDate: auditDate,
+    settlementDate: auditDate,
+    auditDate,
+    sequence: ledgerSequence(),
+    reason,
+    createdAt: new Date().toISOString()
+  });
+  const result = commitLedgerMutation(() => {
+    state.realizedTrades = state.realizedTrades.map((trade) => trade.ledgerEventId === target.eventId
+      ? normalizeRealizedTrade({ ...trade, cancelledAt: new Date().toISOString() })
+      : trade);
+    state.tradeJournalEntries = state.tradeJournalEntries.map((entry) => entry.ledgerEventId === target.eventId
+      ? normalizeTradeJournalEntry({ ...entry, status: "REVIEW", review: `${entry.review}${entry.review ? "\n" : ""}연결 거래가 취소되었습니다.` })
+      : entry);
+    appendLedgerEvents([cancellation]);
+    return cancellation;
+  });
+  return result.ok;
+}
+
+function ledgerReconciliationForAssets(projection, assets) {
+  const mismatches = [];
+  const positions = new Map(projection.positions.map((position) => [position.assetId, position]));
+  const cashBalances = new Map(projection.cashBalances.map((balance) => [balance.cashAssetId, balance]));
+  const valuations = new Map(projection.valuations.map((valuation) => [valuation.assetId, valuation]));
+  const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
+  projection.positions.forEach((position) => {
+    if (!assetsById.has(position.assetId)) mismatches.push(`미등록 자산 ${position.assetId} 포지션`);
+  });
+  projection.cashBalances.forEach((balance) => {
+    if (!assetsById.has(balance.cashAssetId)) mismatches.push(`미등록 CASH ${balance.cashAssetId} 잔액`);
+  });
+  projection.valuations.forEach((valuation) => {
+    if (!assetsById.has(valuation.assetId)) mismatches.push(`미등록 수동 자산 ${valuation.assetId} 평가`);
+  });
+  assets.forEach((asset) => {
+    const type = assetType(asset);
+    if (isMarketType(type)) {
+      const position = positions.get(asset.id);
+      if (!position) mismatches.push(`${asset.name} 포지션 누락`);
+      if (Math.abs(Number(asset.quantity || 0) - Number(position?.quantity || 0)) > 1e-8) {
+        mismatches.push(`${asset.name} 수량`);
+      }
+      if (Math.abs(Number(asset.averagePrice || 0) - Number(position?.averageCostNative || 0)) > 1e-6) {
+        mismatches.push(`${asset.name} 평단`);
+      }
+    } else if (type === "CASH") {
+      if (!cashBalances.has(asset.id)) mismatches.push(`${asset.name} 현금 원장 누락`);
+      if (Math.abs(Number(asset.amount || 0) - Number(cashBalances.get(asset.id)?.amountKRW || 0)) > 0.01) {
+        mismatches.push(`${asset.name} 현금`);
+      }
+    } else if (type === "MANUAL") {
+      if (!valuations.has(asset.id)) mismatches.push(`${asset.name} 평가 원장 누락`);
+      if (Math.abs(Number(asset.amount || 0) - Number(valuations.get(asset.id)?.valueKRW || 0)) > 0.01) {
+        mismatches.push(`${asset.name} 평가금액`);
+      }
+    }
+  });
+  return {
+    ok: projection.ok && mismatches.length === 0,
+    mismatches,
+    errors: projection.errors || [],
+    warnings: projection.warnings || []
+  };
+}
+
+function ledgerReconciliation(projection = ledgerProjection()) {
+  return ledgerReconciliationForAssets(projection, state.assets);
+}
+
+function ledgerCashChange(event) {
+  if (event.type === "BUY") return -(event.grossAmountKRW + event.feeKRW + event.taxKRW);
+  if (event.type === "SELL") return event.grossAmountKRW - event.feeKRW - event.taxKRW;
+  if (["DEPOSIT", "DIVIDEND", "INTEREST"].includes(event.type)) return event.amountKRW;
+  if (["WITHDRAWAL", "FEE", "TAX"].includes(event.type)) return -event.amountKRW;
+  if (event.type === "FX") return event.counterAmountKRW - event.amountKRW - event.feeKRW;
+  if (event.type === "OPENING_BALANCE" && event.balanceKind === "CASH") return event.amount;
+  return 0;
+}
+
+function ledgerEventAsset(event) {
+  return state.assets.find((asset) => asset.id === event.assetId)
+    || state.assets.find((asset) => asset.id === event.cashAssetId)
+    || null;
+}
+
+function renderLedger() {
+  if (!els.ledgerEventRows || !els.ledgerEventSummary || !els.ledgerReconciliation) return;
+  renderCashFlowOptions();
+  let projection;
+  try {
+    projection = ledgerProjection();
+  } catch (error) {
+    els.ledgerReconciliation.className = "ledger-reconciliation is-error";
+    els.ledgerReconciliation.textContent = error.message;
+    return;
+  }
+  const reconciliation = ledgerReconciliation(projection);
+  els.ledgerReconciliation.className = `ledger-reconciliation ${reconciliation.ok ? "is-balanced" : "is-error"}`;
+  els.ledgerReconciliation.innerHTML = reconciliation.ok
+    ? `<strong>원장 정합성 정상</strong><span>보유수량·평단·CASH 잔액이 활성 이벤트 합계와 일치합니다.${reconciliation.warnings.length ? ` 확인사항 ${reconciliation.warnings.length}건` : ""}</span>`
+    : `<strong>원장 정합성 확인 필요</strong><span>${escapeHtml([
+        ...reconciliation.mismatches,
+        ...reconciliation.errors.map((error) => error.message)
+      ].join(" · ") || "원장과 자산 상태가 일치하지 않습니다.")}</span>`;
+
+  const summary = projection.summary;
+  const income = Number(summary.dividendsKRW || 0) + Number(summary.interestKRW || 0);
+  const expenses = Number(summary.feesKRW || 0) + Number(summary.taxesKRW || 0);
+  els.ledgerEventSummary.innerHTML = [
+    ["외부 순현금흐름", money(summary.externalCashFlowKRW || 0), "입금 − 출금"],
+    ["배당·이자", money(income), "현금 수익"],
+    ["비용·세금", money(expenses), "누적 지출"],
+    ["활성 이벤트", `${projection.reconciliation.activeEventCount}건`, `전체 ${state.events.length}건`]
+  ].map(([label, value, detail]) => `<div class="ledger-summary-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></div>`).join("");
+
+  const superseded = new Set(projection.auditTrail.supersededEventIds || []);
+  const filter = uiState.ledgerType || "ALL";
+  const events = [...state.events]
+    .filter((event) => filter === "ALL" || event.type === filter)
+    .sort((a, b) => String(b.tradeDate).localeCompare(String(a.tradeDate)) || String(b.eventId).localeCompare(String(a.eventId)));
+  els.ledgerEventRows.textContent = "";
+  if (!events.length) {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td colspan="6" class="empty">${state.events.length ? "선택한 유형의 이벤트가 없습니다." : "아직 원장 이벤트가 없습니다."}</td>`;
+    els.ledgerEventRows.append(row);
+    return;
+  }
+  events.forEach((event) => {
+    const asset = ledgerEventAsset(event);
+    const cashAsset = state.assets.find((item) => item.id === event.cashAssetId);
+    const cashChange = ledgerCashChange(event);
+    const cancelled = superseded.has(event.eventId);
+    const row = document.createElement("tr");
+    row.dataset.eventId = event.eventId;
+    row.dataset.status = cancelled ? "reversed" : "active";
+    row.className = cancelled ? "is-cancelled" : "";
+    const quantityText = event.quantity
+      ? `${formatPlainNumber(event.quantity)} × ${event.currency === "USD" ? usd(event.price || event.unitCost) : formatPlainNumber(event.price || event.unitCost)}`
+      : event.amount
+        ? `${event.currency || "KRW"} ${formatPlainNumber(event.amount)}`
+        : "—";
+    const sourceText = [event.sourceSystem, event.sourceId].filter(Boolean).join(" · ");
+    const canCancel = !cancelled && !["CANCEL", "OPENING_BALANCE"].includes(event.type);
+    const canCorrect = !cancelled && CASH_FLOW_EVENT_TYPES.has(event.type);
+    row.innerHTML = `
+      <td><span class="ledger-cell-primary">${escapeHtml(formatTradeDate(event.tradeDate))}</span><span class="ledger-event-type" data-event-type="${escapeHtml(event.type)}">${escapeHtml(LEDGER_EVENT_LABELS[event.type] || event.type)}</span>${cancelled ? `<span class="ledger-status-badge">취소됨</span>` : ""}</td>
+      <td><span class="ledger-cell-primary">${escapeHtml(asset?.name || event.assetId || cashAsset?.name || "현금흐름")}</span><span class="ledger-cell-secondary">${escapeHtml(cashAsset?.name || event.cashAccountId || event.accountId || "계좌 미지정")}</span></td>
+      <td class="number"><span class="ledger-cell-primary">${escapeHtml(quantityText)}</span><span class="ledger-cell-secondary">결제 ${escapeHtml(formatTradeDate(event.settlementDate))}</span></td>
+      <td class="number ${cashChange > 0 ? "positive" : cashChange < 0 ? "negative" : ""}">${cashChange ? `${cashChange > 0 ? "+" : ""}${money(cashChange)}` : "—"}</td>
+      <td><span class="ledger-cell-primary">${escapeHtml(sourceText || (event.type === "OPENING_BALANCE" ? "시스템 생성" : "직접 입력"))}</span><span class="ledger-cell-secondary">${escapeHtml(event.note || event.reason || (event.targetEventId ? `대상 ${event.targetEventId}` : "메모 없음"))}</span></td>
+      <td><div class="row-actions">${canCorrect ? `<button class="table-action quiet-action" type="button" data-ledger-action="correct" data-event-id="${escapeHtml(event.eventId)}">정정</button>` : ""}${canCancel ? `<button class="table-action quiet-action ledger-cancel-button" type="button" data-ledger-action="cancel" data-event-id="${escapeHtml(event.eventId)}">취소</button>` : ""}</div></td>
+    `;
+    els.ledgerEventRows.append(row);
+  });
 }
 
 function realizedTradeForJournal(entry) {
@@ -3035,6 +5175,17 @@ function resetJournalForm() {
   els.journalRegion.value = "DOMESTIC";
   els.journalAction.value = "BUY";
   els.journalStatus.value = "OPEN";
+  [
+    els.journalDate,
+    els.journalAssetId,
+    els.journalAssetName,
+    els.journalTicker,
+    els.journalRegion,
+    els.journalAccount,
+    els.journalAction,
+    els.journalQuantity,
+    els.journalPrice
+  ].filter(Boolean).forEach((field) => { field.disabled = false; });
   els.saveJournalBtn.textContent = "일지 저장";
   if (els.journalFormTitle) els.journalFormTitle.textContent = "매매일지 작성";
   hideJournalForm();
@@ -3079,6 +5230,17 @@ function showJournalForm(entry = null) {
   els.journalRisk.value = normalized.risk;
   els.journalReview.value = normalized.review;
   els.journalTags.value = normalized.tags;
+  [
+    els.journalDate,
+    els.journalAssetId,
+    els.journalAssetName,
+    els.journalTicker,
+    els.journalRegion,
+    els.journalAccount,
+    els.journalAction,
+    els.journalQuantity,
+    els.journalPrice
+  ].filter(Boolean).forEach((field) => { field.disabled = Boolean(normalized.ledgerEventId); });
   els.saveJournalBtn.textContent = "수정 저장";
   if (els.journalFormTitle) els.journalFormTitle.textContent = "매매일지 수정";
   els.journalAssetName.focus();
@@ -3109,11 +5271,15 @@ function fillJournalFromAsset(asset) {
 
 function journalEntryFromForm() {
   const selectedAsset = state.assets.find((asset) => asset.id === els.journalAssetId?.value);
+  const existingEntry = state.tradeJournalEntries.find((entry) => entry.id === els.journalId.value);
+  const linkedEvent = state.events.find((event) => event.eventId === existingEntry?.ledgerEventId) || null;
+  const linkedAsset = linkedEvent ? state.assets.find((asset) => asset.id === linkedEvent.assetId) || null : null;
   const type = selectedAsset ? assetType(selectedAsset) : normalizeAssetType(els.journalRegion.value === "OVERSEAS" ? "US" : els.journalRegion.value === "DOMESTIC" ? "KRX" : "MANUAL");
   return normalizeTradeJournalEntry({
     id: els.journalId.value || uid(),
     assetId: selectedAsset?.id || "",
     realizedTradeId: els.journalRealizedTradeId.value || "",
+    ledgerEventId: existingEntry?.ledgerEventId || "",
     date: els.journalDate.value,
     name: els.journalAssetName.value.trim(),
     ticker: els.journalTicker.value.trim().toUpperCase(),
@@ -3128,12 +5294,28 @@ function journalEntryFromForm() {
     risk: els.journalRisk.value.trim(),
     review: els.journalReview.value.trim(),
     tags: els.journalTags.value.trim(),
-    createdAt: state.tradeJournalEntries.find((entry) => entry.id === els.journalId.value)?.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    createdAt: existingEntry?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...(linkedEvent && linkedAsset ? {
+      assetId: linkedAsset.id,
+      date: linkedEvent.tradeDate,
+      name: linkedAsset.name,
+      ticker: linkedAsset.ticker,
+      type: assetType(linkedAsset),
+      region: regionCodeForAsset(linkedAsset),
+      account: linkedAsset.account || "",
+      action: linkedEvent.type,
+      quantity: linkedEvent.quantity,
+      price: linkedEvent.price,
+      status: (state.events.some((item) => item.type === "CANCEL" && item.targetEventId === linkedEvent.eventId))
+        ? "REVIEW"
+        : els.journalStatus.value
+    } : {})
   });
 }
 
-function createJournalEntryFromTrade(asset, trade) {
+function createJournalEntryFromTrade(asset, trade, ledgerEventId = trade.ledgerEventId || "") {
+  trade.ledgerEventId = ledgerEventId;
   return createJournalEntryFromRealizedTrade(trade, asset);
 }
 
@@ -3143,6 +5325,7 @@ function createJournalEntryFromRealizedTrade(trade, asset = null) {
     id: uid(),
     assetId: asset?.id || trade.assetId || "",
     realizedTradeId: trade.id,
+    ledgerEventId: trade.ledgerEventId || "",
     date: trade.soldAt,
     name: trade.name || asset?.name || "",
     ticker: trade.ticker || asset?.ticker || "",
@@ -3162,13 +5345,14 @@ function createJournalEntryFromRealizedTrade(trade, asset = null) {
   });
 }
 
-function createJournalEntryFromBuy(asset, buy) {
+function createJournalEntryFromBuy(asset, buy, ledgerEventId = "") {
   const type = assetType(asset);
   const priceText = type === "US" ? usd(buy.buyPrice) : formatPlainNumber(buy.buyPrice);
   const averageText = type === "US" ? usd(buy.nextAveragePrice) : formatPlainNumber(buy.nextAveragePrice);
   return normalizeTradeJournalEntry({
     id: uid(),
     assetId: asset.id,
+    ledgerEventId,
     date: buy.boughtAt,
     name: asset.name || "",
     ticker: asset.ticker || "",
@@ -3228,7 +5412,7 @@ function renderRealized() {
   state.realizedTrades = (state.realizedTrades || []).map(normalizeRealizedTrade);
   renderRealizedYearOptions();
 
-  const trades = [...state.realizedTrades].sort((a, b) => new Date(b.soldAt) - new Date(a.soldAt));
+  const trades = [...activeRealizedTrades()].sort((a, b) => new Date(b.soldAt) - new Date(a.soldAt));
   const now = new Date();
   const currentYear = String(now.getFullYear());
   const currentMonth = `${currentYear}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -3267,7 +5451,7 @@ function renderRealized() {
 
 function renderRealizedYearOptions() {
   if (!els.realizedYearFilter) return;
-  const years = [...new Set((state.realizedTrades || []).map(tradeYear).filter(Boolean))]
+  const years = [...new Set(activeRealizedTrades().map(tradeYear).filter(Boolean))]
     .sort((a, b) => Number(b) - Number(a));
   const current = years.includes(uiState.realizedYear) ? uiState.realizedYear : "ALL";
   els.realizedYearFilter.innerHTML = `<option value="ALL">전체 기간</option>${years.map((year) => `<option value="${year}">${year}년</option>`).join("")}`;
@@ -3277,7 +5461,7 @@ function renderRealizedYearOptions() {
 
 function renderRealizedChart(year) {
   const monthly = Array.from({ length: 12 }, () => 0);
-  (state.realizedTrades || [])
+  activeRealizedTrades()
     .filter((trade) => tradeYear(trade) === year)
     .forEach((trade) => {
       const month = Number(String(trade.soldAt || "").slice(5, 7));
@@ -3894,6 +6078,10 @@ function escapeHtml(value) {
 function resetAssetForm() {
   els.assetId.value = "";
   els.assetForm.reset();
+  delete els.assetForm.dataset.mode;
+  [els.assetCategory, els.assetAmount, els.assetQuantity, els.assetAveragePrice].forEach((input) => {
+    if (input) input.disabled = false;
+  });
   uiState.autofilledAssetName = "";
   if (els.assetFormTitle) els.assetFormTitle.textContent = "자산 추가";
   els.saveAssetBtn.textContent = "자산 저장";
@@ -3902,6 +6090,7 @@ function resetAssetForm() {
 }
 
 function showAssetForm(mode = "create") {
+  if (els.assetForm) els.assetForm.dataset.mode = mode;
   if (els.assetFormPanel) els.assetFormPanel.hidden = false;
   if (els.assetFormTitle) els.assetFormTitle.textContent = mode === "edit" ? "자산 수정" : "자산 추가";
   if (els.toggleAssetFormBtn) {
@@ -3943,6 +6132,217 @@ function hideBuyForm() {
   if (els.buyFormPanel) els.buyFormPanel.hidden = true;
 }
 
+function accountIdForAsset(asset) {
+  return `ACCOUNT:${String(asset?.id || "UNKNOWN")}`;
+}
+
+function openingOnlyLedgerEventForAsset(asset) {
+  if (!asset?.id) return null;
+  const validation = ledgerEngine().validateLedger(state.events, {
+    baselineDate: state.ledgerMeta?.baselineDate || undefined
+  });
+  if (!validation.ok) return null;
+  const referencesAsset = (event) => (
+    event.assetId === asset.id
+      || event.cashAssetId === asset.id
+      || event.counterCashAssetId === asset.id
+  );
+  const hasDependentHistory = validation.events.some((event) => (
+    !["OPENING_BALANCE", "CANCEL"].includes(event.type) && referencesAsset(event)
+  ));
+  if (hasDependentHistory) return null;
+  const related = validation.activeEvents.filter(referencesAsset);
+  if (related.length !== 1 || related[0].type !== "OPENING_BALANCE") return null;
+  const opening = related[0];
+  if (assetType(asset) === "CASH") return opening.balanceKind === "CASH" ? opening : null;
+  if (assetType(asset) === "MANUAL") return opening.balanceKind === "VALUATION" ? opening : null;
+  return opening.balanceKind === "POSITION" ? opening : null;
+}
+
+function cashAssets() {
+  return state.assets.filter((asset) => assetType(asset) === "CASH");
+}
+
+function renderCashAssetOptions(select, { preferredAccount = "", preserve = true } = {}) {
+  if (!select) return "";
+  const previous = preserve ? select.value : "";
+  const options = cashAssets();
+  select.innerHTML = options.length
+    ? `<option value="">CASH 계좌 선택</option>${options.map((asset) => `<option value="${escapeHtml(asset.id)}">${escapeHtml(asset.name)} · ${escapeHtml(asset.account || "계좌 미지정")} · ${escapeHtml(money(asset.amount || 0))}</option>`).join("")}`
+    : `<option value="">먼저 CASH 자산을 추가하세요</option>`;
+  let selected = options.some((asset) => asset.id === previous) ? previous : "";
+  if (!selected && preferredAccount) {
+    const exact = options.filter((asset) => asset.account === preferredAccount);
+    if (exact.length === 1) selected = exact[0].id;
+  }
+  if (!selected && options.length === 1) selected = options[0].id;
+  select.value = selected;
+  select.disabled = options.length === 0;
+  return selected;
+}
+
+function cashAssetFromSelect(select) {
+  return state.assets.find((asset) => asset.id === select?.value && assetType(asset) === "CASH") || null;
+}
+
+function renderCashFlowOptions({ preserve = true } = {}) {
+  renderCashAssetOptions(els.cashFlowCashAssetId, { preserve });
+  if (!els.cashFlowSourceAssetId) return;
+  const previous = preserve ? els.cashFlowSourceAssetId.value : "";
+  const options = state.assets
+    .filter((asset) => assetType(asset) !== "CASH")
+    .map((asset) => `<option value="${escapeHtml(asset.id)}">${escapeHtml(asset.name)}${asset.ticker ? ` · ${escapeHtml(asset.ticker)}` : ""}</option>`)
+    .join("");
+  els.cashFlowSourceAssetId.innerHTML = `<option value="">없음</option>${options}`;
+  els.cashFlowSourceAssetId.value = state.assets.some((asset) => asset.id === previous) ? previous : "";
+}
+
+function resetCashFlowForm() {
+  if (!els.cashFlowForm) return;
+  els.cashFlowForm.reset();
+  delete els.cashFlowForm.dataset.correctsEventId;
+  delete els.cashFlowForm.dataset.correctionReason;
+  els.cashFlowType.disabled = false;
+  const today = localDateInputValue();
+  els.cashFlowDate.value = today;
+  els.cashFlowSettlementDate.value = today;
+  els.cashFlowCurrency.value = "KRW";
+  els.cashFlowFxRate.value = "1";
+  if (els.cashFlowFxRateField) els.cashFlowFxRateField.hidden = true;
+  renderCashFlowOptions({ preserve: false });
+  renderCashFlowPreview();
+  if (els.cashFlowFormPanel) els.cashFlowFormPanel.hidden = true;
+  if (els.toggleCashFlowFormBtn) {
+    els.toggleCashFlowFormBtn.textContent = "현금흐름 기록";
+    els.toggleCashFlowFormBtn.setAttribute("aria-expanded", "false");
+  }
+}
+
+function showCashFlowForm() {
+  if (!els.cashFlowFormPanel) return;
+  renderCashFlowOptions();
+  if (!els.cashFlowDate.value) els.cashFlowDate.value = localDateInputValue();
+  if (!els.cashFlowSettlementDate.value) els.cashFlowSettlementDate.value = els.cashFlowDate.value;
+  els.cashFlowFormPanel.hidden = false;
+  els.toggleCashFlowFormBtn.textContent = "접기";
+  els.toggleCashFlowFormBtn.setAttribute("aria-expanded", "true");
+  els.cashFlowType.focus();
+  renderCashFlowPreview();
+}
+
+function parseCashFlowForm(strict = true) {
+  const type = String(els.cashFlowType?.value || "").toUpperCase();
+  const tradeDate = els.cashFlowDate?.value || localDateInputValue();
+  const settlementDate = els.cashFlowSettlementDate?.value || tradeDate;
+  const cashAsset = cashAssetFromSelect(els.cashFlowCashAssetId);
+  const sourceAsset = state.assets.find((asset) => asset.id === els.cashFlowSourceAssetId?.value) || null;
+  const amount = parseAmount(els.cashFlowAmount?.value || 0);
+  const currency = els.cashFlowCurrency?.value === "USD" ? "USD" : "KRW";
+  const fxRate = currency === "USD" ? parseAmount(els.cashFlowFxRate?.value || 0) : 1;
+  const amountKRW = amount * fxRate;
+  const memo = els.cashFlowMemo?.value.trim() || "";
+  const correctsEventId = els.cashFlowForm?.dataset.correctsEventId || "";
+  const correctedEvent = state.events.find((event) => event.eventId === correctsEventId) || null;
+  if (!CASH_FLOW_EVENT_TYPES.has(type)) return { ok: false, message: "지원하지 않는 현금흐름 유형입니다." };
+  if (!cashAsset) return { ok: false, message: strict ? "현금흐름을 반영할 CASH 계좌를 선택하세요." : "" };
+  if (!(amount > 0)) return { ok: false, message: strict ? "현금흐름 금액은 0보다 커야 합니다." : "" };
+  if (currency === "USD" && !(fxRate > 0)) return { ok: false, message: strict ? "적용 환율을 입력하세요." : "" };
+  if (settlementDate < tradeDate) return { ok: false, message: strict ? "반영일은 발생일보다 빠를 수 없습니다." : "" };
+  if (type === "DIVIDEND" && !sourceAsset) return { ok: false, message: strict ? "배당의 원천 자산을 선택하세요." : "" };
+  if (type === "DIVIDEND" && !isMarketType(assetType(sourceAsset))) {
+    return { ok: false, message: strict ? "배당의 원천은 KRX/US 자산이어야 합니다." : "" };
+  }
+  if (memo.length > IMPORT_STRING_LIMITS.note) return { ok: false, message: strict ? "현금흐름 메모는 10,000자 이하로 입력하세요." : "" };
+  const outgoing = ["WITHDRAWAL", "FEE", "TAX"].includes(type);
+  const correctedCashDeltaKRW = correctedEvent && correctedEvent.cashAssetId === cashAsset.id
+    ? ledgerCashChange(correctedEvent)
+    : 0;
+  const availableCashKRW = Number(cashAsset.amount || 0) - correctedCashDeltaKRW;
+  if (outgoing && amountKRW > availableCashKRW + 0.0001) {
+    const balanceLabel = correctedEvent ? "정정 전 원본 복원을 반영한 CASH 가용잔액" : "선택한 CASH 잔액";
+    return { ok: false, message: `${balanceLabel}(${money(availableCashKRW)})보다 차감액(${money(amountKRW)})이 큽니다.` };
+  }
+  return {
+    ok: true,
+    type,
+    tradeDate,
+    settlementDate,
+    cashAsset,
+    sourceAsset,
+    amount,
+    currency,
+    fxRate,
+    amountKRW,
+    memo,
+    outgoing,
+    previewBaseCashKRW: availableCashKRW
+  };
+}
+
+function createCashFlowLedgerEvent(result) {
+  const correctsEventId = els.cashFlowForm?.dataset.correctsEventId || "";
+  const corrected = state.events.find((event) => event.eventId === correctsEventId);
+  return normalizeLedgerEvent({
+    eventId: `event-${uid()}`,
+    type: result.type,
+    accountId: corrected?.accountId || accountIdForAsset(result.sourceAsset || result.cashAsset),
+    cashAssetId: result.cashAsset.id,
+    cashAccountId: accountIdForAsset(result.cashAsset),
+    ...(result.sourceAsset ? { assetId: result.sourceAsset.id } : {}),
+    ...(result.sourceAsset && isMarketType(assetType(result.sourceAsset))
+      ? { instrumentKey: decisionSubjectKeyForAsset(result.sourceAsset) }
+      : {}),
+    tradeDate: result.tradeDate,
+    settlementDate: result.settlementDate,
+    sequence: ledgerSequence(),
+    amount: result.amount,
+    currency: result.currency,
+    fxRate: result.fxRate,
+    note: result.memo,
+    ...(corrected ? {
+      correctsEventId: corrected.eventId,
+      reason: els.cashFlowForm.dataset.correctionReason,
+      auditDate: localDateInputValue()
+    } : {}),
+    createdAt: new Date().toISOString()
+  });
+}
+
+function showCashFlowCorrection(target, reason) {
+  if (!CASH_FLOW_EVENT_TYPES.has(target?.type)) return;
+  showCashFlowForm();
+  els.cashFlowForm.dataset.correctsEventId = target.eventId;
+  els.cashFlowForm.dataset.correctionReason = reason;
+  els.cashFlowType.value = target.type;
+  els.cashFlowType.disabled = true;
+  els.cashFlowDate.value = target.tradeDate;
+  els.cashFlowSettlementDate.value = target.settlementDate;
+  renderCashFlowOptions({ preserve: false });
+  els.cashFlowCashAssetId.value = target.cashAssetId;
+  els.cashFlowSourceAssetId.value = target.assetId || "";
+  els.cashFlowAmount.value = formatPlainNumber(target.amount || 0);
+  els.cashFlowCurrency.value = target.currency || "KRW";
+  els.cashFlowFxRate.value = formatPlainNumber(target.fxRate || 1);
+  els.cashFlowFxRateField.hidden = target.currency !== "USD";
+  els.cashFlowMemo.value = target.note || "";
+  renderCashFlowPreview();
+  els.cashFlowAmount.focus();
+}
+
+function renderCashFlowPreview() {
+  if (!els.cashFlowPreview) return;
+  const result = parseCashFlowForm(false);
+  if (!result.ok) {
+    els.cashFlowPreview.className = "cash-flow-preview";
+    els.cashFlowPreview.textContent = result.message || "금액을 입력하면 CASH 잔액 변화를 확인할 수 있습니다.";
+    return;
+  }
+  const delta = result.outgoing ? -result.amountKRW : result.amountKRW;
+  const baseCash = Number(result.previewBaseCashKRW ?? result.cashAsset.amount ?? 0);
+  els.cashFlowPreview.className = `cash-flow-preview ${delta >= 0 ? "positive" : "negative"}`;
+  els.cashFlowPreview.textContent = `${result.cashAsset.name} ${money(baseCash)} → ${money(baseCash + delta)} · 원화 반영 ${delta > 0 ? "+" : ""}${money(delta)}`;
+}
+
 function showSellForm(asset) {
   if (!els.sellFormPanel || !els.sellForm) return;
   resetAssetForm();
@@ -3950,6 +6350,8 @@ function showSellForm(asset) {
   els.sellFormPanel.hidden = false;
   els.sellAssetId.value = asset.id;
   els.sellDate.value = localDateInputValue();
+  if (els.sellSettlementDate) els.sellSettlementDate.value = localDateInputValue();
+  renderCashAssetOptions(els.sellCashAssetId, { preferredAccount: asset.account, preserve: false });
   els.sellQuantity.value = formatPlainNumber(asset.quantity || 0);
   els.sellPrice.value = asset.currentPrice ? formatPlainNumber(asset.currentPrice) : "";
   els.sellFees.value = "";
@@ -3972,6 +6374,8 @@ function showBuyForm(asset) {
   els.buyFormPanel.hidden = false;
   els.buyAssetId.value = asset.id;
   els.buyDate.value = localDateInputValue();
+  if (els.buySettlementDate) els.buySettlementDate.value = localDateInputValue();
+  renderCashAssetOptions(els.buyCashAssetId, { preferredAccount: asset.account, preserve: false });
   els.buyQuantity.value = "";
   els.buyPrice.value = asset.currentPrice ? formatPlainNumber(asset.currentPrice) : "";
   els.buyFees.value = "";
@@ -4001,6 +6405,7 @@ function renderSellPreview() {
     `매도금액 ${money(preview.trade.grossAmount)}`,
     `원가 ${money(preview.trade.costAmount)}`,
     `비용 ${money(preview.trade.fees + preview.trade.tax)}`,
+    `${preview.cashAsset.name} ${money(preview.cashAsset.amount || 0)} → ${money(Number(preview.cashAsset.amount || 0) + preview.netCashAmountKRW)}`,
     `${gainLabel} ${gain > 0 ? "+" : ""}${money(gain)}${rate === null ? "" : ` (${rate > 0 ? "+" : ""}${percent(rate)})`}`
   ].join(" · ");
 }
@@ -4019,6 +6424,7 @@ function renderBuyPreview() {
   els.buyPreview.className = "buy-preview positive";
   els.buyPreview.textContent = [
     `매수금액 ${money(preview.grossAmount + preview.fees)}`,
+    `${preview.cashAsset.name} ${money(preview.cashAsset.amount || 0)} → ${money(Number(preview.cashAsset.amount || 0) - preview.netCashAmountKRW)}`,
     `보유 ${formatPlainNumber(preview.previousQuantity)}주 → ${formatPlainNumber(preview.nextQuantity)}주`,
     `평단 ${previousAverageText} → ${averageText}`
   ].join(" · ");
@@ -4037,12 +6443,16 @@ function parseSellForm(strict = true) {
   const fees = Math.max(0, parseAmount(els.sellFees?.value || 0));
   const tax = Math.max(0, parseAmount(els.sellTax?.value || 0));
   const soldAt = els.sellDate?.value || localDateInputValue();
+  const settlementDate = els.sellSettlementDate?.value || soldAt;
+  const cashAsset = cashAssetFromSelect(els.sellCashAssetId);
   const memo = els.sellMemo?.value.trim() || "";
 
   if (quantity <= 0) return { ok: false, message: strict ? "매도 수량은 0보다 커야 합니다." : "" };
   if (quantity > holdingQuantity + 0.0000001) return { ok: false, message: `보유 수량 ${formatPlainNumber(holdingQuantity)}주보다 많이 매도할 수 없습니다.` };
   if (sellPrice <= 0) return { ok: false, message: strict ? "매도가를 입력하세요." : "" };
   if (type === "US" && fxRate <= 0) return { ok: false, message: strict ? "달러 환율을 입력하세요." : "" };
+  if (!cashAsset) return { ok: false, message: strict ? "매도대금을 받을 CASH 계좌를 선택하세요." : "" };
+  if (settlementDate < soldAt) return { ok: false, message: strict ? "결제일은 매도일보다 빠를 수 없습니다." : "" };
   if (memo.length > IMPORT_STRING_LIMITS.note) {
     return { ok: false, message: strict ? "매도 메모는 10,000자 이하로 입력하세요." : "" };
   }
@@ -4075,6 +6485,9 @@ function parseSellForm(strict = true) {
   return {
     ok: true,
     asset,
+    cashAsset,
+    settlementDate,
+    netCashAmountKRW: grossAmount - fees - tax,
     remainingQuantity: Math.max(0, holdingQuantity - quantity),
     trade
   };
@@ -4091,11 +6504,15 @@ function parseBuyForm(strict = true) {
   const fxRate = type === "US" ? parseAmount(els.buyFxRate?.value || 0) : 1;
   const fees = Math.max(0, parseAmount(els.buyFees?.value || 0));
   const boughtAt = els.buyDate?.value || localDateInputValue();
+  const settlementDate = els.buySettlementDate?.value || boughtAt;
+  const cashAsset = cashAssetFromSelect(els.buyCashAssetId);
   const memo = els.buyMemo?.value.trim() || "";
 
   if (quantity <= 0) return { ok: false, message: strict ? "추가매수 수량은 0보다 커야 합니다." : "" };
   if (buyPrice <= 0) return { ok: false, message: strict ? "매수가를 입력하세요." : "" };
   if (type === "US" && fxRate <= 0) return { ok: false, message: strict ? "달러 환율을 입력하세요." : "" };
+  if (!cashAsset) return { ok: false, message: strict ? "매수대금을 결제할 CASH 계좌를 선택하세요." : "" };
+  if (settlementDate < boughtAt) return { ok: false, message: strict ? "결제일은 매수일보다 빠를 수 없습니다." : "" };
   if (memo.length > IMPORT_STRING_LIMITS.note) {
     return { ok: false, message: strict ? "추가매수 메모는 10,000자 이하로 입력하세요." : "" };
   }
@@ -4104,21 +6521,30 @@ function parseBuyForm(strict = true) {
   const previousQuantity = Number(asset.quantity || 0);
   const previousAveragePrice = Number(asset.averagePrice || 0);
   const nextQuantity = previousQuantity + quantity;
-  const feeInPriceCurrency = fees / effectiveFx;
   const previousCost = previousQuantity * previousAveragePrice;
-  const addedCost = quantity * buyPrice + feeInPriceCurrency;
+  const addedCost = quantity * buyPrice;
   const nextAveragePrice = nextQuantity > 0 ? (previousCost + addedCost) / nextQuantity : buyPrice;
   const grossAmount = quantity * buyPrice * effectiveFx;
+  const netCashAmountKRW = grossAmount + fees;
+  if (netCashAmountKRW > Number(cashAsset.amount || 0) + 0.0001) {
+    return {
+      ok: false,
+      message: `선택한 CASH 잔액(${money(cashAsset.amount || 0)})보다 결제금액(${money(netCashAmountKRW)})이 큽니다.`
+    };
+  }
 
   return {
     ok: true,
     asset,
+    cashAsset,
     boughtAt,
+    settlementDate,
     quantity,
     buyPrice,
     fxRate: effectiveFx,
     fees,
     grossAmount,
+    netCashAmountKRW,
     previousQuantity,
     previousAveragePrice,
     nextQuantity,
@@ -4135,22 +6561,32 @@ function updateAssetFormForType() {
   const type = normalizeAssetType(els.assetCategory.value);
   const manualValued = isManualValuedType(type);
   const marketValued = isMarketType(type);
-  els.assetAmount.disabled = !manualValued;
+  const lockedForLedger = els.assetForm?.dataset.mode === "edit";
+  const editingAsset = lockedForLedger
+    ? state.assets.find((asset) => asset.id === els.assetId?.value) || null
+    : null;
+  const hasLedgerHistory = Boolean(editingAsset) && state.events.some((event) => (
+    event.assetId === editingAsset.id
+      || event.cashAssetId === editingAsset.id
+      || event.counterCashAssetId === editingAsset.id
+  ));
+  const tickerLockedForLedger = hasLedgerHistory && !openingOnlyLedgerEventForAsset(editingAsset);
+  els.assetAmount.disabled = !manualValued || (lockedForLedger && type !== "MANUAL");
   els.assetAmount.required = manualValued;
   els.assetAmount.placeholder = "금액 입력";
   if (els.assetAmountField) els.assetAmountField.hidden = !manualValued;
   if (els.manualSubtypeField) els.manualSubtypeField.hidden = type !== "MANUAL";
   if (!manualValued) els.assetAmount.value = "";
-  els.assetQuantity.disabled = !marketValued;
+  els.assetQuantity.disabled = !marketValued || lockedForLedger;
   els.assetQuantity.required = marketValued;
-  els.assetAveragePrice.disabled = !marketValued;
+  els.assetAveragePrice.disabled = !marketValued || lockedForLedger;
   els.assetAveragePrice.required = marketValued;
   if (!marketValued) {
     els.assetQuantity.value = "";
     els.assetAveragePrice.value = "";
   }
   if (type !== "MANUAL" && els.assetManualSubtype) els.assetManualSubtype.value = "AUTO";
-  els.assetTicker.disabled = !marketValued;
+  els.assetTicker.disabled = !marketValued || tickerLockedForLedger;
   els.assetTicker.placeholder = type === "KRX" ? "예: 005930, 0092B0" : type === "US" ? "예: AAPL, QQQ" : "티커 불필요";
   els.assetAveragePrice.placeholder = type === "US" ? "달러 평단가" : "0";
   if (!marketValued) {
@@ -4185,28 +6621,233 @@ function parseAmount(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function validateAssetInput(asset) {
+function validateAssetInput(asset, { allowZeroBalance = false } = {}) {
   const type = assetType(asset);
   if (!asset.name) return "자산명을 입력하세요.";
   if (String(asset.name).length > IMPORT_STRING_LIMITS.short) return "자산명은 500자 이하로 입력하세요.";
   if (String(asset.account || "").length > IMPORT_STRING_LIMITS.short) return "계좌명은 500자 이하로 입력하세요.";
   if (String(asset.note || "").length > IMPORT_STRING_LIMITS.note) return "자산 메모는 10,000자 이하로 입력하세요.";
-  if (isManualValuedType(type) && !(asset.amount > 0)) {
+  if (isManualValuedType(type) && !(asset.amount > 0) && !allowZeroBalance) {
     return "현금·수동 자산의 평가금액은 0보다 커야 합니다.";
   }
-  if (isMarketType(type) && !(asset.quantity > 0)) {
+  if (isMarketType(type) && !(asset.quantity > 0) && !allowZeroBalance) {
     return "시장가격 자산의 보유수량은 0보다 커야 합니다.";
   }
-  if (isMarketType(type) && !(asset.averagePrice > 0)) {
+  if (isMarketType(type) && !(asset.averagePrice > 0) && !allowZeroBalance) {
     return "시장가격 자산의 평단가는 0보다 커야 합니다.";
   }
   return "";
 }
 
+function watchlistDecisionFieldsFromForm() {
+  const fields = normalizeDecisionProfileFields({
+    investmentRole: els.watchlistRole?.value,
+    thesis: els.watchlistThesis?.value,
+    returnSource: els.watchlistReturnSource?.value,
+    horizon: els.watchlistHorizon?.value,
+    conviction: els.watchlistConviction?.value,
+    kpis: els.watchlistKpis?.value,
+    catalysts: els.watchlistCatalysts?.value,
+    invalidation: els.watchlistInvalidation?.value,
+    deceleration: els.watchlistDeceleration?.value,
+    nextReviewAt: els.watchlistNextReviewAt?.value
+  });
+  delete fields.lastReviewedAt;
+  delete fields.reviewStatus;
+  return fields;
+}
+
+function setWatchlistFormStatus(message, error = false) {
+  if (!els.watchlistFormStatus) return;
+  els.watchlistFormStatus.textContent = message;
+  els.watchlistFormStatus.classList.toggle("negative", error);
+}
+
+function resetWatchlistForm() {
+  els.watchlistForm?.reset();
+  if (els.watchlistForm) delete els.watchlistForm.dataset.loadedSubjectKey;
+  if (els.watchlistId) els.watchlistId.value = "";
+  if (els.watchlistType) els.watchlistType.value = "KRX";
+  if (els.watchlistRole) els.watchlistRole.value = "UNASSIGNED";
+  if (els.watchlistHorizon) els.watchlistHorizon.value = "UNSET";
+  if (els.watchlistConviction) els.watchlistConviction.value = "UNSET";
+  if (els.saveWatchlistBtn) els.saveWatchlistBtn.textContent = "관심종목 저장";
+  if (els.watchlistMigrationConflict) els.watchlistMigrationConflict.innerHTML = "";
+  setWatchlistFormStatus("관심종목은 보유 자산과 포트폴리오 집중도에 포함되지 않습니다.");
+}
+
+function fillWatchlistDecisionFields(profile) {
+  els.watchlistRole.value = profile.investmentRole;
+  els.watchlistHorizon.value = profile.horizon;
+  els.watchlistConviction.value = profile.conviction;
+  els.watchlistThesis.value = profile.thesis;
+  els.watchlistReturnSource.value = profile.returnSource;
+  els.watchlistKpis.value = profile.kpis;
+  els.watchlistCatalysts.value = profile.catalysts;
+  els.watchlistInvalidation.value = profile.invalidation;
+  els.watchlistDeceleration.value = profile.deceleration;
+  els.watchlistNextReviewAt.value = profile.nextReviewAt;
+  if (els.watchlistMigrationConflict) {
+    els.watchlistMigrationConflict.innerHTML = decisionMigrationConflictHtml(profile);
+  }
+}
+
+function fillWatchlistForm(item) {
+  if (!item || !els.watchlistForm) return;
+  const profile = decisionProfileForWatchlist(item);
+  els.watchlistId.value = item.id;
+  els.watchlistName.value = item.name;
+  els.watchlistTicker.value = item.ticker;
+  els.watchlistType.value = item.type;
+  fillWatchlistDecisionFields(profile);
+  els.watchlistForm.dataset.loadedSubjectKey = decisionSubjectKeyForWatchlist(item);
+  if (els.saveWatchlistBtn) els.saveWatchlistBtn.textContent = "관심종목 수정 저장";
+  setWatchlistFormStatus(`${item.name} 판단 기준을 수정하고 있습니다.`);
+  els.watchlistName.focus();
+  els.watchlistForm.scrollIntoView?.({ behavior: "smooth", block: "start" });
+}
+
+function decisionSubjectInUse(subjectKey, { excludingWatchlistId = "" } = {}) {
+  return state.assets.some((asset) => decisionSubjectKeyForAsset(asset) === subjectKey)
+    || state.watchlist.some((item) => item.id !== excludingWatchlistId && decisionSubjectKeyForWatchlist(item) === subjectKey);
+}
+
+els.watchlistForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const type = ["KRX", "US"].includes(els.watchlistType.value) ? els.watchlistType.value : "KRX";
+  const ticker = normalizeTicker(type, els.watchlistTicker.value);
+  const tickerError = validateTicker(type, ticker);
+  if (tickerError) {
+    setWatchlistFormStatus(tickerError, true);
+    els.watchlistTicker.focus();
+    return;
+  }
+  const name = els.watchlistName.value.trim() || priceNameForTicker(type, ticker);
+  if (!name) {
+    setWatchlistFormStatus("종목명을 입력하세요.", true);
+    els.watchlistName.focus();
+    return;
+  }
+  const editingId = els.watchlistId.value;
+  const previous = state.watchlist.find((item) => item.id === editingId);
+  const nextItem = normalizeWatchlistItem({
+    id: editingId || `watch-${uid()}`,
+    name,
+    ticker,
+    type,
+    createdAt: previous?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  const nextSubjectKey = decisionSubjectKeyForWatchlist(nextItem);
+  const previousSubjectKey = previous ? decisionSubjectKeyForWatchlist(previous) : "";
+  const duplicate = state.watchlist.find((item) => item.id !== editingId && decisionSubjectKeyForWatchlist(item) === nextSubjectKey);
+  if (duplicate) {
+    setWatchlistFormStatus(`${duplicate.name}과 같은 시장·티커가 이미 관심종목에 있습니다.`, true);
+    return;
+  }
+  const heldAsset = state.assets.find((asset) => decisionSubjectKeyForAsset(asset) === nextSubjectKey);
+  if (heldAsset && previousSubjectKey !== nextSubjectKey) {
+    setWatchlistFormStatus(`${heldAsset.name}은(는) 이미 보유 중입니다. 자산 상세에서 판단 기준을 관리하세요.`, true);
+    els.watchlistTicker.focus();
+    return;
+  }
+  const targetProfile = state.decisionProfiles.find((profile) => profile.subjectKey === nextSubjectKey);
+  if (targetProfile
+    && previousSubjectKey !== nextSubjectKey
+    && els.watchlistForm.dataset.loadedSubjectKey !== nextSubjectKey) {
+    const loadExisting = confirm(
+      "이 종목의 기존 판단 기록이 있습니다. 기존 기록을 폼에 불러올까요?\n\n확인: 기존 판단 불러오기\n취소: 현재 작성한 초안 유지"
+    );
+    if (loadExisting) fillWatchlistDecisionFields(targetProfile);
+    else if (els.watchlistMigrationConflict) {
+      els.watchlistMigrationConflict.innerHTML = existingDecisionProfileHtml(targetProfile);
+    }
+    els.watchlistForm.dataset.loadedSubjectKey = nextSubjectKey;
+    setWatchlistFormStatus(loadExisting
+      ? "이 종목의 기존 판단 기록을 불러왔습니다. 내용을 확인한 뒤 다시 저장하세요."
+      : "작성 중인 초안을 유지했습니다. 아래 기존 기록과 비교한 뒤 다시 저장하세요.");
+    if (loadExisting) els.watchlistRole.focus();
+    else els.watchlistMigrationConflict?.querySelector("summary")?.focus();
+    return;
+  }
+
+  const index = state.watchlist.findIndex((item) => item.id === editingId);
+  if (index >= 0) state.watchlist[index] = nextItem;
+  else state.watchlist.push(nextItem);
+  const existingProfile = targetProfile || (previous ? decisionProfileForWatchlist(previous) : {});
+  upsertDecisionProfile(nextSubjectKey, {
+    ...existingProfile,
+    ...watchlistDecisionFieldsFromForm(),
+    migrationConflicts: []
+  }, {
+    name: nextItem.name,
+    type: nextItem.type,
+    ticker: nextItem.ticker
+  });
+  if (previousSubjectKey && previousSubjectKey !== nextSubjectKey && !decisionSubjectInUse(previousSubjectKey)) {
+    state.decisionProfiles = state.decisionProfiles.filter((profile) => profile.subjectKey !== previousSubjectKey);
+  }
+  resetWatchlistForm();
+  render();
+  showStatusNotice(index >= 0 ? "관심종목 판단 기준을 수정했습니다." : "관심종목을 추가했습니다.");
+});
+
+els.cancelWatchlistBtn?.addEventListener("click", resetWatchlistForm);
+
+els.watchlistType?.addEventListener("change", () => {
+  if (!els.watchlistTicker) return;
+  if (els.watchlistForm) delete els.watchlistForm.dataset.loadedSubjectKey;
+  if (els.watchlistMigrationConflict) els.watchlistMigrationConflict.innerHTML = "";
+  els.watchlistTicker.placeholder = els.watchlistType.value === "US" ? "예: AAPL, QQQ" : "예: 005930, 0092B0";
+});
+
+els.watchlistTicker?.addEventListener("input", () => {
+  if (els.watchlistForm) delete els.watchlistForm.dataset.loadedSubjectKey;
+  if (els.watchlistMigrationConflict) els.watchlistMigrationConflict.innerHTML = "";
+});
+
+els.watchlistList?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-watchlist-action]");
+  if (!button) return;
+  const item = state.watchlist.find((entry) => entry.id === button.dataset.id);
+  if (!item) return;
+  if (button.dataset.watchlistAction === "edit") {
+    fillWatchlistForm(item);
+    return;
+  }
+  if (button.dataset.watchlistAction !== "delete" || !confirm(`${item.name} 관심종목을 삭제할까요?`)) return;
+  const itemIndex = state.watchlist.findIndex((entry) => entry.id === item.id);
+  const subjectKey = decisionSubjectKeyForWatchlist(item);
+  const profile = state.decisionProfiles.find((entry) => entry.subjectKey === subjectKey);
+  state.watchlist.splice(itemIndex, 1);
+  const profileRemoved = !decisionSubjectInUse(subjectKey);
+  if (profileRemoved) state.decisionProfiles = state.decisionProfiles.filter((entry) => entry.subjectKey !== subjectKey);
+  resetWatchlistForm();
+  render();
+  showUndoNotice(`${item.name} 관심종목을 삭제했습니다.`, () => {
+    state.watchlist.splice(Math.max(0, itemIndex), 0, item);
+    if (profileRemoved && profile && !state.decisionProfiles.some((entry) => entry.subjectKey === subjectKey)) {
+      state.decisionProfiles.push(profile);
+    }
+    render();
+  });
+});
+
 els.assetForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  const type = normalizeAssetType(els.assetCategory.value);
-  const ticker = normalizeTicker(type, els.assetTicker.value);
+  const editingId = els.assetId.value;
+  const editingAsset = state.assets.find((item) => item.id === editingId) || null;
+  const type = editingAsset ? assetType(editingAsset) : normalizeAssetType(els.assetCategory.value);
+  const openingEventToCorrect = openingOnlyLedgerEventForAsset(editingAsset);
+  const hasLedgerHistory = Boolean(editingAsset) && state.events.some((ledgerEvent) => (
+    ledgerEvent.assetId === editingAsset.id
+      || ledgerEvent.cashAssetId === editingAsset.id
+      || ledgerEvent.counterCashAssetId === editingAsset.id
+  ));
+  const tickerLockedForLedger = hasLedgerHistory && !openingEventToCorrect;
+  const ticker = tickerLockedForLedger && isMarketType(type)
+    ? editingAsset.ticker
+    : normalizeTicker(type, els.assetTicker.value);
   const asset = {
     id: els.assetId.value || uid(),
     name: els.assetName.value.trim() || priceNameForTicker(type, ticker),
@@ -4215,9 +6856,11 @@ els.assetForm.addEventListener("submit", (event) => {
 	    account: els.assetAccount.value.trim(),
 	    accountClass: normalizeAccountClass(els.assetAccountClass?.value),
 	    manualSubtype: type === "MANUAL" ? normalizeManualSubtype(els.assetManualSubtype?.value) : "AUTO",
-	    amount: isManualValuedType(type) ? numberValue(els.assetAmount) : 0,
-    quantity: decimalValue(els.assetQuantity),
-    averagePrice: decimalValue(els.assetAveragePrice),
+	    amount: editingAsset
+      ? type === "MANUAL" ? numberValue(els.assetAmount) : Number(editingAsset.amount || 0)
+      : isManualValuedType(type) ? numberValue(els.assetAmount) : 0,
+    quantity: editingAsset ? Number(editingAsset.quantity || 0) : decimalValue(els.assetQuantity),
+    averagePrice: editingAsset ? Number(editingAsset.averagePrice || 0) : decimalValue(els.assetAveragePrice),
     note: els.assetNote.value.trim(),
     updatedAt: new Date().toISOString()
   };
@@ -4227,21 +6870,152 @@ els.assetForm.addEventListener("submit", (event) => {
     alert(tickerError);
     return;
   }
-  const assetError = validateAssetInput(asset);
+  const assetError = validateAssetInput(asset, { allowZeroBalance: Boolean(editingAsset) });
   if (assetError) {
     alert(assetError);
     return;
   }
 
-  const index = state.assets.findIndex((item) =>
-    els.assetId.value ? item.id === asset.id : assetIdentity(item) === assetIdentity(asset)
-  );
-  if (index >= 0) state.assets[index] = normalizeAsset({ ...state.assets[index], ...asset, id: state.assets[index].id });
-  else state.assets.push(normalizeAsset(asset));
+  const duplicateAsset = state.assets.find((item) => (
+    item.id !== editingId && assetIdentity(item) === assetIdentity(asset)
+  ));
+  if (duplicateAsset) {
+    alert(`이미 같은 자산이 등록되어 있습니다: ${duplicateAsset.name} · ${duplicateAsset.account || "계좌 미지정"}. 기존 자산에서 매수·매도 또는 현금흐름을 기록하세요.`);
+    return;
+  }
 
-  applyPricesToAssets();
-  resetAssetForm();
-  render();
+  const beforeMutation = storageSafeState();
+  try {
+    const index = editingId
+      ? state.assets.findIndex((item) => item.id === editingId)
+      : -1;
+    const previousAsset = index >= 0 ? state.assets[index] : null;
+    const previousSubjectKey = previousAsset ? decisionSubjectKeyForAsset(previousAsset) : "";
+    const previousProfile = previousSubjectKey
+      ? state.decisionProfiles.find((profile) => profile.subjectKey === previousSubjectKey)
+      : null;
+    if (index >= 0) state.assets[index] = normalizeAsset({ ...state.assets[index], ...asset, id: state.assets[index].id });
+    else state.assets.push(normalizeAsset(asset));
+
+    const savedAsset = index >= 0 ? state.assets[index] : state.assets.at(-1);
+    let valuationChanged = false;
+    let openingCorrected = false;
+    if (index < 0) {
+      const openingDate = localDateInputValue();
+      if (!state.ledgerMeta.baselineDate) state.ledgerMeta.baselineDate = openingDate;
+      const openingEvent = unwrapLedgerResult(ledgerEngine().createOpeningBalanceEvent(savedAsset, {
+        eventId: `opening-${savedAsset.id}`,
+        openingDate,
+        accountId: accountIdForAsset(savedAsset),
+        ...(isMarketType(assetType(savedAsset)) ? { instrumentKey: decisionSubjectKeyForAsset(savedAsset) } : {}),
+        sourceSystem: "ASSETTRAIL_ASSET_OPENING",
+        sourceId: savedAsset.id,
+        note: "자산 등록 시 사용자가 입력한 명시적 기초잔액"
+      }), "자산 기초잔액");
+      appendLedgerEvents([openingEvent]);
+    } else if (openingEventToCorrect
+      && isMarketType(type)
+      && normalizeTicker(type, previousAsset.ticker) !== normalizeTicker(type, savedAsset.ticker)) {
+      const auditDate = [localDateInputValue(), openingEventToCorrect.tradeDate].sort().at(-1);
+      const replacementBase = unwrapLedgerResult(ledgerEngine().createOpeningBalanceEvent(savedAsset, {
+        eventId: `event-${uid()}`,
+        openingDate: openingEventToCorrect.tradeDate,
+        accountId: accountIdForAsset(savedAsset),
+        instrumentKey: decisionSubjectKeyForAsset(savedAsset),
+        currency: openingEventToCorrect.currency,
+        ...(openingEventToCorrect.fxRateKnown
+          ? { fxRate: openingEventToCorrect.fxRate }
+          : {}),
+        sequence: ledgerSequence(),
+        ...(openingEventToCorrect.sourceSystem && openingEventToCorrect.sourceId
+          ? {
+              sourceSystem: openingEventToCorrect.sourceSystem,
+              sourceId: openingEventToCorrect.sourceId
+            }
+          : {}),
+        note: "기초잔액 종목 식별자 정정"
+      }), "자산 기초잔액 정정");
+      const replacement = normalizeLedgerEvent({
+        ...replacementBase,
+        correctsEventId: openingEventToCorrect.eventId,
+        reason: "자산 종목 식별자 수정",
+        auditDate,
+        createdAt: new Date().toISOString()
+      });
+      appendLedgerEvents([replacement]);
+      openingCorrected = true;
+    } else if (type === "MANUAL" && Math.abs(Number(previousAsset.amount || 0) - Number(savedAsset.amount || 0)) > 0.01) {
+      const valuationDate = localDateInputValue();
+      const valuationEvent = normalizeLedgerEvent({
+        eventId: `event-${uid()}`,
+        type: "VALUATION",
+        accountId: accountIdForAsset(savedAsset),
+        assetId: savedAsset.id,
+        tradeDate: valuationDate,
+        settlementDate: valuationDate,
+        sequence: ledgerSequence(),
+        amount: savedAsset.amount,
+        currency: "KRW",
+        fxRate: 1,
+        note: `수동 평가금액 조정 (${money(previousAsset.amount || 0)} → ${money(savedAsset.amount || 0)})`,
+        createdAt: new Date().toISOString()
+      });
+      appendLedgerEvents([valuationEvent]);
+      valuationChanged = true;
+    }
+    const nextSubjectKey = decisionSubjectKeyForAsset(savedAsset);
+    let preservedProfileConflict = false;
+    const previousSubjectStillInUse = previousSubjectKey
+      ? decisionSubjectInUse(previousSubjectKey)
+      : false;
+    if (previousProfile && previousSubjectKey !== nextSubjectKey && !previousSubjectStillInUse) {
+      const targetProfileIndex = state.decisionProfiles.findIndex((profile) => profile.subjectKey === nextSubjectKey);
+      if (targetProfileIndex < 0) {
+        upsertDecisionProfile(nextSubjectKey, previousProfile, {
+          name: savedAsset.name,
+          type: assetType(savedAsset),
+          ticker: savedAsset.ticker
+        });
+      } else {
+        const targetProfile = state.decisionProfiles[targetProfileIndex];
+        const previousConflicts = normalizeDecisionMigrationConflicts(previousProfile.migrationConflicts);
+        if (decisionProfileFieldsFingerprint(targetProfile) !== decisionProfileFieldsFingerprint(previousProfile)
+          || previousConflicts.length) {
+          const previousSource = decisionMigrationConflictFor("asset", previousProfile, {
+            ...previousAsset,
+            name: `${previousAsset.name}${previousAsset.ticker ? ` (${previousAsset.ticker})` : ""}`
+          });
+          state.decisionProfiles[targetProfileIndex] = normalizeDecisionProfile({
+            ...targetProfile,
+            reviewStatus: targetProfile.reviewStatus === "INVALIDATED" ? "INVALIDATED" : "REVIEW",
+            migrationConflicts: [
+              ...normalizeDecisionMigrationConflicts(targetProfile.migrationConflicts),
+              ...previousConflicts,
+              previousSource
+            ]
+          });
+          preservedProfileConflict = true;
+        }
+      }
+      state.decisionProfiles = state.decisionProfiles.filter((profile) => profile.subjectKey !== previousSubjectKey);
+    }
+
+    applyPricesToAssets();
+    resetAssetForm();
+    if (!render()) throw new Error("변경 내용을 로컬 저장소에 기록하지 못했습니다.");
+    if (preservedProfileConflict) {
+      showStatusNotice("대상 종목의 기존 판단은 유지하고, 이전 종목의 판단은 비교할 원본으로 보존했습니다.");
+    } else if (openingCorrected) {
+      showStatusNotice("기초잔액 원본을 보존하고 종목 식별자 정정 이벤트를 저장했습니다.");
+    } else if (valuationChanged) {
+      showStatusNotice("원본 평가 이력을 보존하고 수동 자산 평가조정 이벤트를 저장했습니다.");
+    }
+  } catch (error) {
+    console.error(error);
+    replaceState(beforeMutation);
+    renderCurrentViewWithoutPersist();
+    alert(`자산 변경을 저장하지 않았습니다. ${error.message}`);
+  }
 });
 
 els.buyForm?.addEventListener("submit", (event) => {
@@ -4252,33 +7026,19 @@ els.buyForm?.addEventListener("submit", (event) => {
     return;
   }
 
-  const { asset, nextQuantity, nextAveragePrice } = result;
-  const previousAssets = state.assets.map((item) => ({ ...item }));
-  const previousJournalEntries = state.tradeJournalEntries.map((item) => ({ ...item }));
-  const index = state.assets.findIndex((item) => item.id === asset.id);
-  if (index < 0) return;
-
-  state.assets[index] = normalizeAsset({
-    ...state.assets[index],
-    quantity: nextQuantity,
-    averagePrice: nextAveragePrice,
-    updatedAt: new Date().toISOString()
-  });
-
+  const ledgerEvent = createBuyLedgerEvent(result);
   const journalCreated = Boolean(els.buyJournalEnabled?.checked);
-  if (journalCreated) {
-    state.tradeJournalEntries.push(createJournalEntryFromBuy(state.assets[index], result));
-  }
-
-  applyPricesToAssets();
+  const saved = commitLedgerMutation(() => {
+    appendLedgerEvents([ledgerEvent]);
+    const updatedAsset = state.assets.find((asset) => asset.id === result.asset.id);
+    if (journalCreated) state.tradeJournalEntries.push(createJournalEntryFromBuy(updatedAsset, result, ledgerEvent.eventId));
+    return ledgerEvent;
+  });
+  if (!saved.ok) return;
   resetBuyForm();
-  uiState.investmentRecordTab = journalCreated ? "JOURNAL" : uiState.investmentRecordTab;
-  render();
+  uiState.investmentRecordTab = "LEDGER";
   showUndoNotice(journalCreated ? "추가매수와 매매일지를 함께 저장했습니다." : "추가매수를 저장했습니다.", () => {
-    state.assets = previousAssets.map(normalizeAsset);
-    state.tradeJournalEntries = previousJournalEntries.map(normalizeTradeJournalEntry);
-    applyPricesToAssets();
-    render();
+    cancelLedgerEvent(ledgerEvent.eventId, "추가매수 저장 직후 되돌리기");
   });
 });
 
@@ -4290,38 +7050,21 @@ els.sellForm?.addEventListener("submit", (event) => {
     return;
   }
 
-  const { asset, remainingQuantity, trade } = result;
-  const previousAssets = state.assets.map((item) => ({ ...item }));
-  const previousTrades = state.realizedTrades.map((item) => ({ ...item }));
-  const previousJournalEntries = state.tradeJournalEntries.map((item) => ({ ...item }));
-  const index = state.assets.findIndex((item) => item.id === asset.id);
-  if (index < 0) return;
-
-  state.realizedTrades.push(trade);
+  const { asset } = result;
+  const ledgerEvent = createSellLedgerEvent(result);
+  const trade = normalizeRealizedTrade({ ...result.trade, ledgerEventId: ledgerEvent.eventId });
   const journalCreated = Boolean(els.sellJournalEnabled?.checked);
-  if (journalCreated) {
-    state.tradeJournalEntries.push(createJournalEntryFromTrade(asset, trade));
-  }
-  if (remainingQuantity <= 0.0000001) {
-    state.assets.splice(index, 1);
-  } else {
-    state.assets[index] = normalizeAsset({
-      ...state.assets[index],
-      quantity: remainingQuantity,
-      updatedAt: new Date().toISOString()
-    });
-  }
-
-  applyPricesToAssets();
+  const saved = commitLedgerMutation(() => {
+    appendLedgerEvents([ledgerEvent]);
+    state.realizedTrades.push(trade);
+    if (journalCreated) state.tradeJournalEntries.push(createJournalEntryFromTrade(asset, trade, ledgerEvent.eventId));
+    return ledgerEvent;
+  });
+  if (!saved.ok) return;
   resetSellForm();
-  uiState.investmentRecordTab = "REALIZED";
-  render();
+  uiState.investmentRecordTab = "LEDGER";
   showUndoNotice(journalCreated ? "매도 기록과 매매일지를 함께 저장했습니다." : "매도 기록을 저장했습니다. 실현손익에서 일지를 연결할 수 있습니다.", () => {
-    state.assets = previousAssets.map(normalizeAsset);
-    state.realizedTrades = previousTrades.map(normalizeRealizedTrade);
-    state.tradeJournalEntries = previousJournalEntries.map(normalizeTradeJournalEntry);
-    applyPricesToAssets();
-    render();
+    cancelLedgerEvent(ledgerEvent.eventId, "매도 저장 직후 되돌리기");
   });
 });
 
@@ -4367,10 +7110,56 @@ function handleAssetAction(button) {
     uiState.autofilledAssetName = "";
     els.saveAssetBtn.textContent = "수정 저장";
     updateAssetFormForType();
+    els.assetCategory.disabled = true;
     els.assetName.focus();
   }
 
-  if (button.dataset.action === "delete" && confirm(`${asset.name} 자산을 삭제할까요?\n\n계좌: ${asset.account || "계좌 미지정"}\n평가금액: ${money(assetValue(asset))}\n\n삭제 직후에는 되돌리기 버튼으로 복구할 수 있습니다.`)) {
+  if (button.dataset.action !== "delete") return;
+
+  const hasLedgerHistory = state.events.some((event) => (
+    event.assetId === asset.id
+      || event.cashAssetId === asset.id
+      || event.counterCashAssetId === asset.id
+  ));
+  const openingEventToCancel = openingOnlyLedgerEventForAsset(asset);
+  if (hasLedgerHistory && !openingEventToCancel) {
+    alert("거래·현금흐름 이력이 연결된 자산은 삭제할 수 없습니다. 보유수량과 현금잔액은 원장 이벤트로 0까지 조정하고 기록은 보존하세요.");
+    return;
+  }
+
+  const confirmation = openingEventToCancel
+    ? `${asset.name} 자산을 삭제할까요?\n\n계좌: ${asset.account || "계좌 미지정"}\n평가금액: ${money(assetValue(asset))}\n\n기초잔액은 삭제하지 않고 취소 이력으로 보존됩니다.`
+    : `${asset.name} 자산을 삭제할까요?\n\n계좌: ${asset.account || "계좌 미지정"}\n평가금액: ${money(assetValue(asset))}\n\n삭제 직후에는 되돌리기 버튼으로 복구할 수 있습니다.`;
+  if (!confirm(confirmation)) return;
+
+  if (openingEventToCancel) {
+    const auditDate = [localDateInputValue(), openingEventToCancel.tradeDate].sort().at(-1);
+    const cancellation = normalizeLedgerEvent({
+      eventId: `event-${uid()}`,
+      type: "CANCEL",
+      accountId: openingEventToCancel.accountId,
+      targetEventId: openingEventToCancel.eventId,
+      tradeDate: auditDate,
+      settlementDate: auditDate,
+      auditDate,
+      sequence: ledgerSequence(),
+      reason: "잘못 등록한 자산의 기초잔액 취소",
+      createdAt: new Date().toISOString()
+    });
+    const saved = commitLedgerMutation(() => {
+      appendLedgerEvents([cancellation]);
+      state.assets = state.assets.filter((item) => item.id !== asset.id);
+      return cancellation;
+    });
+    if (!saved.ok) return;
+    resetAssetForm();
+    resetSellForm();
+    resetBuyForm();
+    showStatusNotice(`${asset.name} 자산을 정리하고 기초잔액 취소 이력을 보존했습니다.`);
+    return;
+  }
+
+  if (!hasLedgerHistory) {
     const index = state.assets.findIndex((item) => item.id === asset.id);
     const deleted = { ...asset };
     state.assets = state.assets.filter((item) => item.id !== asset.id);
@@ -4386,10 +7175,26 @@ function handleAssetAction(button) {
   }
 }
 
-function openAssetDetail(assetId, opener = document.activeElement) {
+function openAssetDetail(assetId, opener = document.activeElement, {
+  focusDecision = false,
+  focusSelector = "",
+  bodyScrollTop = null,
+  statusMessage = ""
+} = {}) {
   const asset = state.assets.find((item) => item.id === assetId);
   if (!asset || !els.assetDetailDrawer || !els.assetDetailOverlay) return;
   assetDetailOpener = opener && typeof opener.focus === "function" ? opener : null;
+  const decisionProfile = decisionProfileForAsset(asset);
+  const subjectKey = decisionSubjectKeyForAsset(asset);
+  const sharedAssetCount = state.assets.filter((item) => decisionSubjectKeyForAsset(item) === subjectKey).length;
+  const reviewTiming = reviewTimingForProfile(decisionProfile);
+  const reviewTimingLabel = reviewTiming === "overdue"
+    ? `검토기한 초과 · ${decisionProfile.nextReviewAt}`
+    : reviewTiming === "dueToday"
+      ? "오늘 검토"
+      : decisionProfile.nextReviewAt
+        ? `다음 검토 ${decisionProfile.nextReviewAt}`
+        : "검토일 미설정";
   const value = assetValue(asset);
   const gain = assetGain(asset);
   const cost = assetCost(asset);
@@ -4410,6 +7215,7 @@ function openAssetDetail(assetId, opener = document.activeElement) {
         <span class="asset-sub">
           ${asset.ticker ? `<span class="ticker">${escapeHtml(asset.ticker)}</span>` : ""}
           <span class="badge">${escapeHtml(assetTypeLabel(asset))}</span>
+          ${decisionRoleBadge(decisionProfile)}
           ${asset.account ? `<span class="asset-account">${escapeHtml(asset.account)}</span>` : ""}
         </span>
       </div>
@@ -4431,28 +7237,196 @@ function openAssetDetail(assetId, opener = document.activeElement) {
         <span class="detail-kicker">메모</span>
         ${noteHtml}
       </div>
+      <section class="decision-section detail-decision-section ${reviewTiming === "overdue" ? "review-overdue" : ""}" aria-labelledby="assetDecisionHeading">
+        <div class="decision-section-head detail-decision-head">
+          <div>
+            <span class="detail-kicker">Investment decision</span>
+            <h3 id="assetDecisionHeading">투자 의사결정</h3>
+          </div>
+          <span class="decision-status status-${escapeHtml(reviewTiming)}">${escapeHtml(reviewTimingLabel)}</span>
+        </div>
+        <p class="decision-profile-guide">${sharedAssetCount > 1
+          ? `같은 종목의 ${sharedAssetCount}개 계좌 보유가 이 가설을 함께 사용합니다.`
+          : "보유 이유와 확인 조건을 구조화해 다음 검토 때 같은 기준으로 판단합니다."}</p>
+        ${decisionMigrationConflictHtml(decisionProfile)}
+        <form class="decision-form" data-asset-decision-form data-id="${escapeHtml(asset.id)}">
+          <div class="decision-form-grid">
+            <label>
+              자산 역할
+              <select name="investmentRole">${decisionSelectOptions(INVESTMENT_ROLE_LABELS, decisionProfile.investmentRole)}</select>
+            </label>
+            <label>
+              투자 기간
+              <select name="horizon">${decisionSelectOptions(INVESTMENT_HORIZON_LABELS, decisionProfile.horizon)}</select>
+            </label>
+            <label>
+              확신도
+              <select name="conviction">${decisionSelectOptions(CONVICTION_LABELS, decisionProfile.conviction)}</select>
+            </label>
+            <label>
+              검토 상태
+              <select name="reviewStatus">${decisionSelectOptions(REVIEW_STATUS_LABELS, decisionProfile.reviewStatus)}</select>
+            </label>
+            <label class="wide-field">
+              투자 가설
+              <textarea name="thesis" rows="3" maxlength="10000" placeholder="왜 이 자산을 보유하는지 적어두세요.">${escapeHtml(decisionProfile.thesis)}</textarea>
+            </label>
+            <label class="wide-field">
+              기대수익 원천
+              <textarea name="returnSource" rows="2" maxlength="10000" placeholder="실적 성장, 밸류에이션 정상화, 배당 등">${escapeHtml(decisionProfile.returnSource)}</textarea>
+            </label>
+            <label class="wide-field">
+              관찰 KPI
+              <textarea name="kpis" rows="2" maxlength="10000" placeholder="매출, 마진, 수주, 점유율처럼 반복 확인할 지표">${escapeHtml(decisionProfile.kpis)}</textarea>
+            </label>
+            <label class="wide-field">
+              촉매
+              <textarea name="catalysts" rows="2" maxlength="10000" placeholder="가설이 현실화될 계기와 예상 시점">${escapeHtml(decisionProfile.catalysts)}</textarea>
+            </label>
+            <label class="wide-field">
+              가설 무효화 조건
+              <textarea name="invalidation" rows="2" maxlength="10000" placeholder="더는 기존 가설을 유지할 수 없는 조건">${escapeHtml(decisionProfile.invalidation)}</textarea>
+            </label>
+            <label class="wide-field">
+              감속 조건
+              <textarea name="deceleration" rows="2" maxlength="10000" placeholder="비중 확대를 멈추거나 판단을 보류할 조건">${escapeHtml(decisionProfile.deceleration)}</textarea>
+            </label>
+            <label>
+              다음 검토일
+              <input name="nextReviewAt" type="date" value="${escapeHtml(decisionProfile.nextReviewAt)}">
+            </label>
+            <label>
+              마지막 검토일
+              <input name="lastReviewedAt" type="date" value="${escapeHtml(decisionProfile.lastReviewedAt)}">
+            </label>
+          </div>
+          ${riskTagEditorHtml(decisionProfile)}
+          <p class="field-help">집중도 계산은 계좌별 보유 행을 합치지만, 매수·매도 결론을 자동으로 만들지 않습니다.</p>
+          <p class="decision-form-status" data-decision-status role="status" aria-live="polite"></p>
+          <div class="decision-form-actions">
+            <button class="primary-button" type="submit" data-decision-action="save">의사결정 저장</button>
+            <button class="ghost-button" type="button" data-decision-action="mark-reviewed">오늘 검토 완료</button>
+          </div>
+        </form>
+      </section>
     </div>
     <div class="detail-actions">
       ${canBuyAsset(asset) ? `<button class="primary-button compact-button" type="button" data-action="buy" data-id="${escapeHtml(asset.id)}">추가매수</button>` : ""}
       ${canSellAsset(asset) ? `<button class="ghost-button" type="button" data-action="sell" data-id="${escapeHtml(asset.id)}">매도</button>` : ""}
       <button class="ghost-button" type="button" data-action="journal" data-id="${escapeHtml(asset.id)}">일지</button>
-      <button class="ghost-button" type="button" data-action="edit" data-id="${escapeHtml(asset.id)}">수정</button>
+      <button class="ghost-button" type="button" data-action="edit" data-id="${escapeHtml(asset.id)}">자산 정보 수정</button>
       <button class="ghost-button danger-action" type="button" data-action="delete" data-id="${escapeHtml(asset.id)}">삭제</button>
     </div>
   `;
+  const decisionForm = els.assetDetailDrawer.querySelector("[data-asset-decision-form]");
+  if (decisionForm) decisionForm.dataset.initialSnapshot = decisionFormSnapshot(decisionForm);
+  const detailBody = els.assetDetailDrawer.querySelector(".detail-body");
+  if (detailBody && Number.isFinite(bodyScrollTop)) detailBody.scrollTop = Math.max(0, bodyScrollTop);
+  const detailStatus = els.assetDetailDrawer.querySelector("[data-decision-status]");
   els.assetDetailOverlay.hidden = false;
   els.app?.setAttribute("inert", "");
-  const closeBtn = els.assetDetailDrawer.querySelector("[data-detail-close]");
-  if (closeBtn) closeBtn.focus();
+  if (detailStatus) detailStatus.textContent = statusMessage;
+  const focusTarget = (focusSelector && els.assetDetailDrawer.querySelector(focusSelector))
+    || (focusDecision
+      ? els.assetDetailDrawer.querySelector('[name="investmentRole"]')
+      : els.assetDetailDrawer.querySelector("[data-detail-close]"));
+  focusTarget?.focus();
 }
 
-function closeAssetDetail({ restoreFocus = true } = {}) {
+function decisionFormSnapshot(form) {
+  return JSON.stringify(assetDecisionFieldsFromForm(form));
+}
+
+function hasUnsavedAssetDecisionChanges() {
+  const form = els.assetDetailDrawer?.querySelector("[data-asset-decision-form]");
+  if (!form?.dataset.initialSnapshot) return false;
+  return form.dataset.initialSnapshot !== decisionFormSnapshot(form);
+}
+
+function confirmDiscardAssetDecisionChanges() {
+  return !hasUnsavedAssetDecisionChanges()
+    || confirm("저장하지 않은 투자 의사결정 변경이 있습니다. 변경을 버리고 계속할까요?");
+}
+
+function closeAssetDetail({ restoreFocus = true, discardChanges = false } = {}) {
   if (!els.assetDetailOverlay || els.assetDetailOverlay.hidden) return;
+  if (!discardChanges && !confirmDiscardAssetDecisionChanges()) return false;
   els.assetDetailOverlay.hidden = true;
   els.app?.removeAttribute("inert");
   const opener = assetDetailOpener;
   assetDetailOpener = null;
   if (restoreFocus && opener?.isConnected) opener.focus({ preventScroll: true });
+  return true;
+}
+
+function assetDecisionFieldsFromForm(form) {
+  const value = (name) => form.elements.namedItem(name)?.value || "";
+  return {
+    ...normalizeDecisionProfileFields({
+      investmentRole: value("investmentRole"),
+      thesis: value("thesis"),
+      returnSource: value("returnSource"),
+      horizon: value("horizon"),
+      conviction: value("conviction"),
+      kpis: value("kpis"),
+      catalysts: value("catalysts"),
+      invalidation: value("invalidation"),
+      deceleration: value("deceleration"),
+      nextReviewAt: value("nextReviewAt"),
+      lastReviewedAt: value("lastReviewedAt"),
+      reviewStatus: value("reviewStatus")
+    }),
+    riskTags: normalizeRiskTags(Object.fromEntries(Object.entries(RISK_TAG_INPUT_NAMES).map(([key, name]) => [
+      key,
+      value(name)
+    ])))
+  };
+}
+
+function saveAssetDecisionForm(form, { markReviewed = false } = {}) {
+  const asset = state.assets.find((item) => item.id === form?.dataset.id);
+  if (!asset) return false;
+  const bodyScrollTop = els.assetDetailDrawer?.querySelector(".detail-body")?.scrollTop || 0;
+  const nextFields = assetDecisionFieldsFromForm(form);
+  if (!markReviewed) nextFields.migrationConflicts = [];
+  let clearedPastReviewDate = false;
+  if (markReviewed) {
+    const todayKey = localDateInputValue();
+    nextFields.lastReviewedAt = todayKey;
+    if (nextFields.nextReviewAt && nextFields.nextReviewAt <= todayKey) {
+      nextFields.nextReviewAt = "";
+      clearedPastReviewDate = true;
+    }
+    if (["UNSET", "REVIEW"].includes(nextFields.reviewStatus)) nextFields.reviewStatus = "ACTIVE";
+  }
+  upsertDecisionProfile(decisionSubjectKeyForAsset(asset), nextFields, {
+    name: asset.name,
+    type: assetType(asset),
+    ticker: asset.ticker
+  });
+  render();
+  const refreshedAssetOpener = uiState.activeView === "ASSETS"
+    ? [...document.querySelectorAll('[data-action="detail"][data-id]')]
+        .find((button) => button.dataset.id === asset.id)
+    : null;
+  const opener = assetDetailOpener?.isConnected
+    ? assetDetailOpener
+    : refreshedAssetOpener
+      || document.querySelector(`[data-nav-view="${uiState.activeView}"]`);
+  const statusMessage = markReviewed
+    ? clearedPastReviewDate
+      ? "오늘 검토를 기록했습니다. 지난 검토일은 비웠으니 새 검토일을 정할 수 있습니다."
+      : "오늘 검토를 기록했습니다."
+    : "투자 의사결정을 저장했습니다.";
+  openAssetDetail(asset.id, opener, {
+    bodyScrollTop,
+    focusSelector: markReviewed
+      ? '[data-decision-action="mark-reviewed"]'
+      : '[data-decision-action="save"]',
+    statusMessage
+  });
+  showStatusNotice(statusMessage);
+  return true;
 }
 
 function assetDetailFocusableElements() {
@@ -4498,13 +7472,32 @@ els.assetRows.addEventListener("click", handleAssetSurfaceClick);
 els.assetCards?.addEventListener("click", handleAssetSurfaceClick);
 
 els.assetDetailOverlay?.addEventListener("click", (event) => {
+  const decisionButton = event.target.closest("[data-decision-action]");
+  if (decisionButton?.dataset.decisionAction === "mark-reviewed") {
+    const form = decisionButton.closest("[data-asset-decision-form]");
+    saveAssetDecisionForm(form, { markReviewed: true });
+    return;
+  }
   const button = event.target.closest("button[data-action]");
   if (button) {
-    closeAssetDetail();
+    if (!closeAssetDetail()) return;
     handleAssetAction(button);
     return;
   }
   if (event.target.closest("[data-detail-close]")) closeAssetDetail();
+});
+
+els.assetDetailOverlay?.addEventListener("submit", (event) => {
+  const form = event.target.closest("[data-asset-decision-form]");
+  if (!form) return;
+  event.preventDefault();
+  saveAssetDecisionForm(form);
+});
+
+els.economicPositionList?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-position-asset-id]");
+  if (!button) return;
+  openAssetDetail(button.dataset.positionAssetId, button, { focusDecision: true });
 });
 
 document.addEventListener("keydown", (event) => {
@@ -4529,7 +7522,11 @@ els.investmentRealizedTab?.addEventListener("click", () => {
   setInvestmentRecordTab("REALIZED");
 });
 
-[els.investmentJournalTab, els.investmentRealizedTab].filter(Boolean).forEach((button) => {
+els.investmentLedgerTab?.addEventListener("click", () => {
+  setInvestmentRecordTab("LEDGER");
+});
+
+[els.investmentJournalTab, els.investmentRealizedTab, els.investmentLedgerTab].filter(Boolean).forEach((button) => {
   button.addEventListener("keydown", handleInvestmentTabKeydown);
 });
 
@@ -4551,6 +7548,92 @@ els.toggleJournalFormBtn?.addEventListener("click", () => {
 });
 
 els.cancelJournalBtn?.addEventListener("click", resetJournalForm);
+
+els.ledgerTypeFilter?.addEventListener("change", () => {
+  uiState.ledgerType = els.ledgerTypeFilter.value;
+  renderLedger();
+});
+
+els.toggleCashFlowFormBtn?.addEventListener("click", () => {
+  if (els.cashFlowFormPanel?.hidden) showCashFlowForm();
+  else resetCashFlowForm();
+});
+
+els.cancelCashFlowBtn?.addEventListener("click", resetCashFlowForm);
+
+[els.cashFlowType, els.cashFlowDate, els.cashFlowSettlementDate, els.cashFlowCashAssetId, els.cashFlowAmount, els.cashFlowCurrency, els.cashFlowFxRate, els.cashFlowSourceAssetId]
+  .filter(Boolean)
+  .forEach((input) => {
+    input.addEventListener("input", renderCashFlowPreview);
+    input.addEventListener("change", () => {
+      if (input === els.cashFlowCurrency && els.cashFlowFxRateField) {
+        const usesFx = els.cashFlowCurrency.value === "USD";
+        els.cashFlowFxRateField.hidden = !usesFx;
+        if (usesFx && !(parseAmount(els.cashFlowFxRate.value) > 0)) els.cashFlowFxRate.value = formatPlainNumber(usdKrwRate());
+        if (!usesFx) els.cashFlowFxRate.value = "1";
+      }
+      if (input === els.cashFlowDate && els.cashFlowSettlementDate) {
+        els.cashFlowSettlementDate.value = els.cashFlowDate.value;
+      }
+      renderCashFlowPreview();
+    });
+  });
+
+els.cashFlowForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const result = parseCashFlowForm(true);
+  if (!result.ok) {
+    alert(result.message);
+    return;
+  }
+  const ledgerEvent = createCashFlowLedgerEvent(result);
+  const correcting = Boolean(ledgerEvent.correctsEventId);
+  const saved = commitLedgerMutation(() => appendLedgerEvents([ledgerEvent]));
+  if (!saved.ok) return;
+  resetCashFlowForm();
+  uiState.investmentRecordTab = "LEDGER";
+  if (correcting) {
+    showStatusNotice(`${LEDGER_EVENT_LABELS[result.type]} 원본을 보존하고 정정 이벤트를 저장했습니다.`);
+  } else {
+    showUndoNotice(`${LEDGER_EVENT_LABELS[result.type]} 현금흐름을 저장했습니다.`, () => {
+      cancelLedgerEvent(ledgerEvent.eventId, `${LEDGER_EVENT_LABELS[result.type]} 저장 직후 되돌리기`);
+    });
+  }
+});
+
+els.ledgerEventRows?.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-ledger-action]");
+  if (!button) return;
+  const target = state.events.find((item) => item.eventId === button.dataset.eventId);
+  if (!target) return;
+  if (button.dataset.ledgerAction === "correct") {
+    const correctionReason = window.prompt(`${LEDGER_EVENT_LABELS[target.type] || target.type} 이벤트를 정정하는 이유를 입력하세요.`);
+    if (correctionReason === null) return;
+    if (!correctionReason.trim()) {
+      alert("정정 사유를 입력하세요.");
+      return;
+    }
+    if (correctionReason.trim().length > IMPORT_STRING_LIMITS.note) {
+      alert("정정 사유는 10,000자 이하로 입력하세요.");
+      return;
+    }
+    showCashFlowCorrection(target, correctionReason.trim());
+    return;
+  }
+  const reason = window.prompt(`${LEDGER_EVENT_LABELS[target.type] || target.type} 이벤트를 취소하는 이유를 입력하세요.`);
+  if (reason === null) return;
+  if (!reason.trim()) {
+    alert("취소 사유를 입력하세요.");
+    return;
+  }
+  if (reason.trim().length > IMPORT_STRING_LIMITS.note) {
+    alert("취소 사유는 10,000자 이하로 입력하세요.");
+    return;
+  }
+  if (cancelLedgerEvent(target.eventId, reason.trim())) {
+    showStatusNotice("원본 이벤트를 보존하고 취소 이벤트를 추가했습니다.");
+  }
+});
 
 els.journalAssetId?.addEventListener("change", () => {
   const asset = state.assets.find((item) => item.id === els.journalAssetId.value);
@@ -4636,6 +7719,8 @@ els.realizedRows?.addEventListener("click", (event) => {
 
 [
   els.sellDate,
+  els.sellSettlementDate,
+  els.sellCashAssetId,
   els.sellQuantity,
   els.sellPrice,
   els.sellFxRate,
@@ -4647,6 +7732,8 @@ els.realizedRows?.addEventListener("click", (event) => {
 
 [
   els.buyDate,
+  els.buySettlementDate,
+  els.buyCashAssetId,
   els.buyQuantity,
   els.buyPrice,
   els.buyFxRate,
@@ -4807,13 +7894,37 @@ els.dashboardSnapshotBtn?.addEventListener("click", () => {
   els.snapshotBtn?.click();
 });
 
-[els.targetDomestic, els.targetOverseas, els.targetCash, els.targetManual].forEach((input) => {
+els.dashboardChecklist?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-dashboard-action]");
+  if (!button || button.dataset.dashboardAction !== "review-asset") return;
+  openAssetDetail(button.dataset.id, button, { focusDecision: true });
+});
+
+Object.values(allocationBandInputs()).flatMap((band) => Object.values(band)).forEach((input) => {
   input?.addEventListener("input", () => {
     if (savePortfolioTargets()) render(false);
   });
   input?.addEventListener("change", () => {
     if (savePortfolioTargets()) render();
   });
+});
+
+els.contributionPlannerForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!saveContributionPlan()) return;
+  render();
+  window.requestAnimationFrame(() => document.querySelector("#contributionResultTitle")?.focus({ preventScroll: true }));
+});
+
+els.contributionAmount?.addEventListener("blur", () => {
+  const amount = parseAmount(els.contributionAmount.value);
+  if (Number.isFinite(amount) && amount >= 0) els.contributionAmount.value = formatIntegerNumber(amount);
+});
+
+els.riskBudgetForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!saveRiskBudgets()) return;
+  render();
 });
 
 els.historyRange.addEventListener("change", () => {
@@ -5024,12 +8135,73 @@ function validateImportCollection(data, key, validateItem) {
   });
 }
 
+function validateUniqueImportField(items, field, collectionLabel, { ignoreEmpty = false } = {}) {
+  const seen = new Set();
+  items.forEach((item, index) => {
+    const value = String(item?.[field] || "").trim();
+    if (!value && ignoreEmpty) return;
+    if (seen.has(value)) throw new Error(`${collectionLabel}[${index}].${field}가 중복되었습니다.`);
+    seen.add(value);
+  });
+}
+
+function validateImportedDecisionFields(item, prefix) {
+  ["investmentRole", "role", "horizon", "conviction", "reviewStatus"].forEach((field) => {
+    assertImportString(item[field], `${prefix}.${field}`);
+  });
+  [
+    "thesis",
+    "returnSource",
+    "expectedReturnSource",
+    "kpis",
+    "monitoringKpis",
+    "catalysts",
+    "invalidation",
+    "invalidationRules",
+    "deceleration",
+    "decelerationRules"
+  ].forEach((field) => assertImportString(item[field], `${prefix}.${field}`, IMPORT_STRING_LIMITS.note));
+  assertImportDate(item.nextReviewAt, `${prefix}.nextReviewAt`);
+  assertImportDate(item.lastReviewedAt, `${prefix}.lastReviewedAt`);
+
+  const enumChecks = [
+    [item.investmentRole ?? item.role, INVESTMENT_ROLE_LABELS, `${prefix}.investmentRole`],
+    [item.horizon, INVESTMENT_HORIZON_LABELS, `${prefix}.horizon`],
+    [item.conviction, CONVICTION_LABELS, `${prefix}.conviction`],
+    [item.reviewStatus, REVIEW_STATUS_LABELS, `${prefix}.reviewStatus`]
+  ];
+  enumChecks.forEach(([value, labels, label]) => {
+    if (value === undefined || value === null || value === "") return;
+    if (!Object.hasOwn(labels, String(value).trim().toUpperCase())) {
+      throw new Error(`${label}에 알 수 없는 값이 있습니다.`);
+    }
+  });
+  if (item.riskTags !== undefined) {
+    if (!isPlainObject(item.riskTags)) throw new Error(`${prefix}.riskTags가 객체가 아닙니다.`);
+    Object.entries(item.riskTags).forEach(([key, tags]) => {
+      if (!Object.hasOwn(RISK_TAG_DIMENSION_LABELS, key)) {
+        throw new Error(`${prefix}.riskTags.${key}에 알 수 없는 태그 차원이 있습니다.`);
+      }
+      if (!Array.isArray(tags)) throw new Error(`${prefix}.riskTags.${key}가 목록이 아닙니다.`);
+      if (tags.length > RISK_TAGS_PER_DIMENSION_LIMIT) {
+        throw new Error(`${prefix}.riskTags.${key}가 허용 개수 ${RISK_TAGS_PER_DIMENSION_LIMIT}개를 넘었습니다.`);
+      }
+      tags.forEach((tag, index) => assertImportString(
+        tag,
+        `${prefix}.riskTags.${key}[${index}]`,
+        RISK_TAG_LENGTH_LIMIT
+      ));
+    });
+  }
+}
+
 function validateImportedAsset(asset, index) {
   const prefix = `assets[${index}]`;
   ["id", "name", "ticker", "type", "account", "accountClass", "manualSubtype"].forEach((field) => {
     assertImportString(asset[field], `${prefix}.${field}`, field === "id" ? IMPORT_STRING_LIMITS.id : IMPORT_STRING_LIMITS.short);
   });
   assertImportString(asset.note, `${prefix}.note`, IMPORT_STRING_LIMITS.note);
+  validateImportedDecisionFields(asset, prefix);
   assertImportDate(asset.createdAt, `${prefix}.createdAt`);
   assertImportDate(asset.updatedAt, `${prefix}.updatedAt`);
   ["amount", "quantity", "averagePrice"].forEach((field) => {
@@ -5052,14 +8224,65 @@ function validateImportedAsset(asset, index) {
   }
 }
 
+function validateImportedDecisionProfile(profile, index) {
+  const prefix = `decisionProfiles[${index}]`;
+  ["id", "subjectKey", "name", "type", "ticker"].forEach((field) => {
+    assertImportString(profile[field], `${prefix}.${field}`, IMPORT_STRING_LIMITS.short);
+  });
+  if (!String(profile.subjectKey || "").trim()) throw new Error(`${prefix}.subjectKey가 없습니다.`);
+  if (profile.type !== undefined && !["KRX", "US", "CASH", "MANUAL"].includes(String(profile.type).toUpperCase())) {
+    throw new Error(`${prefix}.type에 알 수 없는 자산 유형이 있습니다.`);
+  }
+  validateImportedDecisionFields(profile, prefix);
+  if (profile.migrationConflicts !== undefined) {
+    if (!Array.isArray(profile.migrationConflicts)) {
+      throw new Error(`${prefix}.migrationConflicts가 목록이 아닙니다.`);
+    }
+    if (profile.migrationConflicts.length > DECISION_MIGRATION_CONFLICT_LIMIT) {
+      throw new Error(`${prefix}.migrationConflicts가 허용 개수 ${DECISION_MIGRATION_CONFLICT_LIMIT}개를 넘었습니다.`);
+    }
+    profile.migrationConflicts.forEach((conflict, conflictIndex) => {
+      const conflictPrefix = `${prefix}.migrationConflicts[${conflictIndex}]`;
+      if (!isPlainObject(conflict)) throw new Error(`${conflictPrefix}가 객체가 아닙니다.`);
+      ["sourceType", "sourceId", "sourceName", "account"].forEach((field) => {
+        assertImportString(conflict[field], `${conflictPrefix}.${field}`, field === "sourceId" ? IMPORT_STRING_LIMITS.id : IMPORT_STRING_LIMITS.short);
+      });
+      if (conflict.sourceType !== undefined && !["asset", "watchlist", "profile"].includes(conflict.sourceType)) {
+        throw new Error(`${conflictPrefix}.sourceType에 알 수 없는 값이 있습니다.`);
+      }
+      if (!isPlainObject(conflict.fields)) throw new Error(`${conflictPrefix}.fields가 객체가 아닙니다.`);
+      validateImportedDecisionFields(conflict.fields, `${conflictPrefix}.fields`);
+    });
+  }
+  assertImportDate(profile.createdAt, `${prefix}.createdAt`);
+  assertImportDate(profile.updatedAt, `${prefix}.updatedAt`);
+}
+
+function validateImportedWatchlistItem(item, index) {
+  const prefix = `watchlist[${index}]`;
+  ["id", "name", "ticker", "type"].forEach((field) => {
+    assertImportString(item[field], `${prefix}.${field}`, field === "id" ? IMPORT_STRING_LIMITS.id : IMPORT_STRING_LIMITS.short);
+  });
+  if (!String(item.id || "").trim()) throw new Error(`${prefix}.id가 없습니다.`);
+  if (!String(item.name || "").trim()) throw new Error(`${prefix}.name이 없습니다.`);
+  const type = String(item.type || "").trim().toUpperCase();
+  if (!["KRX", "US"].includes(type)) throw new Error(`${prefix}.type은 KRX 또는 US여야 합니다.`);
+  const tickerError = validateTicker(type, item.ticker);
+  if (tickerError) throw new Error(`${prefix}: ${tickerError}`);
+  validateImportedDecisionFields(item, prefix);
+  assertImportDate(item.createdAt, `${prefix}.createdAt`);
+  assertImportDate(item.updatedAt, `${prefix}.updatedAt`);
+}
+
 function validateImportedTrade(trade, index) {
   const prefix = `realizedTrades[${index}]`;
-  ["id", "assetId", "name", "ticker", "type", "account"].forEach((field) => {
+  ["id", "assetId", "ledgerEventId", "name", "ticker", "type", "account"].forEach((field) => {
     assertImportString(trade[field], `${prefix}.${field}`, field.endsWith("Id") || field === "id" ? IMPORT_STRING_LIMITS.id : IMPORT_STRING_LIMITS.short);
   });
   assertImportString(trade.memo, `${prefix}.memo`, IMPORT_STRING_LIMITS.note);
   assertImportDate(trade.soldAt || trade.date, `${prefix}.soldAt`);
   assertImportDate(trade.createdAt, `${prefix}.createdAt`);
+  assertImportDate(trade.cancelledAt, `${prefix}.cancelledAt`);
   ["quantity", "averagePrice", "sellPrice", "fxRate", "fees", "tax", "grossAmount", "costAmount"].forEach((field) => {
     assertImportNumber(trade[field], `${prefix}.${field}`, { min: 0, max: 1e18 });
   });
@@ -5071,7 +8294,7 @@ function validateImportedTrade(trade, index) {
 
 function validateImportedJournal(entry, index) {
   const prefix = `tradeJournalEntries[${index}]`;
-  ["id", "assetId", "realizedTradeId"].forEach((field) => {
+  ["id", "assetId", "realizedTradeId", "ledgerEventId"].forEach((field) => {
     assertImportString(entry[field], `${prefix}.${field}`, IMPORT_STRING_LIMITS.id);
   });
   ["name", "ticker", "type", "region", "account", "action", "status", "tags"].forEach((field) => {
@@ -5088,6 +8311,29 @@ function validateImportedJournal(entry, index) {
   });
   if (!String(entry.id || "").trim()) throw new Error(`${prefix}.id가 없습니다.`);
   if (!String(entry.name || "").trim()) throw new Error(`${prefix}.name이 없습니다.`);
+}
+
+function validateImportedLedgerEvent(event, index) {
+  try {
+    normalizeLedgerEvent(event);
+  } catch (error) {
+    throw new Error(`events[${index}]: ${error.message}`);
+  }
+}
+
+function validateImportedLedgerMeta(ledgerMeta, { required = false } = {}) {
+  if (ledgerMeta === undefined) {
+    if (required) throw new Error("ledgerMeta가 없습니다.");
+    return;
+  }
+  if (!isPlainObject(ledgerMeta)) throw new Error("ledgerMeta가 객체가 아닙니다.");
+  assertImportString(ledgerMeta.activeLedgerId, "ledgerMeta.activeLedgerId", IMPORT_STRING_LIMITS.id);
+  assertImportString(ledgerMeta.baselineDate, "ledgerMeta.baselineDate", IMPORT_STRING_LIMITS.short);
+  assertImportDate(ledgerMeta.migratedAt, "ledgerMeta.migratedAt");
+  if (!String(ledgerMeta.activeLedgerId || "").trim()) throw new Error("ledgerMeta.activeLedgerId가 없습니다.");
+  if (ledgerMeta.baselineDate && !normalizeDateKey(ledgerMeta.baselineDate)) {
+    throw new Error("ledgerMeta.baselineDate가 올바른 YYYY-MM-DD 날짜가 아닙니다.");
+  }
 }
 
 function validateImportedSnapshot(snapshot, index) {
@@ -5127,6 +8373,64 @@ function validateImportedScenario(scenario, index) {
   if (!String(scenario.name || "").trim()) throw new Error(`${prefix}.name이 없습니다.`);
 }
 
+function validateImportedPolicyProfile(policyProfile) {
+  if (policyProfile === undefined) return;
+  if (!isPlainObject(policyProfile)) throw new Error("policyProfile이 객체가 아닙니다.");
+  if (policyProfile.allocationBands !== undefined) {
+    if (!isPlainObject(policyProfile.allocationBands)) {
+      throw new Error("policyProfile.allocationBands가 객체가 아닙니다.");
+    }
+    const targetValues = [];
+    const minValues = [];
+    const maxValues = [];
+    ALLOCATION_BUCKET_KEYS.forEach((key) => {
+      const band = policyProfile.allocationBands[key];
+      if (!isPlainObject(band)) throw new Error(`policyProfile.allocationBands.${key}가 객체가 아닙니다.`);
+      const minPct = Number(band.minPct);
+      const targetPct = Number(band.targetPct);
+      const maxPct = Number(band.maxPct);
+      assertImportNumber(band.minPct, `policyProfile.allocationBands.${key}.minPct`, { min: 0, max: 100 });
+      assertImportNumber(band.targetPct, `policyProfile.allocationBands.${key}.targetPct`, { min: 0, max: 100 });
+      assertImportNumber(band.maxPct, `policyProfile.allocationBands.${key}.maxPct`, { min: 0, max: 100 });
+      if (minPct > targetPct || targetPct > maxPct) {
+        throw new Error(`policyProfile.allocationBands.${key}는 최소≤목표≤최대여야 합니다.`);
+      }
+      minValues.push(minPct);
+      targetValues.push(targetPct);
+      maxValues.push(maxPct);
+    });
+    const targetTotal = targetValues.reduce((sum, value) => sum + value, 0);
+    const minTotal = minValues.reduce((sum, value) => sum + value, 0);
+    const maxTotal = maxValues.reduce((sum, value) => sum + value, 0);
+    if (Math.abs(targetTotal - 100) > PERCENT_TARGET_TOLERANCE) throw new Error("자산군 목표 비중 합계는 100%여야 합니다.");
+    if (minTotal > 100 + PERCENT_CONSTRAINT_EPSILON) throw new Error("자산군 최소 비중 합계는 100% 이하여야 합니다.");
+    if (maxTotal < 100 - PERCENT_CONSTRAINT_EPSILON) throw new Error("자산군 최대 비중 합계는 100% 이상이어야 합니다.");
+  }
+  if (policyProfile.riskBudgets !== undefined) {
+    if (!isPlainObject(policyProfile.riskBudgets)) {
+      throw new Error("policyProfile.riskBudgets가 객체가 아닙니다.");
+    }
+    Object.keys(DEFAULT_RISK_BUDGETS).forEach((key) => {
+      if (policyProfile.riskBudgets[key] === undefined) return;
+      assertImportNumber(policyProfile.riskBudgets[key], `policyProfile.riskBudgets.${key}`, { min: 0, max: 100 });
+    });
+  }
+}
+
+function validateImportedContributionPlan(contributionPlan) {
+  if (contributionPlan === undefined) return;
+  if (!isPlainObject(contributionPlan)) throw new Error("contributionPlan이 객체가 아닙니다.");
+  assertImportString(contributionPlan.mode, "contributionPlan.mode");
+  if (contributionPlan.mode !== undefined && !CONTRIBUTION_MODES.has(String(contributionPlan.mode).toUpperCase())) {
+    throw new Error("contributionPlan.mode에 알 수 없는 값이 있습니다.");
+  }
+  assertImportNumber(contributionPlan.amount, "contributionPlan.amount", { min: 0, max: 1e15 });
+  if (contributionPlan.amount !== undefined && contributionPlan.amount !== null
+      && !Number.isSafeInteger(Number(contributionPlan.amount))) {
+    throw new Error("contributionPlan.amount는 1원 단위 정수여야 합니다.");
+  }
+}
+
 function validateImportPayload(imported) {
   if (!isPlainObject(imported)) throw new Error("가져오기 파일의 최상위 값은 객체여야 합니다.");
   if (imported.schemaVersion !== undefined) {
@@ -5138,13 +8442,44 @@ function validateImportPayload(imported) {
 
   validateImportCollection(imported, "assets", validateImportedAsset);
   validateImportCollection(imported, "snapshots", validateImportedSnapshot);
+  validateUniqueImportField(imported.assets, "id", "assets");
+  validateUniqueImportField(imported.snapshots, "id", "snapshots");
+  const assetKeys = new Set();
+  imported.assets.forEach((asset, index) => {
+    const key = assetIdentity(asset);
+    if (assetKeys.has(key)) throw new Error(`assets[${index}]의 자산 유형·종목·계좌가 중복되었습니다.`);
+    assetKeys.add(key);
+  });
 
-  ["realizedTrades", "tradeJournalEntries", "retirementScenarios"].forEach((key) => {
+  ["decisionProfiles", "watchlist", "realizedTrades", "tradeJournalEntries", "retirementScenarios"].forEach((key) => {
     if (imported[key] === undefined) imported[key] = [];
+  });
+  validateImportCollection(imported, "decisionProfiles", validateImportedDecisionProfile);
+  validateImportCollection(imported, "watchlist", validateImportedWatchlistItem);
+  validateUniqueImportField(imported.decisionProfiles, "id", "decisionProfiles", { ignoreEmpty: true });
+  validateUniqueImportField(imported.watchlist, "id", "watchlist");
+  const profileKeys = new Set();
+  imported.decisionProfiles.forEach((profile, index) => {
+    const key = String(profile.subjectKey || "").trim();
+    if (profileKeys.has(key)) throw new Error(`decisionProfiles[${index}].subjectKey가 중복되었습니다.`);
+    profileKeys.add(key);
+  });
+  const watchlistKeys = new Set();
+  imported.watchlist.forEach((item, index) => {
+    const key = decisionSubjectKeyForWatchlist(item);
+    if (watchlistKeys.has(key)) throw new Error(`watchlist[${index}]의 시장·티커가 중복되었습니다.`);
+    watchlistKeys.add(key);
   });
   validateImportCollection(imported, "realizedTrades", validateImportedTrade);
   validateImportCollection(imported, "tradeJournalEntries", validateImportedJournal);
   validateImportCollection(imported, "retirementScenarios", validateImportedScenario);
+  validateUniqueImportField(imported.realizedTrades, "id", "realizedTrades");
+  validateUniqueImportField(imported.tradeJournalEntries, "id", "tradeJournalEntries");
+  validateUniqueImportField(imported.retirementScenarios, "id", "retirementScenarios");
+  const importedVersion = Number(imported.schemaVersion || 1);
+  if (imported.events !== undefined) validateImportCollection(imported, "events", validateImportedLedgerEvent);
+  else if (importedVersion >= 5) throw new Error("events 목록이 없습니다.");
+  validateImportedLedgerMeta(imported.ledgerMeta, { required: importedVersion >= 5 });
 
   if (imported.meta !== undefined && !isPlainObject(imported.meta)) throw new Error("meta가 객체가 아닙니다.");
   if (imported.portfolioTargets !== undefined && !isPlainObject(imported.portfolioTargets)) {
@@ -5153,6 +8488,8 @@ function validateImportPayload(imported) {
   if (imported.retirement !== undefined && !isPlainObject(imported.retirement)) {
     throw new Error("retirement가 객체가 아닙니다.");
   }
+  validateImportedPolicyProfile(imported.policyProfile);
+  validateImportedContributionPlan(imported.contributionPlan);
 
   Object.entries(imported.portfolioTargets || {}).forEach(([key, value]) => {
     if (!Object.hasOwn(defaultState().portfolioTargets, key)) return;
@@ -5170,11 +8507,23 @@ function validateImportPayload(imported) {
   });
 
   const migrated = migrateState(imported);
+  const projected = projectLedgerState({
+    events: migrated.events,
+    assets: migrated.assets,
+    ledgerMeta: migrated.ledgerMeta,
+    realizedTrades: migrated.realizedTrades,
+    tradeJournalEntries: migrated.tradeJournalEntries
+  });
+  if (!projected.ok) throw new Error(`거래 원장 정합성 오류: ${ledgerProjectionErrorMessage(projected)}`);
+  const reconciliation = ledgerReconciliationForAssets(projected, migrated.assets);
+  if (!reconciliation.ok) {
+    throw new Error(`거래 원장 정합성 오류: ${reconciliation.mismatches.join(", ") || ledgerProjectionErrorMessage(projected)}`);
+  }
   Object.entries(migrated.portfolioTargets).forEach(([key, value]) => {
     assertImportNumber(value, `portfolioTargets.${key}`, { min: 0, max: 100 });
   });
   const targetTotal = Object.values(migrated.portfolioTargets).reduce((sum, value) => sum + Number(value), 0);
-  if (Math.abs(targetTotal - 100) > 0.01) throw new Error("포트폴리오 목표 비중 합계는 100%여야 합니다.");
+  if (Math.abs(targetTotal - 100) > PERCENT_TARGET_TOLERANCE) throw new Error("포트폴리오 목표 비중 합계는 100%여야 합니다.");
 
   const retirementError = validateRetirementInput(migrated.retirement);
   if (retirementError) throw new Error(`은퇴 설정 오류: ${retirementError}`);
@@ -5206,8 +8555,11 @@ els.importInput.addEventListener("change", async (event) => {
     const candidate = validateImportPayload(imported);
     const summary = [
       `자산 ${candidate.assets.length}개`,
+      `의사결정 프로필 ${candidate.decisionProfiles.length}개`,
+      `관심종목 ${candidate.watchlist.length}개`,
       `히스토리 ${candidate.snapshots.length}개`,
       `매매일지 ${candidate.tradeJournalEntries.length}개`,
+      `원장 이벤트 ${candidate.events.length}개`,
       "은퇴 설정 포함",
       `은퇴 시나리오 ${candidate.retirementScenarios.length}개`
     ].join("\n");
@@ -5225,6 +8577,8 @@ els.importInput.addEventListener("change", async (event) => {
     candidate.meta.lastSavedAt = null;
     candidate.meta.lastSyncDirection = "local";
     candidate.meta.syncErrorCode = null;
+    candidate.ledgerMeta.activeLedgerId = `ledger-${uid()}`;
+    cloud.knownEventIds = new Set();
     storageWritesBlocked = false;
     protectedStorageRaw = null;
     replaceState(candidate);
@@ -5236,7 +8590,12 @@ els.importInput.addEventListener("change", async (event) => {
       render(false);
       throw new Error("가져온 데이터를 이 기기에 저장하지 못해 기존 화면 데이터로 되돌렸습니다.");
     }
-    if (cloud.docRef) scheduleCloudPush();
+    const recoveredBlockedLocalData = cloud.schemaBlockSource === "local";
+    if (recoveredBlockedLocalData) clearCloudSchemaBlock("local");
+    if (cloud.docRef) {
+      if (recoveredBlockedLocalData) await pullCloudData();
+      else scheduleCloudPush();
+    }
     if (els.appNotice) {
       els.appNotice.hidden = false;
       els.appNotice.setAttribute("role", "status");
@@ -5252,8 +8611,11 @@ els.importInput.addEventListener("change", async (event) => {
 
 hydrateRetirementInputs();
 hydratePortfolioTargetInputs();
+hydrateActionSupportInputs();
 renderRetirementScenarioOptions();
 state.assets = state.assets.map(normalizeAsset);
+state.decisionProfiles = state.decisionProfiles.map(normalizeDecisionProfile);
+state.watchlist = state.watchlist.map(normalizeWatchlistItem);
 applyPricesToAssets();
 updateAssetFormForType();
 uiState.activeView = viewFromHash();
