@@ -1563,6 +1563,8 @@ async function pullCloudData() {
     }
     clearCloudSchemaBlock("remote");
     if (shouldWarnCloudConflict(cloudData)) {
+      setSyncStatus("동기화 선택 필요");
+      setSyncDetail("클라우드와 이 기기 중 사용할 데이터를 선택하세요.");
       const choice = await chooseCloudConflict(cloudData);
       if (choice === "later") {
         cloud.conflictPending = true;
@@ -1898,7 +1900,40 @@ function cancelCloudPush() {
 
 function shouldWarnCloudConflict(cloudData) {
   if (!localHasUserData() || !cloudData) return false;
-  return dataFingerprint(storageSafeState()) !== dataFingerprint(cloudData);
+  return dataFingerprint(storageSafeState()) !== dataFingerprint(cloudConflictComparisonState(cloudData));
+}
+
+function cloudConflictComparisonState(cloudData) {
+  const remoteSchemaVersion = Number(cloudData?.schemaVersion || 1);
+  const localLedgerMeta = normalizeLedgerMeta(state.ledgerMeta);
+  if (remoteSchemaVersion >= STATE_SCHEMA_VERSION
+    || localLedgerMeta.migratedFromSchema !== remoteSchemaVersion) {
+    return cloudData;
+  }
+
+  try {
+    const comparisonCloudData = localLedgerMeta.baselineDate
+      ? {
+        ...cloudData,
+        meta: {
+          ...(isPlainObject(cloudData.meta) ? cloudData.meta : {}),
+          lastSavedAt: `${localLedgerMeta.baselineDate}T00:00:00.000Z`
+        }
+      }
+      : cloudData;
+    const migratedCloudData = migrateState(comparisonCloudData);
+    // Legacy migration synthesizes these values locally. Align only those values
+    // while preserving every economic field in the conflict comparison.
+    migratedCloudData.ledgerMeta = {
+      ...normalizeLedgerMeta(migratedCloudData.ledgerMeta),
+      activeLedgerId: localLedgerMeta.activeLedgerId,
+      migratedAt: localLedgerMeta.migratedAt
+    };
+    return migratedCloudData;
+  } catch (error) {
+    console.error(error);
+    return cloudData;
+  }
 }
 
 function localHasUserData() {

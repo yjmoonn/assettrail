@@ -254,6 +254,7 @@ function createScenario(choice = null, {
     () => dialog.open || dialog.hasAttribute("open"),
     "커스텀 충돌 선택창이 열리지 않았습니다."
   );
+  assert.equal(window.document.querySelector("#syncStatus").textContent, "동기화 선택 필요");
   assert.match(window.document.querySelector("#cloudConflictCloudMeta").textContent, /자산 1개 · 기록 1개/);
   assert.match(window.document.querySelector("#cloudConflictLocalMeta").textContent, /자산 1개 · 기록 1개/);
   assert.equal(window.document.querySelector(".app").hasAttribute("inert"), true);
@@ -265,6 +266,79 @@ function createScenario(choice = null, {
   );
   assert.equal(dialog.open || dialog.hasAttribute("open"), false);
   assert.equal(window.document.querySelector(".app").hasAttribute("inert"), false);
+  assert.equal(scenario.writes.length, 0);
+  scenario.dom.window.close();
+}
+
+{
+  const legacy = remoteState();
+  const scenario = createScenario(null, {
+    local: JSON.parse(JSON.stringify(legacy)),
+    remote: JSON.parse(JSON.stringify(legacy))
+  });
+  const { window } = scenario;
+  await waitUntil(
+    window,
+    () => scenario.remote.schemaVersion === 5,
+    "동일한 legacy 데이터를 충돌 선택 없이 v5로 승격하지 못했습니다."
+  );
+
+  const stored = JSON.parse(window.localStorage.getItem(USER_STORAGE_KEY));
+  const dialog = window.document.querySelector("#cloudConflictDialog");
+  assert.equal(dialog.open || dialog.hasAttribute("open"), false);
+  assert.equal(scenario.resolverCalls.length, 0);
+  assert.equal(scenario.downloads.length, 0);
+  assert.equal(stored.schemaVersion, 5);
+  assert.equal(stored.assets[0].id, "remote-cash");
+  assert.equal(stored.events.length, 1);
+  assert.equal(stored.meta.cloudRevision, 8);
+  assert.equal(scenario.eventDocs.size, 1);
+  assert.equal(
+    scenario.writes.filter((write) => write.path === "users/alice/financeData/primary").length,
+    1
+  );
+  assert.equal(
+    scenario.writes.some((write) => write.path.includes("/backups/schema-v2-revision-7")),
+    true
+  );
+  assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드: alice@example.com");
+  scenario.dom.window.close();
+}
+
+{
+  const local = remoteState();
+  const remote = JSON.parse(JSON.stringify(local));
+  local.meta.lastSavedAt = "2026-08-01T00:00:00.000Z";
+  remote.meta.lastSavedAt = "2026-08-03T00:00:00.000Z";
+  const scenario = createScenario(null, { local, remote });
+  const { window } = scenario;
+  await waitUntil(
+    window,
+    () => scenario.remote.schemaVersion === 5,
+    "저장 시각만 다른 동일 legacy 데이터를 자동 승격하지 못했습니다."
+  );
+
+  assert.equal(scenario.resolverCalls.length, 0);
+  assert.equal(scenario.downloads.length, 0);
+  assert.equal(scenario.eventDocs.size, 1);
+  assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드: alice@example.com");
+  scenario.dom.window.close();
+}
+
+{
+  const local = remoteState();
+  const remote = JSON.parse(JSON.stringify(local));
+  remote.assets[0].amount += 1;
+  const scenario = createScenario("later", { local, remote });
+  const { window } = scenario;
+  await waitUntil(
+    window,
+    () => window.document.querySelector("#syncStatus").textContent === "동기화 충돌",
+    "실제 값이 다른 legacy 데이터의 충돌 선택을 유지하지 못했습니다."
+  );
+
+  assert.equal(scenario.resolverCalls.length, 1);
+  assert.equal(scenario.remote.schemaVersion, 2);
   assert.equal(scenario.writes.length, 0);
   scenario.dom.window.close();
 }
