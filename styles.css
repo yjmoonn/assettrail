@@ -1,6 +1,6 @@
 /* 폰트 + AssetTrail 디자인 토큰. @import 는 반드시 파일 최상단에 위치해야 합니다. */
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css");
-@import url("./assettrail-tokens.css?v=20260710-tokens");
+@import url("./assettrail-tokens.css?v=20260807-ux-stage1");
 
 /* 토큰은 assettrail-tokens.css 가 정의합니다.
    기존 변수(--blue, --ink, --green …)는 그 파일의 'Legacy aliases' 블록이
@@ -3758,6 +3758,341 @@ h3 { font-weight: 700; }
   }
 }
 
+/* ============================================================
+   UX 신뢰·다음 행동 개선 1단계
+   ============================================================ */
+
+:where(
+  a[href],
+  button,
+  input:not([type="hidden"]),
+  select,
+  textarea,
+  summary,
+  [tabindex]:not([tabindex="-1"])
+):focus-visible {
+  box-shadow: var(--focus-ring);
+  outline: 2px solid var(--focus-outline);
+  outline-offset: 2px;
+}
+
+.positive,
+.sync-status.online,
+.performance-summary-item:is(.positive, .is-positive) > strong,
+.performance-attribution-row:is(.positive, .is-positive) strong,
+.broker-csv-preview-table :is([data-row-status="READY"], [data-status="READY"], .is-ready) {
+  color: var(--color-positive-text);
+}
+
+.negative,
+.performance-summary-item:is(.negative, .is-negative) > strong,
+.performance-attribution-row:is(.negative, .is-negative) strong,
+.broker-csv-status:is(.is-error, .negative),
+.broker-csv-error-summary:is(.is-error, .negative),
+.broker-csv-error-summary[data-status="error"],
+.broker-csv-preview-table :is([data-row-status="ERROR"], [data-status="ERROR"], .is-error) {
+  color: var(--color-negative-text);
+}
+
+.warning,
+.dashboard-checklist .check-icon.kind-review {
+  color: var(--color-warning-text);
+}
+
+.dashboard-checklist .check-icon.kind-ok {
+  color: var(--color-positive-text);
+}
+
+.dashboard-checklist .check-icon.kind-target {
+  color: var(--color-accent-text);
+}
+
+.settings-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-card {
+  align-content: start;
+}
+
+.settings-status-list {
+  display: grid;
+  gap: 8px;
+  margin: 2px 0 0;
+}
+
+.settings-status-list > div {
+  align-items: baseline;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(100px, 0.42fr) minmax(0, 1fr);
+  padding-top: 8px;
+}
+
+.settings-status-list dt,
+.settings-status-list dd {
+  font-size: var(--fs-caption-sm);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.settings-status-list dt {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.settings-status-list dd {
+  color: var(--ink);
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.settings-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-cloud-actions {
+  margin-top: auto;
+}
+
+.backup-scope-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 2px 0 4px;
+  padding: 0;
+}
+
+.backup-scope-list li {
+  align-items: start;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 10px 11px;
+}
+
+.backup-scope-list li > div {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-card .backup-scope-list strong {
+  color: var(--ink);
+  font-size: var(--fs-caption);
+  line-height: 1.35;
+}
+
+.backup-scope-list small {
+  color: var(--muted);
+  font-size: var(--fs-caption-sm);
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.backup-scope-state {
+  border: 1px solid currentColor;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-label);
+  font-weight: 800;
+  line-height: 1;
+  padding: 5px 7px;
+  white-space: nowrap;
+}
+
+.backup-scope-state.included {
+  background: var(--green-2);
+  color: var(--color-positive-text);
+}
+
+.backup-scope-state.separate {
+  background: var(--blue-2);
+  color: var(--color-info-text);
+}
+
+.backup-scope-state.excluded {
+  background: var(--surface-3);
+  color: var(--slate);
+}
+
+.performance-coverage[data-status="preparing"] {
+  background: var(--surface-2);
+  border-color: var(--line);
+  border-left-color: var(--color-info-text);
+  gap: 12px;
+  padding: 16px;
+}
+
+.performance-prep-head {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  justify-content: space-between;
+}
+
+.performance-coverage .performance-prep-head > strong {
+  font-size: var(--fs-body);
+}
+
+.performance-prep-count {
+  color: var(--color-info-text);
+  font-size: var(--fs-caption);
+  font-weight: 800;
+}
+
+.performance-prep-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.performance-prep-list li {
+  align-items: start;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 26px minmax(0, 1fr);
+  padding: 10px 11px;
+}
+
+.performance-prep-list li[data-complete="true"] {
+  border-color: var(--up-200);
+}
+
+.performance-prep-step {
+  align-items: center;
+  background: var(--surface-3);
+  border-radius: 50%;
+  color: var(--slate);
+  display: inline-flex;
+  font-size: var(--fs-label);
+  font-weight: 800;
+  height: 26px;
+  justify-content: center;
+  width: 26px;
+}
+
+.performance-prep-list li[data-complete="true"] .performance-prep-step {
+  background: var(--green-2);
+  color: var(--color-positive-text);
+}
+
+.performance-prep-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.performance-coverage .performance-prep-copy strong {
+  font-size: var(--fs-caption);
+}
+
+.performance-coverage .performance-prep-copy span {
+  color: var(--muted);
+  font-size: var(--fs-caption-sm);
+}
+
+.performance-prep-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.performance-prep-detail {
+  color: var(--muted);
+  font-size: var(--fs-caption-sm);
+}
+
+.performance-prep-detail summary {
+  color: var(--color-info-text);
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.performance-prep-detail p {
+  margin: 8px 0 0;
+}
+
+.history-chart-empty {
+  align-items: center;
+  background: var(--surface-2);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-lg);
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  min-height: 220px;
+  padding: 24px;
+  text-align: center;
+}
+
+.history-chart-empty strong {
+  color: var(--ink);
+  font-size: var(--fs-body-lg);
+}
+
+.history-chart-empty p {
+  color: var(--muted);
+  font-size: var(--fs-caption);
+  line-height: 1.5;
+  margin: 0;
+  max-width: 460px;
+}
+
+.ledger-reconciliation.is-empty {
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--slate);
+}
+
+@media (max-width: 720px) {
+  .settings-button {
+    display: none;
+  }
+
+  button[class],
+  button:not([class]),
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+  select,
+  textarea,
+  summary,
+  .import-label {
+    min-height: var(--control-touch-min);
+  }
+
+  .text-link-button,
+  .dashboard-module-head .text-link-button {
+    align-items: center;
+    display: inline-flex;
+    min-height: var(--control-touch-min);
+    padding: 6px 0;
+  }
+
+  .settings-status-list > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .settings-actions > :is(button, .import-label) {
+    flex: 1 1 100%;
+  }
+
+  .performance-prep-actions > button {
+    width: 100%;
+  }
+}
+
 /* Stage 5: external evidence, ETF look-through, and AI-ready reports */
 .analysis-workspace { display: grid; gap: 20px; }
 .analysis-intro-panel,
@@ -5716,5 +6051,54 @@ h3 { font-weight: 700; }
   .broker-csv-mapping-row,
   .broker-csv-actions > div {
     grid-template-columns: 1fr;
+  }
+}
+
+/* 1단계 최종 계층 오버라이드: 기능 단계별 스타일 뒤에 의미 토큰을 확정한다. */
+.settings-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.positive,
+.sync-status.online,
+.performance-summary-item:is(.positive, .is-positive) > strong,
+.performance-attribution-row:is(.positive, .is-positive) strong,
+.broker-csv-preview-table :is([data-row-status="READY"], [data-status="READY"], .is-ready) {
+  color: var(--color-positive-text);
+}
+
+.negative,
+.performance-summary-item:is(.negative, .is-negative) > strong,
+.performance-attribution-row:is(.negative, .is-negative) strong,
+.broker-csv-status:is(.is-error, .negative),
+.broker-csv-error-summary:is(.is-error, .negative),
+.broker-csv-error-summary[data-status="error"],
+.broker-csv-preview-table :is([data-row-status="ERROR"], [data-status="ERROR"], .is-error) {
+  color: var(--color-negative-text);
+}
+
+@media (max-width: 720px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-button {
+    display: none;
+  }
+
+  :where(
+    button,
+    input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+    select,
+    textarea,
+    summary,
+    .import-label
+  ) {
+    min-height: var(--control-touch-min);
+  }
+
+  .text-link-button,
+  .dashboard-module-head .text-link-button {
+    min-height: var(--control-touch-min);
   }
 }

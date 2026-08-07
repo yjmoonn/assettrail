@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-store">
     <meta http-equiv="Pragma" content="no-cache">
     <title>자산 히스토리 & 은퇴 플래너</title>
-    <link rel="stylesheet" href="styles.css?v=20260807-stage5">
+    <link rel="stylesheet" href="styles.css?v=20260807-ux-stage1">
   </head>
   <body>
     <div class="app">
@@ -19,12 +19,10 @@
         <div class="top-actions" aria-label="앱 상태 및 작업">
           <div class="status-cluster">
             <span class="sync-status" id="priceStatus">가격 대기</span>
-            <span class="sync-status" id="syncStatus">로컬 저장</span>
+            <span class="sync-status" id="syncStatus">이 기기에 저장됨</span>
             <span class="sync-status" id="syncDetail" hidden>저장 대기</span>
           </div>
           <div class="action-cluster">
-            <button class="ghost-button" id="loginBtn" type="button">Login</button>
-            <button class="ghost-button" id="logoutBtn" type="button" hidden>Logout</button>
             <button class="icon-button settings-button" id="settingsBtn" type="button" data-nav-view="SETTINGS" aria-label="설정"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15H4.5a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 6 9.4l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 11 4.6V4.5a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 2.82 1.17l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 11h.1a2 2 0 0 1 0 4h-.1z"></path></svg></button>
           </div>
         </div>
@@ -58,7 +56,7 @@
               <span class="hero-trend-title">최근 12회 조회 추이</span>
               <div class="hero-actions">
                 <button class="primary-button" id="dashboardSnapshotBtn" type="button">오늘 자산 기록</button>
-                <button class="ghost-button" type="button" data-go-view="ASSETS" data-open-asset-form="true">새 자산 등록</button>
+                <button class="ghost-button" id="dashboardAssetBtn" type="button" data-go-view="ASSETS" data-open-asset-form="true">새 자산 등록</button>
               </div>
             </div>
             <div class="hero-spark-wrap">
@@ -875,7 +873,7 @@
               </article>
             </div>
 
-            <section class="performance-chart-section" aria-labelledby="performanceChartTitle">
+            <section class="performance-chart-section" id="performanceChartSection" aria-labelledby="performanceChartTitle">
               <div class="performance-section-head">
                 <div>
                   <h3 id="performanceChartTitle">기간별 누적 성과</h3>
@@ -897,7 +895,7 @@
               <canvas id="performanceChart" width="1100" height="300" role="img" aria-label="선택 기간 포트폴리오 누적 성과 차트" aria-describedby="performanceChartDescription"></canvas>
             </section>
 
-            <div class="performance-detail-grid">
+            <div class="performance-detail-grid" id="performanceDetailGrid">
               <section class="performance-section" aria-labelledby="performanceAttributionTitle">
                 <div class="performance-section-head">
                   <div>
@@ -1190,6 +1188,11 @@
             이 화면은 입출금을 분리하지 않은 단순 총자산 변화입니다. 투자 수익률은
             <button class="text-link-button" id="openPerformanceFromHistoryBtn" type="button">기간 성과에서 보기</button>
           </p>
+          <div class="history-chart-empty" id="historyChartEmpty" hidden>
+            <strong>아직 자산 이력이 없어요</strong>
+            <p>대시보드에서 현재 자산을 기록하면 날짜별 총자산 변화를 비교할 수 있습니다.</p>
+            <button class="primary-button" type="button" data-go-view="DASHBOARD">대시보드에서 기록 시작</button>
+          </div>
           <p class="sr-only" id="historyChartDescription">조회 히스토리 차트 설명이 여기에 표시됩니다.</p>
           <canvas id="historyChart" width="1100" height="320" aria-label="자산 히스토리 차트" aria-describedby="historyChartDescription"></canvas>
           <div class="table-wrap history-table">
@@ -1319,9 +1322,17 @@
           <div class="settings-grid">
             <article class="settings-card">
               <span>클라우드</span>
-              <strong id="settingsCloudStatus">로컬 저장</strong>
-              <p>로그인하면 계정별로 자산 원장과 투자 기록이 분리되어 저장됩니다.</p>
-              <button class="ghost-button" id="cloudSyncBtn" type="button" hidden>지금 동기화</button>
+              <strong id="settingsCloudStatus">이 기기에 저장됨</strong>
+              <p id="settingsCloudDescription">이 브라우저의 기기 저장소에 주 데이터를 보관하고 있습니다.</p>
+              <dl class="settings-status-list">
+                <div><dt>주 데이터 위치</dt><dd id="settingsPrimaryStorage">이 브라우저</dd></div>
+                <div><dt>최근 동기화</dt><dd id="settingsLastSync">로그인 전</dd></div>
+              </dl>
+              <div class="settings-actions settings-cloud-actions">
+                <button class="primary-button" id="loginBtn" type="button">Google로 로그인</button>
+                <button class="ghost-button" id="logoutBtn" type="button" hidden>로그아웃</button>
+                <button class="ghost-button" id="cloudSyncBtn" type="button" hidden>지금 동기화</button>
+              </div>
             </article>
             <article class="settings-card">
               <span>가격표</span>
@@ -1329,14 +1340,21 @@
               <p>KRX/US 자산은 prices.json 기준으로 평가금액과 손익을 계산합니다.</p>
               <button class="ghost-button compact-button" id="priceRefreshBtn" type="button" title="최신 가격표 다시 불러오기">최신 가격 확인</button>
             </article>
-            <article class="settings-card">
+            <article class="settings-card settings-backup-card">
               <span>데이터</span>
               <strong>백업과 복원</strong>
-              <p>주 JSON은 자산·원장·설정을 복원합니다. 분석 화면의 Butler·ETF 데이터는 포함되지 않으므로 각 분석 패널에서 별도로 백업하세요.</p>
+              <p>내보내기마다 포함 범위가 다릅니다. 기기 교체 전에는 아래 세 범위를 모두 확인하세요.</p>
+              <ul class="backup-scope-list" aria-label="데이터 백업 포함 범위">
+                <li><span class="backup-scope-state included">포함</span><div><strong>주 데이터 JSON</strong><small>자산·거래 원장·평가점·목표·설정</small></div></li>
+                <li><span class="backup-scope-state separate">별도</span><div><strong>Butler 검증 데이터</strong><small>이 기기에만 저장 · 분석 화면에서 별도 백업</small></div></li>
+                <li><span class="backup-scope-state separate">별도</span><div><strong>ETF 구성 데이터</strong><small>이 기기에만 저장 · 분석 화면에서 별도 백업</small></div></li>
+                <li><span class="backup-scope-state excluded">미저장</span><div><strong>CSV·Butler 원문과 AI 입력</strong><small>미리보기 후 기기와 클라우드에 보관하지 않음</small></div></li>
+              </ul>
               <div class="settings-actions">
                 <button class="ghost-button" id="exportBtn" type="button" title="데이터 내보내기">데이터 내보내기</button>
                 <button class="ghost-button" id="jsonImportBtn" type="button" aria-controls="importInput">주 데이터 JSON 복원</button>
                 <input class="visually-hidden-file-input" id="importInput" type="file" accept="application/json,.json" tabindex="-1" aria-hidden="true">
+                <button class="text-link-button" type="button" data-go-view="ANALYSIS">Butler·ETF 백업 확인</button>
               </div>
             </article>
             <article class="settings-card">
@@ -1369,8 +1387,8 @@
         </div>
         <p class="field-help">가져오기 또는 올리기를 선택하면 현재 기기 데이터를 먼저 JSON 파일로 자동 백업합니다.</p>
         <div class="cloud-conflict-actions">
-          <button class="primary-button" type="button" data-cloud-conflict-choice="download">클라우드 가져오기</button>
-          <button class="ghost-button" type="button" data-cloud-conflict-choice="upload">이 기기 데이터 올리기</button>
+          <button class="primary-button" type="button" data-cloud-conflict-choice="download">클라우드 데이터로 이 기기 교체</button>
+          <button class="ghost-button" type="button" data-cloud-conflict-choice="upload">이 기기 데이터로 클라우드 교체</button>
           <button class="text-link-button" type="button" data-cloud-conflict-choice="later">나중에 결정</button>
         </div>
       </div>
@@ -1522,6 +1540,6 @@
     <script src="external-data-engine.js?v=20260807-stage5"></script>
     <script src="etf-exposure-engine.js?v=20260807-stage5"></script>
     <script src="ai-report-engine.js?v=20260807-stage5"></script>
-    <script type="module" src="app.js?v=20260807-stage5"></script>
+    <script type="module" src="app.js?v=20260807-ux-stage1"></script>
   </body>
 </html>
