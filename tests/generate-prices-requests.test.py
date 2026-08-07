@@ -49,7 +49,7 @@ def valid_output(krx_count=3, us_tickers=("AAPL", "MSFT", "TSLA")):
                 generate_prices.KOSPI_BENCHMARK_SYMBOL,
                 3210.25,
                 FRESH_TRADE_DATE,
-                "pykrx KRX index 1001",
+                "yfinance ^KS11",
                 "KRW"
             ),
             "SP500": generate_prices.build_benchmark_entry(
@@ -213,12 +213,12 @@ def test_benchmark_partial_failure_is_structured_and_keeps_healthy_result():
 
 def test_benchmark_fetchers_use_unadjusted_price_index_closes():
     trade_index = pd.to_datetime([FRESH_TRADE_DATE])
-    kospi_frame = pd.DataFrame({"종가": [3210.25]}, index=trade_index)
+    kospi_frame = pd.DataFrame({"Close": [3210.25]}, index=trade_index)
     sp500_frame = pd.DataFrame({"Close": [6345.5]}, index=trade_index)
 
     with patch.object(
-        generate_prices.stock,
-        "get_index_ohlcv_by_date",
+        generate_prices.yf,
+        "download",
         return_value=kospi_frame
     ) as fetch_kospi:
         kospi = generate_prices.fetch_kospi_benchmark(10)
@@ -230,7 +230,9 @@ def test_benchmark_fetchers_use_unadjusted_price_index_closes():
     ) as fetch_sp500:
         sp500 = generate_prices.fetch_sp500_benchmark(10)
 
-    assert fetch_kospi.call_args.args[2] == "1001"
+    assert fetch_kospi.call_args.args == ("^KS11",)
+    assert fetch_kospi.call_args.kwargs["auto_adjust"] is False
+    assert fetch_kospi.call_args.kwargs["interval"] == "1d"
     assert kospi["level"] == 3210.25
     assert kospi["date"] == FRESH_TRADE_DATE
     assert kospi["priceBasis"] == "price_index_level"
@@ -247,13 +249,59 @@ def test_benchmark_fetchers_use_unadjusted_price_index_closes():
     assert sp500["quoteCurrency"] == "USD"
 
 
+def test_kospi_benchmark_handles_yahoo_multi_index_without_calling_krx_index():
+    trade_index = pd.to_datetime([FRESH_TRADE_DATE])
+    columns = pd.MultiIndex.from_tuples([("Close", "^KS11")])
+    kospi_frame = pd.DataFrame([[3210.25]], index=trade_index, columns=columns)
+
+    with (
+        patch.object(
+            generate_prices.stock,
+            "get_index_ohlcv_by_date",
+            side_effect=AssertionError("KRX index endpoint must not be called")
+        ) as fetch_krx,
+        patch.object(
+            generate_prices.yf,
+            "download",
+            return_value=kospi_frame
+        ) as fetch_yahoo
+    ):
+        kospi = generate_prices.fetch_kospi_benchmark(10)
+
+    fetch_krx.assert_not_called()
+    assert fetch_yahoo.call_args.args == ("^KS11",)
+    assert fetch_yahoo.call_args.kwargs["auto_adjust"] is False
+    assert fetch_yahoo.call_args.kwargs["interval"] == "1d"
+    assert kospi["level"] == 3210.25
+    assert kospi["date"] == FRESH_TRADE_DATE
+    assert kospi["symbol"] == "^KS11"
+    assert kospi["source"] == "yfinance ^KS11"
+    assert kospi["priceBasis"] == "price_index_level"
+    assert kospi["distributionTreatment"] == "excluded"
+    assert kospi["totalReturn"] is False
+
+
+def test_yahoo_benchmark_rejects_empty_or_non_positive_close():
+    trade_index = pd.to_datetime([FRESH_TRADE_DATE])
+    invalid_frames = (
+        pd.DataFrame(),
+        pd.DataFrame({"Close": [float("nan")]}, index=trade_index),
+        pd.DataFrame({"Close": [0]}, index=trade_index),
+        pd.DataFrame({"Close": [-1]}, index=trade_index)
+    )
+
+    for frame in invalid_frames:
+        with patch.object(generate_prices.yf, "download", return_value=frame):
+            assert generate_prices.fetch_kospi_benchmark(10) is None
+
+
 def test_invalid_benchmark_is_not_published_as_a_valid_level():
     stale_kospi = generate_prices.build_benchmark_entry(
         "KOSPI",
-        "1001",
+        "^KS11",
         3210.25,
         "2026-07-27",
-        "pykrx KRX index 1001",
+        "yfinance ^KS11",
         "KRW"
     )
     sp500 = generate_prices.build_benchmark_entry(
@@ -489,6 +537,8 @@ if __name__ == "__main__":
     test_methodology_explicitly_excludes_distributions_and_total_return()
     test_benchmark_partial_failure_is_structured_and_keeps_healthy_result()
     test_benchmark_fetchers_use_unadjusted_price_index_closes()
+    test_kospi_benchmark_handles_yahoo_multi_index_without_calling_krx_index()
+    test_yahoo_benchmark_rejects_empty_or_non_positive_close()
     test_invalid_benchmark_is_not_published_as_a_valid_level()
     test_benchmark_failure_does_not_change_required_valuation_quality()
     test_price_quality_accepts_seven_days_old_and_one_day_future()
