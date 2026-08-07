@@ -458,12 +458,12 @@ UI만 바뀐 배포에서는 기존에 배포된 `prices.json`을 재사용한�
   "benchmarks": {
     "KOSPI": {
       "name": "KOSPI",
-      "symbol": "1001",
+      "symbol": "^KS11",
       "level": 3123.45,
       "levelUnit": "index_points",
       "quoteCurrency": "KRW",
       "date": "2026-05-22",
-      "source": "pykrx KRX index 1001",
+      "source": "yfinance ^KS11",
       "priceBasis": "price_index_level",
       "distributionTreatment": "excluded",
       "totalReturn": false
@@ -516,7 +516,8 @@ UI만 바뀐 배포에서는 기존에 배포된 `prices.json`을 재사용한�
 이내여야 한다. 미래 2일 이상 또는 존재하지 않는 달력 날짜는 거부한다. 거래정지
 종목처럼 오래된 개별 KRX 항목은 유효 개수에서 제외하되 전체 생성을 막지는 않는다.
 
-가격 생성기는 KOSPI(`1001`)와 S&P 500(`^GSPC`) 가격지수 수준도 수집한다. 개별
+가격 생성기는 KOSPI(`^KS11`)와 S&P 500(`^GSPC`) 가격지수 수준도 수집한다. 두 지수는
+KRX 로그인 세션 없이 배포할 수 있도록 yfinance의 조정 전 `Close`를 사용한다. 개별
 벤치마크 수집 실패는 구조화된 `errors`에 남기며 종목 가격표 전체를 실패시키지는
 않는다. 앱은 날짜·통화·가격지수·배당 제외 metadata가 모두 맞는 평가점만 성과 비교에
 사용하므로, 이전 형식이나 불완전한 벤치마크를 조용히 섞지 않는다.
