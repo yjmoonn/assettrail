@@ -158,7 +158,7 @@ window.eval(appCode);
 await waitForApp(window);
 
 const migrated = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
-assert.equal(migrated.schemaVersion, 5);
+assert.equal(migrated.schemaVersion, 6);
 assert.equal(migrated.assets.length, 4);
 assert.equal(migrated.assets[0].investmentRole, undefined);
 assert.equal(migrated.assets[0].thesis, undefined);

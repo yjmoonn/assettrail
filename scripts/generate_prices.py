@@ -31,6 +31,11 @@ MAX_USDKRW_RATE = 3000
 MAX_PRICE_AGE_DAYS = 7
 MAX_PRICE_FUTURE_DAYS = 1
 DEFAULT_SYMBOLS_FILENAME = "symbols.json"
+KOSPI_BENCHMARK_SYMBOL = "1001"
+SP500_BENCHMARK_SYMBOL = "^GSPC"
+PRICE_BASIS = "unadjusted_close"
+BENCHMARK_PRICE_BASIS = "price_index_level"
+DISTRIBUTION_TREATMENT = "excluded"
 
 
 class PriceQualityError(RuntimeError):
@@ -117,6 +122,49 @@ def is_valid_price_entry(entry, today):
     )
 
 
+def price_methodology_metadata():
+    """Describe exactly what the generated market values do and do not include."""
+    return {
+        "priceBasis": PRICE_BASIS,
+        "distributionTreatment": DISTRIBUTION_TREATMENT,
+        "totalReturn": False,
+        "benchmarkBasis": BENCHMARK_PRICE_BASIS,
+        "quoteCurrencyByMarket": {
+            "KRX": "KRW",
+            "US": "USD"
+        }
+    }
+
+
+def build_benchmark_entry(name, symbol, level, trade_date, source, quote_currency):
+    return {
+        "name": name,
+        "symbol": symbol,
+        "level": float(level),
+        "levelUnit": "index_points",
+        "quoteCurrency": quote_currency,
+        "date": trade_date,
+        "source": source,
+        "priceBasis": BENCHMARK_PRICE_BASIS,
+        "distributionTreatment": DISTRIBUTION_TREATMENT,
+        "totalReturn": False
+    }
+
+
+def is_valid_benchmark_entry(entry, today=None):
+    quality_date = resolve_quality_date(today)
+    return (
+        isinstance(entry, dict)
+        and is_positive_finite_number(entry.get("level"))
+        and is_fresh_date(entry.get("date"), quality_date)
+        and entry.get("levelUnit") == "index_points"
+        and entry.get("quoteCurrency") in {"KRW", "USD"}
+        and entry.get("priceBasis") == BENCHMARK_PRICE_BASIS
+        and entry.get("distributionTreatment") == DISTRIBUTION_TREATMENT
+        and entry.get("totalReturn") is False
+    )
+
+
 def validate_price_quality(
     output,
     tickers,
@@ -198,8 +246,10 @@ def build_price_artifacts(output, output_path, symbols_output_path):
 
     prices_payload = {
         "generatedAt": generated_at,
+        "methodology": price_methodology_metadata(),
         "fx": output.get("fx", {}),
         "prices": output.get("prices", {"KRX": {}, "US": {}}),
+        "benchmarks": output.get("benchmarks", {}),
         "errors": output.get("errors", []),
         "symbolFile": Path(symbol_file).as_posix(),
         "symbolsGeneratedAt": generated_at
@@ -545,10 +595,106 @@ def fetch_usdkrw(lookback_days):
     }
 
 
+def fetch_kospi_benchmark(lookback_days):
+    """Fetch the KOSPI price-index level, not a dividend-reinvested total return."""
+    end = datetime.now(KST).date()
+    start = end.fromordinal(end.toordinal() - lookback_days)
+    frame = stock.get_index_ohlcv_by_date(
+        start.strftime("%Y%m%d"),
+        end.strftime("%Y%m%d"),
+        KOSPI_BENCHMARK_SYMBOL
+    )
+
+    if frame.empty or "종가" not in frame:
+        return None
+
+    closes = frame["종가"].dropna()
+    closes = closes[closes > 0]
+    if closes.empty:
+        return None
+
+    last_date = closes.index[-1]
+    return build_benchmark_entry(
+        "KOSPI",
+        KOSPI_BENCHMARK_SYMBOL,
+        closes.iloc[-1],
+        last_date.strftime("%Y-%m-%d"),
+        "pykrx KRX index 1001",
+        "KRW"
+    )
+
+
+def fetch_sp500_benchmark(lookback_days):
+    """Fetch the S&P 500 price-index level from Yahoo's unadjusted Close column."""
+    frame = yf.download(
+        SP500_BENCHMARK_SYMBOL,
+        period=f"{lookback_days}d",
+        interval="1d",
+        auto_adjust=False,
+        progress=False,
+        threads=False
+    )
+
+    if frame.empty or "Close" not in frame:
+        return None
+
+    closes = frame["Close"].dropna()
+    closes = closes[closes > 0]
+    if closes.empty:
+        return None
+
+    last_date = closes.index[-1]
+    level = closes.iloc[-1]
+    if hasattr(level, "item"):
+        level = level.item()
+
+    return build_benchmark_entry(
+        "S&P 500",
+        SP500_BENCHMARK_SYMBOL,
+        level,
+        last_date.strftime("%Y-%m-%d"),
+        "yfinance ^GSPC",
+        "USD"
+    )
+
+
+def fetch_benchmarks(lookback_days, today=None):
+    benchmarks = {}
+    errors = []
+    fetchers = (
+        ("KOSPI", fetch_kospi_benchmark),
+        ("SP500", fetch_sp500_benchmark)
+    )
+
+    for benchmark_id, fetcher in fetchers:
+        try:
+            entry = fetcher(lookback_days)
+            if not is_valid_benchmark_entry(entry, today=today):
+                reason = "missing, stale, or invalid price-index level"
+                errors.append({
+                    "type": "BENCHMARK",
+                    "ticker": benchmark_id,
+                    "requiredForValuation": False,
+                    "error": reason
+                })
+                continue
+            benchmarks[benchmark_id] = entry
+        except Exception as error:
+            errors.append({
+                "type": "BENCHMARK",
+                "ticker": benchmark_id,
+                "requiredForValuation": False,
+                "error": str(error)
+            })
+
+    return benchmarks, errors
+
+
 def build_prices(tickers, lookback_days):
     prices = {"KRX": {}, "US": {}}
     symbols = {"KRX": {}, "US": {}}
     fx = {}
+    benchmarks = {}
     errors = []
 
     try:
@@ -575,6 +721,10 @@ def build_prices(tickers, lookback_days):
     except Exception as error:
         errors.append({"type": "FX", "ticker": "USDKRW", "error": str(error)})
 
+    benchmark_values, benchmark_errors = fetch_benchmarks(lookback_days)
+    benchmarks.update(benchmark_values)
+    errors.extend(benchmark_errors)
+
     for ticker in tickers["KRX"]:
         if ticker in prices["KRX"]:
             continue
@@ -599,8 +749,10 @@ def build_prices(tickers, lookback_days):
 
     return {
         "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "methodology": price_methodology_metadata(),
         "fx": fx,
         "prices": prices,
+        "benchmarks": benchmarks,
         "symbols": symbols,
         "errors": errors
     }

@@ -279,8 +279,8 @@ function createScenario(choice = null, {
   const { window } = scenario;
   await waitUntil(
     window,
-    () => scenario.remote.schemaVersion === 5,
-    "동일한 legacy 데이터를 충돌 선택 없이 v5로 승격하지 못했습니다."
+    () => scenario.remote.schemaVersion === 6,
+    "동일한 legacy 데이터를 충돌 선택 없이 v6로 승격하지 못했습니다."
   );
 
   const stored = JSON.parse(window.localStorage.getItem(USER_STORAGE_KEY));
@@ -288,7 +288,7 @@ function createScenario(choice = null, {
   assert.equal(dialog.open || dialog.hasAttribute("open"), false);
   assert.equal(scenario.resolverCalls.length, 0);
   assert.equal(scenario.downloads.length, 0);
-  assert.equal(stored.schemaVersion, 5);
+  assert.equal(stored.schemaVersion, 6);
   assert.equal(stored.assets[0].id, "remote-cash");
   assert.equal(stored.events.length, 1);
   assert.equal(stored.meta.cloudRevision, 8);
@@ -314,7 +314,7 @@ function createScenario(choice = null, {
   const { window } = scenario;
   await waitUntil(
     window,
-    () => scenario.remote.schemaVersion === 5,
+    () => scenario.remote.schemaVersion === 6,
     "저장 시각만 다른 동일 legacy 데이터를 자동 승격하지 못했습니다."
   );
 
@@ -346,7 +346,7 @@ function createScenario(choice = null, {
 {
   const futureLocal = {
     ...localState(),
-    schemaVersion: 6,
+    schemaVersion: 7,
     assets: [{
       id: "future-local-only",
       name: "미래 버전 로컬 자산",
@@ -378,7 +378,7 @@ function createScenario(choice = null, {
 {
   const futureRemote = {
     ...remoteState(),
-    schemaVersion: 6,
+    schemaVersion: 7,
     assets: [{
       id: "future-remote-only",
       name: "미래 버전 클라우드 자산",
@@ -415,11 +415,11 @@ function createScenario(choice = null, {
   );
   await waitUntil(
     window,
-    () => scenario.remote.schemaVersion === 5,
-    "원격 legacy 데이터를 v5 원장으로 승격하지 못했습니다."
+    () => scenario.remote.schemaVersion === 6,
+    "원격 legacy 데이터를 v6 원장으로 승격하지 못했습니다."
   );
   const writesAfterPromotion = scenario.writes.length;
-  scenario.remote.schemaVersion = 6;
+  scenario.remote.schemaVersion = 7;
   const monthlySpend = window.document.querySelector("#monthlySpend");
   monthlySpend.value = "4,700,000";
   monthlySpend.dispatchEvent(new window.Event("change", { bubbles: true }));
@@ -430,7 +430,7 @@ function createScenario(choice = null, {
   );
 
   assert.equal(scenario.writes.length, writesAfterPromotion);
-  assert.equal(scenario.remote.schemaVersion, 6);
+  assert.equal(scenario.remote.schemaVersion, 7);
   scenario.dom.window.close();
 }
 
@@ -439,7 +439,7 @@ function createScenario(choice = null, {
   const { window } = scenario;
   await waitUntil(
     window,
-    () => scenario.remote.schemaVersion === 5
+    () => scenario.remote.schemaVersion === 6
       && JSON.parse(window.localStorage.getItem(USER_STORAGE_KEY)).assets[0]?.id === "remote-cash",
     "클라우드 데이터 내려받기가 완료되지 않았습니다."
   );
@@ -449,7 +449,7 @@ function createScenario(choice = null, {
   assert.equal(scenario.resolverCalls[0].cloud.assets[0].id, "remote-cash");
   const promotedPrimaryWrites = scenario.writes.filter((write) => write.path === "users/alice/financeData/primary");
   assert.equal(promotedPrimaryWrites.length, 1);
-  assert.equal(promotedPrimaryWrites[0].data.schemaVersion, 5);
+  assert.equal(promotedPrimaryWrites[0].data.schemaVersion, 6);
   assert.equal(scenario.writes.some((write) => write.path.includes("/backups/schema-v2-revision-7")), true);
   assert.equal(scenario.writes.some((write) => write.path.includes("/ledgers/") && write.path.includes("/events/")), true);
   assert.equal(scenario.downloads.length, 1);
@@ -471,9 +471,11 @@ function createScenario(choice = null, {
   const scenario = createScenario("upload", {
     remote: {
       ...remoteState(),
-      schemaVersion: 5,
+      schemaVersion: 6,
+      events: [],
+      performanceObservations: [],
       ledgerMeta: {
-        activeLedgerId: "ledger-remote-v5",
+        activeLedgerId: "ledger-remote-v6",
         baselineDate: "2026-08-03",
         eventCount: 0,
         eventFingerprint: ""
@@ -493,10 +495,10 @@ function createScenario(choice = null, {
   assert.equal(financeWrites[0].data.assets[0].id, "local-cash");
   assert.equal(financeWrites[0].data.revision, 8);
   assert.equal(financeWrites[0].options.merge, false);
-  const remoteBackup = scenario.writes.find((write) => write.path.includes("/backups/conflict-v5-revision-7"));
-  assert.ok(remoteBackup, "forced v5 upload must preserve the previous remote primary");
+  const remoteBackup = scenario.writes.find((write) => write.path.includes("/backups/conflict-v6-revision-7"));
+  assert.ok(remoteBackup, "forced v6 upload must preserve the previous remote primary");
   assert.equal(remoteBackup.data.reason, "FORCED_CONFLICT_UPLOAD");
-  assert.equal(remoteBackup.data.state.ledgerMeta.activeLedgerId, "ledger-remote-v5");
+  assert.equal(remoteBackup.data.state.ledgerMeta.activeLedgerId, "ledger-remote-v6");
   assert.equal(scenario.downloads.length, 1);
   assert.match(scenario.downloads[0], /^assettrail-before-cloud-sync-/);
   assert.deepEqual(scenario.revokedUrls, scenario.objectUrls);

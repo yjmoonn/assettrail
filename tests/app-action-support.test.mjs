@@ -254,7 +254,7 @@ await waitForApp(window);
 
 // schema v3 -> v4: 기존 목표를 band 목표로 계승하고 새 정책/계획/태그 기본값을 만든다.
 let stored = storedState(window);
-assert.equal(stored.schemaVersion, 5);
+assert.equal(stored.schemaVersion, 6);
 assert.deepEqual(
   Object.fromEntries(Object.entries(stored.policyProfile.allocationBands).map(([key, band]) => [key, band.targetPct])),
   { domestic: 50, overseas: 20, cash: 20, manual: 10 }

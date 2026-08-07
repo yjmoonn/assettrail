@@ -85,14 +85,14 @@ function submit(selector) {
 }
 
 const migrated = stored();
-assert.equal(migrated.schemaVersion, 5);
+assert.equal(migrated.schemaVersion, 6);
 assert.equal(migrated.events.length, 2);
 assert.equal(migrated.events.every((event) => event.type === "OPENING_BALANCE"), true);
 assert.equal(migrated.events.some((event) => event.type === "BUY"), false);
 assert.equal(migrated.events.find((event) => event.assetId === "stock-1").instrumentKey, "INSTRUMENT:KRX:005930");
 assert.equal(migrated.ledgerMeta.baselineDate, "2026-08-01");
 assert.equal(
-  window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v4-to-v5`),
+  window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v4-to-v6`),
   legacyRaw
 );
 
@@ -378,10 +378,13 @@ storagePrototype.setItem = originalSetItem;
 const journalTab = window.document.querySelector("#investmentJournalTab");
 const realizedTab = window.document.querySelector("#investmentRealizedTab");
 const ledgerTab = window.document.querySelector("#investmentLedgerTab");
+const performanceTab = window.document.querySelector("#investmentPerformanceTab");
 ledgerTab.focus();
 ledgerTab.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Home", bubbles: true, cancelable: true }));
 assert.equal(window.document.activeElement, journalTab);
 journalTab.dispatchEvent(new window.KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true }));
+assert.equal(window.document.activeElement, performanceTab);
+performanceTab.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }));
 assert.equal(window.document.activeElement, ledgerTab);
 ledgerTab.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }));
 assert.equal(window.document.activeElement, realizedTab);

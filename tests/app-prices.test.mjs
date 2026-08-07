@@ -115,7 +115,7 @@ appNavItems.at(-1).dispatchEvent(new window.KeyboardEvent("keydown", { key: "Hom
 assert.equal(window.document.activeElement, appNavItems[0]);
 assert.equal(window.location.hash, "#dashboard");
 
-assert.equal(window.document.querySelectorAll("table > caption.sr-only").length, 4);
+assert.equal(window.document.querySelectorAll("table > caption.sr-only").length, 5);
 assert.equal(
   [...window.document.querySelectorAll("table thead th")].every((header) => header.getAttribute("scope") === "col"),
   true
@@ -353,7 +353,7 @@ assert.match(window.document.querySelector("#historySummary").textContent, /기�
 assert.match(window.document.querySelector("#historySummary").textContent, /1회/);
 assert.match(window.document.querySelector("#appNotice").textContent, /조회 기록을 저장했습니다/);
 const savedAfterSnapshot = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
-assert.equal(savedAfterSnapshot.schemaVersion, 5);
+assert.equal(savedAfterSnapshot.schemaVersion, 6);
 assert.equal(savedAfterSnapshot.snapshots[0].assets, undefined);
 assert.deepEqual(
   Object.keys(savedAfterSnapshot.snapshots[0]).sort(),
