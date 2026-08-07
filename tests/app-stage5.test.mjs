@@ -341,6 +341,34 @@ await new Promise((resolve) => window.setTimeout(resolve, 30));
 const api = window.__stage5TestApi;
 api.setupPortfolio();
 
+const analysisTaskButtons = [...window.document.querySelectorAll("[data-analysis-task]")];
+const analysisExternalPanel = window.document.querySelector("#analysisExternalPanel");
+const analysisEtfPanel = window.document.querySelector("#analysisEtfPanel");
+const analysisAiPanel = window.document.querySelector("#analysisAiPanel");
+assert.equal(analysisTaskButtons.length, 3);
+assert.equal(analysisTaskButtons[0].getAttribute("aria-pressed"), "true");
+assert.equal(analysisExternalPanel.hidden, false);
+assert.equal(analysisEtfPanel.hidden, true);
+assert.equal(analysisAiPanel.hidden, true);
+analysisTaskButtons[1].click();
+assert.equal(analysisTaskButtons[1].getAttribute("aria-pressed"), "true");
+assert.equal(analysisExternalPanel.hidden, true);
+assert.equal(analysisEtfPanel.hidden, false);
+assert.equal(window.document.activeElement, window.document.querySelector("#etfLookThroughTitle"));
+analysisTaskButtons[0].dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+assert.equal(window.document.activeElement, analysisTaskButtons[1]);
+analysisTaskButtons[1].dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+assert.equal(analysisEtfPanel.hidden, false);
+assert.equal(window.document.activeElement, window.document.querySelector("#etfLookThroughTitle"));
+analysisTaskButtons[2].click();
+assert.equal(analysisAiPanel.hidden, false);
+assert.equal(window.document.activeElement, window.document.querySelector("#aiReportTitle"));
+analysisTaskButtons[0].click();
+assert.equal(analysisExternalPanel.hidden, false);
+assert.ok(window.document.querySelector("#downloadExternalDataBtn").closest(".analysis-data-management"));
+assert.ok(window.document.querySelector("#downloadEtfTemplateBtn").closest(".analysis-data-management"));
+assert.ok(window.document.querySelector("#refreshEvidenceBtn").closest(".analysis-data-management"));
+
 const butlerTable = [
   "연도\t2024\t2025",
   "손익계산서",
@@ -363,6 +391,7 @@ assert.equal(preview.snapshot.source.acquisitionMethod, "BUTLER_MANUAL");
 assert.equal(api.externalRaw().includes("4분기누적"), false);
 assert.equal(api.externalRaw().includes(butlerTable), false);
 assert.equal(JSON.parse(api.externalRaw()).snapshots.length, 1);
+assert.match(window.document.querySelector("#analysisExternalStatus").textContent, /1개 스냅샷/);
 
 const catalog = {
   schemaVersion: "assettrail.etf-holdings.v1",
@@ -396,6 +425,7 @@ assert.equal(stockExposure.lookThroughValueKRW, 40);
 assert.equal(analysis.totals.cashKRW, 35);
 assert.equal(JSON.parse(api.catalogRaw()).funds.length, 1);
 assert.equal(JSON.parse(api.catalogRaw()).funds[0].holdings[0].instrumentKind, "STOCK");
+assert.match(window.document.querySelector("#analysisEtfStatus").textContent, /1개 펀드/);
 
 const envelope = api.envelope();
 assert.equal(window.AssetTrailAiReportEngine.validateEvidenceEnvelope(envelope).ok, true);
@@ -416,6 +446,7 @@ const serializedEnvelope = JSON.stringify(envelope);
 const deterministic = api.deterministicReport();
 const deterministicValidation = window.AssetTrailAiReportEngine.validateAiReport(deterministic, envelope);
 assert.equal(deterministicValidation.ok, true, JSON.stringify(deterministicValidation.errors));
+assert.equal(window.document.querySelector(".report-item-evidence summary")?.textContent, "기술 근거 보기");
 const tradeInstruction = api.validateTradeInstruction();
 assert.equal(tradeInstruction.ok, false);
 assert.equal(tradeInstruction.errors.some((error) => error.code === "TRADE_INSTRUCTION_BLOCKED"), true);

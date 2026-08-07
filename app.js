@@ -435,6 +435,14 @@ const els = {
   settingsLastSync: document.querySelector("#settingsLastSync"),
   openBrokerCsvImportBtn: document.querySelector("#openBrokerCsvImportBtn"),
   settingsBrokerCsvImportBtn: document.querySelector("#settingsBrokerCsvImportBtn"),
+  analysisTaskButtons: [...document.querySelectorAll("[data-analysis-task]")],
+  analysisTaskPanels: [...document.querySelectorAll("[data-analysis-task-panel]")],
+  analysisExternalStatus: document.querySelector("#analysisExternalStatus"),
+  analysisExternalStatusDetail: document.querySelector("#analysisExternalStatusDetail"),
+  analysisEtfStatus: document.querySelector("#analysisEtfStatus"),
+  analysisEtfStatusDetail: document.querySelector("#analysisEtfStatusDetail"),
+  analysisAiStatus: document.querySelector("#analysisAiStatus"),
+  analysisAiStatusDetail: document.querySelector("#analysisAiStatusDetail"),
   butlerImportForm: document.querySelector("#butlerImportForm"),
   butlerAssetSelect: document.querySelector("#butlerAssetSelect"),
   butlerCurrency: document.querySelector("#butlerCurrency"),
@@ -623,6 +631,7 @@ const uiState = {
   historyRange: "ALL",
   realizedYear: "ALL",
   goalMobilePanel: "HISTORY",
+  analysisTask: "EXTERNAL",
   portfolioBreakdownExpanded: false,
   autofilledAssetName: ""
 };
@@ -4096,6 +4105,7 @@ function renderExternalData() {
       els.butlerImportStatus.textContent = `${analysisStorageIssues.external.message} 원본을 덮어쓰지 않았습니다. ‘외부 데이터 백업’ 후 ‘외부 데이터 비우기’로 복구하세요.`;
     }
   }
+  renderAnalysisTaskSummary();
 }
 
 const ETF_BUCKET_LABELS = {
@@ -4114,6 +4124,124 @@ const AI_REPORT_SECTION_LABELS = {
   EXTERNAL_DATA: "외부 실적",
   DATA_QUALITY: "데이터 품질"
 };
+
+const ANALYSIS_TASKS = new Set(["EXTERNAL", "ETF", "AI"]);
+
+function updateAnalysisTaskStatus(task, status, detail, statusState) {
+  const statusElement = task === "EXTERNAL"
+    ? els.analysisExternalStatus
+    : task === "ETF"
+      ? els.analysisEtfStatus
+      : els.analysisAiStatus;
+  const detailElement = task === "EXTERNAL"
+    ? els.analysisExternalStatusDetail
+    : task === "ETF"
+      ? els.analysisEtfStatusDetail
+      : els.analysisAiStatusDetail;
+  const button = els.analysisTaskButtons?.find((item) => item.dataset.analysisTask === task);
+  if (statusElement) statusElement.textContent = status;
+  if (detailElement) detailElement.textContent = detail;
+  if (button) button.dataset.status = statusState;
+}
+
+function renderAnalysisTaskSummary() {
+  const snapshotCount = Number(externalDataStore?.snapshots?.length || 0);
+  if (analysisStorageIssues.external) {
+    updateAnalysisTaskStatus("EXTERNAL", "복구 필요", "백업 후 외부 데이터를 복구하세요", "blocked");
+  } else if (snapshotCount) {
+    updateAnalysisTaskStatus(
+      "EXTERNAL",
+      `${snapshotCount.toLocaleString("ko-KR")}개 스냅샷`,
+      "검증된 수치와 출처 · 이 기기에 저장",
+      "ready"
+    );
+  } else {
+    updateAnalysisTaskStatus("EXTERNAL", "데이터 없음", "Butler 표 붙여넣기와 검증", "empty");
+  }
+
+  const etfEngine = window.AssetTrailEtfExposureEngine;
+  const etfValidation = etfEngine?.validateHoldingsCatalog?.(etfCatalog || emptyEtfCatalog());
+  const fundCount = Number(etfValidation?.funds?.length || 0);
+  const eligibleCount = Number(etfValidation?.funds?.filter((fund) => fund.eligible).length || 0);
+  if (analysisStorageIssues.etf) {
+    updateAnalysisTaskStatus("ETF", "복구 필요", "백업 후 ETF 구성을 복구하세요", "blocked");
+  } else if (!etfValidation?.ok) {
+    updateAnalysisTaskStatus("ETF", "검토 필요", "구성 파일 형식을 확인하세요", "warning");
+  } else if (fundCount) {
+    updateAnalysisTaskStatus(
+      "ETF",
+      `${fundCount.toLocaleString("ko-KR")}개 펀드`,
+      `${eligibleCount.toLocaleString("ko-KR")}개 계산 가능 · 이 기기에 저장`,
+      eligibleCount ? "ready" : "warning"
+    );
+  } else {
+    updateAnalysisTaskStatus("ETF", "구성 없음", "구성종목 파일 가져오기", "empty");
+  }
+
+  const factCount = Number(currentEvidenceEnvelope?.facts?.length || 0);
+  const qualityStatus = String(currentEvidenceEnvelope?.qualityStatus || "INCOMPLETE");
+  const qualityLabel = qualityStatus === "VERIFIED"
+    ? "검증 완료"
+    : qualityStatus === "LIMITED"
+      ? "제한 확인 필요"
+      : "데이터 보강 필요";
+  if (!currentEvidenceEnvelope) {
+    updateAnalysisTaskStatus("AI", "계산 필요", "익명 근거를 만들지 못했습니다", "warning");
+  } else if (factCount) {
+    updateAnalysisTaskStatus(
+      "AI",
+      `${factCount.toLocaleString("ko-KR")}개 근거`,
+      `${qualityLabel} · 정확한 금액과 식별자 제외`,
+      qualityStatus === "VERIFIED" ? "ready" : "warning"
+    );
+  } else {
+    updateAnalysisTaskStatus("AI", "근거 부족", qualityLabel, "warning");
+  }
+}
+
+function setActiveAnalysisTask(task, { focusPanel = false, scroll = false } = {}) {
+  const nextTask = ANALYSIS_TASKS.has(task) ? task : "EXTERNAL";
+  uiState.analysisTask = nextTask;
+  els.analysisTaskButtons?.forEach((button) => {
+    const selected = button.dataset.analysisTask === nextTask;
+    button.setAttribute("aria-pressed", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  });
+  els.analysisTaskPanels?.forEach((panel) => {
+    panel.hidden = panel.dataset.analysisTaskPanel !== nextTask;
+  });
+  if (!focusPanel) return;
+  const panel = els.analysisTaskPanels?.find((item) => item.dataset.analysisTaskPanel === nextTask);
+  const heading = panel?.querySelector("h2");
+  if (heading) {
+    heading.tabIndex = -1;
+    heading.focus({ preventScroll: true });
+    if (els.viewAnnounce) els.viewAnnounce.textContent = `${heading.textContent} 작업을 열었습니다.`;
+  }
+  if (scroll && panel?.scrollIntoView) {
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    panel.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+  }
+}
+
+function handleAnalysisTaskKeydown(event) {
+  const buttons = els.analysisTaskButtons || [];
+  const currentIndex = buttons.indexOf(event.currentTarget);
+  if (currentIndex < 0) return;
+  if (["Enter", " ", "Spacebar"].includes(event.key)) {
+    event.preventDefault();
+    setActiveAnalysisTask(event.currentTarget.dataset.analysisTask, { focusPanel: true, scroll: true });
+    return;
+  }
+  let nextIndex = currentIndex;
+  if (["ArrowRight", "ArrowDown"].includes(event.key)) nextIndex = (currentIndex + 1) % buttons.length;
+  else if (["ArrowLeft", "ArrowUp"].includes(event.key)) nextIndex = (currentIndex - 1 + buttons.length) % buttons.length;
+  else if (event.key === "Home") nextIndex = 0;
+  else if (event.key === "End") nextIndex = buttons.length - 1;
+  else return;
+  event.preventDefault();
+  buttons[nextIndex]?.focus();
+}
 
 function emptyEtfCatalog() {
   return {
@@ -4379,6 +4507,7 @@ function renderEtfLookThrough() {
     etfAnalysis = null;
     if (els.etfCatalogStatus) els.etfCatalogStatus.textContent = "ETF 룩스루 엔진을 불러오지 못했습니다.";
     renderEtfCoverageSummary();
+    renderAnalysisTaskSummary();
     return;
   }
   const catalog = etfCatalog || emptyEtfCatalog();
@@ -4410,6 +4539,7 @@ function renderEtfLookThrough() {
   renderEtfCoverageSummary();
   renderEtfExposureList();
   renderEtfFundQuality(validation);
+  renderAnalysisTaskSummary();
 }
 
 async function importEtfCatalogFile(file) {
@@ -4781,7 +4911,7 @@ function renderReport(report, target, { emptyText = "표시할 근거 항목이 
   });
   target.innerHTML = [...grouped.entries()].map(([section, sectionItems]) => `<section class="report-section">
     <div class="report-section-head"><h3>${escapeHtml(AI_REPORT_SECTION_LABELS[section] || section)}</h3><span>근거 연결 ${new Set(sectionItems.flatMap((item) => item.evidenceIds || [])).size.toLocaleString("ko-KR")}개</span></div>
-    <ul class="report-item-list">${sectionItems.map((item) => `<li>${escapeHtml(item.text)}<small>${escapeHtml(item.kind)} · 사실 ${escapeHtml((item.factIds || []).join(", "))} · 근거 ${escapeHtml((item.evidenceIds || []).join(", "))}</small></li>`).join("")}</ul>
+    <ul class="report-item-list">${sectionItems.map((item) => `<li>${escapeHtml(item.text)}<details class="report-item-evidence"><summary>기술 근거 보기</summary><small>${escapeHtml(item.kind)} · 사실 ${escapeHtml((item.factIds || []).join(", "))} · 근거 ${escapeHtml((item.evidenceIds || []).join(", "))}</small></details></li>`).join("")}</ul>
   </section>`).join("");
 }
 
@@ -4790,6 +4920,7 @@ function renderAnalysisEvidence() {
   if (!envelope) {
     if (els.aiPrivacySummary) els.aiPrivacySummary.innerHTML = `<p class="decision-empty">AI 근거 엔진을 불러오지 못했습니다.</p>`;
     renderReport(null, els.deterministicReport);
+    renderAnalysisTaskSummary();
     return;
   }
   if (els.aiPrivacySummary) {
@@ -4807,6 +4938,7 @@ function renderAnalysisEvidence() {
   });
   if (els.downloadEvidenceBtn) els.downloadEvidenceBtn.disabled = false;
   if (els.copyAiHandoffBtn) els.copyAiHandoffBtn.disabled = !envelope.facts.length;
+  renderAnalysisTaskSummary();
 }
 
 function refreshAnalysisEvidence({ announce = false } = {}) {
@@ -4880,6 +5012,7 @@ function renderAnalysisWorkspace() {
   renderExternalData();
   renderEtfLookThrough();
   refreshAnalysisEvidence();
+  setActiveAnalysisTask(uiState.analysisTask);
 }
 
 const VIEW_RENDERERS = {
@@ -9364,6 +9497,13 @@ els.butlerImportForm?.addEventListener("submit", (event) => {
     renderButlerPreview();
     if (els.butlerImportStatus) els.butlerImportStatus.textContent = error.message || "Butler 표를 확인하세요.";
   }
+});
+
+els.analysisTaskButtons?.forEach((button) => {
+  button.addEventListener("click", () => {
+    setActiveAnalysisTask(button.dataset.analysisTask, { focusPanel: true, scroll: true });
+  });
+  button.addEventListener("keydown", handleAnalysisTaskKeydown);
 });
 
 els.saveButlerImportBtn?.addEventListener("click", () => {
