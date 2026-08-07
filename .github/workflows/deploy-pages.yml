@@ -226,7 +226,7 @@ jobs:
           cp index.html app.js decision-engine.js action-engine.js ledger-engine.js performance-engine.js broker-csv-engine.js broker-csv-adapter-standard.js external-data-engine.js etf-exposure-engine.js ai-report-engine.js styles.css assettrail-tokens.css firebase-config.js prices.json symbols.json .nojekyll _site/
 
       - name: Upload static site
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
