@@ -31,7 +31,7 @@ MAX_USDKRW_RATE = 3000
 MAX_PRICE_AGE_DAYS = 7
 MAX_PRICE_FUTURE_DAYS = 1
 DEFAULT_SYMBOLS_FILENAME = "symbols.json"
-KOSPI_BENCHMARK_SYMBOL = "1001"
+KOSPI_BENCHMARK_SYMBOL = "^KS11"
 SP500_BENCHMARK_SYMBOL = "^GSPC"
 PRICE_BASIS = "unadjusted_close"
 BENCHMARK_PRICE_BASIS = "price_index_level"
@@ -595,39 +595,10 @@ def fetch_usdkrw(lookback_days):
     }
 
 
-def fetch_kospi_benchmark(lookback_days):
-    """Fetch the KOSPI price-index level, not a dividend-reinvested total return."""
-    end = datetime.now(KST).date()
-    start = end.fromordinal(end.toordinal() - lookback_days)
-    frame = stock.get_index_ohlcv_by_date(
-        start.strftime("%Y%m%d"),
-        end.strftime("%Y%m%d"),
-        KOSPI_BENCHMARK_SYMBOL
-    )
-
-    if frame.empty or "종가" not in frame:
-        return None
-
-    closes = frame["종가"].dropna()
-    closes = closes[closes > 0]
-    if closes.empty:
-        return None
-
-    last_date = closes.index[-1]
-    return build_benchmark_entry(
-        "KOSPI",
-        KOSPI_BENCHMARK_SYMBOL,
-        closes.iloc[-1],
-        last_date.strftime("%Y-%m-%d"),
-        "pykrx KRX index 1001",
-        "KRW"
-    )
-
-
-def fetch_sp500_benchmark(lookback_days):
-    """Fetch the S&P 500 price-index level from Yahoo's unadjusted Close column."""
+def fetch_yfinance_index_benchmark(name, symbol, lookback_days, quote_currency):
+    """Fetch an unadjusted price-index close from Yahoo Finance."""
     frame = yf.download(
-        SP500_BENCHMARK_SYMBOL,
+        symbol,
         period=f"{lookback_days}d",
         interval="1d",
         auto_adjust=False,
@@ -638,7 +609,16 @@ def fetch_sp500_benchmark(lookback_days):
     if frame.empty or "Close" not in frame:
         return None
 
-    closes = frame["Close"].dropna()
+    closes = frame["Close"]
+    if hasattr(closes, "columns"):
+        if symbol in closes.columns:
+            closes = closes[symbol]
+        elif len(closes.columns) == 1:
+            closes = closes.iloc[:, 0]
+        else:
+            return None
+
+    closes = closes.dropna()
     closes = closes[closes > 0]
     if closes.empty:
         return None
@@ -649,11 +629,31 @@ def fetch_sp500_benchmark(lookback_days):
         level = level.item()
 
     return build_benchmark_entry(
-        "S&P 500",
-        SP500_BENCHMARK_SYMBOL,
+        name,
+        symbol,
         level,
         last_date.strftime("%Y-%m-%d"),
-        "yfinance ^GSPC",
+        f"yfinance {symbol}",
+        quote_currency
+    )
+
+
+def fetch_kospi_benchmark(lookback_days):
+    """Fetch the KOSPI price-index level without requiring a KRX login session."""
+    return fetch_yfinance_index_benchmark(
+        "KOSPI",
+        KOSPI_BENCHMARK_SYMBOL,
+        lookback_days,
+        "KRW"
+    )
+
+
+def fetch_sp500_benchmark(lookback_days):
+    """Fetch the S&P 500 price-index level from Yahoo's unadjusted Close column."""
+    return fetch_yfinance_index_benchmark(
+        "S&P 500",
+        SP500_BENCHMARK_SYMBOL,
+        lookback_days,
         "USD"
     )
 
