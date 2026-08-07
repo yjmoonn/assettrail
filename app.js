@@ -1,5 +1,5 @@
 const STORAGE_KEY = "finance-ledger-retirement-v1";
-const STATE_SCHEMA_VERSION = 5;
+const STATE_SCHEMA_VERSION = 6;
 const CLOUD_DOC_ID = "primary";
 const CLOUD_PAYLOAD_MAX_BYTES = 900 * 1024;
 const CLOUD_TRANSACTION_EVENT_LIMIT = 400;
@@ -12,6 +12,7 @@ const IMPORT_LIMITS = {
   tradeJournalEntries: 10000,
   events: 50000,
   snapshots: 10000,
+  performanceObservations: 300,
   retirementScenarios: 200
 };
 const IMPORT_STRING_LIMITS = {
@@ -33,6 +34,18 @@ const BREAKDOWN_ICONS = {
 };
 const RETIREMENT_MONEY_FIELDS = new Set(["currentInvestable", "monthlyInvest", "monthlySpend"]);
 const PRICE_STALE_DAYS = 3;
+const PERFORMANCE_OBSERVATION_LIMIT = IMPORT_LIMITS.performanceObservations;
+const PERFORMANCE_CUTOFF = "END_OF_DAY_POST_FLOW";
+const BROKER_CSV_MAPPING_RENDER_LIMIT = 200;
+const EXTERNAL_DATA_STORAGE_SUFFIX = ":external-data-v1";
+const ETF_CATALOG_STORAGE_SUFFIX = ":etf-catalog-v1";
+const EXTERNAL_DATA_STORE_SCHEMA = "assettrail.external-store.v1";
+const EXTERNAL_DATA_STORE_MAX_BYTES = 750 * 1024;
+const EXTERNAL_DATA_SNAPSHOT_LIMIT = 60;
+const ETF_CATALOG_MAX_BYTES = 2 * 1024 * 1024;
+const ETF_HOLDINGS_STALE_DAYS = 14;
+const EXTERNAL_ACTUAL_STALE_DAYS = Object.freeze({ ANNUAL: 550, QUARTER: 180, TTM: 180 });
+const PERFORMANCE_EVIDENCE_STALE_DAYS = 7;
 const firebaseConfig = window.firebaseConfig || {};
 const ASSET_TYPE_LABELS = {
   KRX: "KRX 국내",
@@ -149,12 +162,13 @@ const CHECK_ICON_GLYPHS = {
   target: "%",
   snapshot: "✦"
 };
-const APP_VIEWS = new Set(["DASHBOARD", "ASSETS", "JOURNAL", "PORTFOLIO", "GOALS", "SETTINGS"]);
+const APP_VIEWS = new Set(["DASHBOARD", "ASSETS", "JOURNAL", "PORTFOLIO", "ANALYSIS", "GOALS", "SETTINGS"]);
 const VIEW_LABELS = {
   DASHBOARD: "대시보드",
   ASSETS: "자산",
   JOURNAL: "투자 기록",
   PORTFOLIO: "포트폴리오",
+  ANALYSIS: "분석",
   GOALS: "목표",
   SETTINGS: "설정",
 };
@@ -164,6 +178,7 @@ const VIEW_HEADINGS = {
   ASSETS: { title: "자산", subtitle: "보유 자산과 매수·매도를 한 곳에서 관리해요." },
   JOURNAL: { title: "투자 기록", subtitle: "매매 판단과 매도 결과를 기록하고 복기해요." },
   PORTFOLIO: { title: "포트폴리오", subtitle: "계좌·상품·국내외 배분과 목표 비중 차이를 봐요." },
+  ANALYSIS: { title: "외부 데이터와 AI", subtitle: "출처가 확인된 실적·ETF 노출과 근거 중심 보고서를 검토해요." },
   GOALS: { title: "목표", subtitle: "자산 추이와 은퇴 계획을 함께 점검해요." },
   SETTINGS: { title: "설정", subtitle: "동기화, 가격표, 데이터, 운영 작업을 관리해요." },
 };
@@ -193,11 +208,18 @@ let cloud = {
   runTransaction: null,
   collection: null,
   getDocs: null,
-  knownEventIds: new Set()
+  knownEventIds: new Set(),
+  authGeneration: 0
 };
 let activeStorageKey = STORAGE_KEY;
+let cloudWriteInFlight = null;
 
 let priceBook = {
+  benchmarks: {},
+  dataPolicy: {
+    distributionTreatment: null,
+    priceBasis: null
+  },
   errors: [],
   fx: {},
   generatedAt: null,
@@ -320,9 +342,11 @@ const els = {
   investmentJournalTab: document.querySelector("#investmentJournalTab"),
   investmentLedgerTab: document.querySelector("#investmentLedgerTab"),
   investmentRealizedTab: document.querySelector("#investmentRealizedTab"),
+  investmentPerformanceTab: document.querySelector("#investmentPerformanceTab"),
   journalTabPanel: document.querySelector("#journalTabPanel"),
   ledgerTabPanel: document.querySelector("#ledgerTabPanel"),
   realizedTabPanel: document.querySelector("#realizedTabPanel"),
+  performanceTabPanel: document.querySelector("#performanceTabPanel"),
   journalTabCount: document.querySelector("#journalTabCount"),
   ledgerTabCount: document.querySelector("#ledgerTabCount"),
   realizedTabCount: document.querySelector("#realizedTabCount"),
@@ -345,9 +369,31 @@ const els = {
   ledgerReconciliation: document.querySelector("#ledgerReconciliation"),
   ledgerEventSummary: document.querySelector("#ledgerEventSummary"),
   ledgerEventRows: document.querySelector("#ledgerEventRows"),
+  performanceRange: document.querySelector("#performanceRange"),
+  performanceStartDate: document.querySelector("#performanceStartDate"),
+  performanceEndDate: document.querySelector("#performanceEndDate"),
+  performanceRangeValidation: document.querySelector("#performanceRangeValidation"),
+  performanceCoverage: document.querySelector("#performanceCoverage"),
+  performanceTwr: document.querySelector("#performanceTwr"),
+  performanceXirr: document.querySelector("#performanceXirr"),
+  performanceNetFlow: document.querySelector("#performanceNetFlow"),
+  performanceGain: document.querySelector("#performanceGain"),
+  performanceChart: document.querySelector("#performanceChart"),
+  performanceChartDescription: document.querySelector("#performanceChartDescription"),
+  performanceBenchmark: document.querySelector("#performanceBenchmark"),
+  performanceBenchmarkStatus: document.querySelector("#performanceBenchmarkStatus"),
+  performanceBenchmarkSummary: document.querySelector("#performanceBenchmarkSummary"),
+  performanceBenchmarkReturn: document.querySelector("#performanceBenchmarkReturn"),
+  performanceExcessReturn: document.querySelector("#performanceExcessReturn"),
+  performanceAttribution: document.querySelector("#performanceAttribution"),
+  performanceRiskSummary: document.querySelector("#performanceRiskSummary"),
+  performanceMaxDrawdown: document.querySelector("#performanceMaxDrawdown"),
+  performanceRecoveryPeriod: document.querySelector("#performanceRecoveryPeriod"),
+  performanceVolatility: document.querySelector("#performanceVolatility"),
   historyChart: document.querySelector("#historyChart"),
   historyRows: document.querySelector("#historyRows"),
   historySummary: document.querySelector("#historySummary"),
+  openPerformanceFromHistoryBtn: document.querySelector("#openPerformanceFromHistoryBtn"),
   clearHistoryBtn: document.querySelector("#clearHistoryBtn"),
   syncAssetsBtn: document.querySelector("#syncAssetsBtn"),
   retirementForm: document.querySelector("#retirementForm"),
@@ -375,7 +421,57 @@ const els = {
   logoutBtn: document.querySelector("#logoutBtn"),
   cloudSyncBtn: document.querySelector("#cloudSyncBtn"),
   exportBtn: document.querySelector("#exportBtn"),
+  jsonImportBtn: document.querySelector("#jsonImportBtn"),
   importInput: document.querySelector("#importInput"),
+  settingsCsvStatus: document.querySelector("#settingsCsvStatus"),
+  openBrokerCsvImportBtn: document.querySelector("#openBrokerCsvImportBtn"),
+  settingsBrokerCsvImportBtn: document.querySelector("#settingsBrokerCsvImportBtn"),
+  butlerImportForm: document.querySelector("#butlerImportForm"),
+  butlerAssetSelect: document.querySelector("#butlerAssetSelect"),
+  butlerCurrency: document.querySelector("#butlerCurrency"),
+  butlerSourceUrl: document.querySelector("#butlerSourceUrl"),
+  butlerClipboardText: document.querySelector("#butlerClipboardText"),
+  butlerImportStatus: document.querySelector("#butlerImportStatus"),
+  butlerImportPreview: document.querySelector("#butlerImportPreview"),
+  saveButlerImportBtn: document.querySelector("#saveButlerImportBtn"),
+  downloadExternalDataBtn: document.querySelector("#downloadExternalDataBtn"),
+  importExternalDataBtn: document.querySelector("#importExternalDataBtn"),
+  externalDataBackupInput: document.querySelector("#externalDataBackupInput"),
+  clearExternalDataBtn: document.querySelector("#clearExternalDataBtn"),
+  externalCompanyList: document.querySelector("#externalCompanyList"),
+  etfCatalogInput: document.querySelector("#etfCatalogInput"),
+  downloadEtfTemplateBtn: document.querySelector("#downloadEtfTemplateBtn"),
+  downloadEtfCatalogBtn: document.querySelector("#downloadEtfCatalogBtn"),
+  clearEtfCatalogBtn: document.querySelector("#clearEtfCatalogBtn"),
+  etfCatalogStatus: document.querySelector("#etfCatalogStatus"),
+  etfCoverageSummary: document.querySelector("#etfCoverageSummary"),
+  etfExposureList: document.querySelector("#etfExposureList"),
+  etfFundQuality: document.querySelector("#etfFundQuality"),
+  refreshEvidenceBtn: document.querySelector("#refreshEvidenceBtn"),
+  downloadEvidenceBtn: document.querySelector("#downloadEvidenceBtn"),
+  copyAiHandoffBtn: document.querySelector("#copyAiHandoffBtn"),
+  aiPrivacySummary: document.querySelector("#aiPrivacySummary"),
+  deterministicReport: document.querySelector("#deterministicReport"),
+  aiReportJson: document.querySelector("#aiReportJson"),
+  validateAiReportBtn: document.querySelector("#validateAiReportBtn"),
+  clearAiReportBtn: document.querySelector("#clearAiReportBtn"),
+  aiReportValidationStatus: document.querySelector("#aiReportValidationStatus"),
+  validatedAiReport: document.querySelector("#validatedAiReport"),
+  brokerCsvImportDialog: document.querySelector("#brokerCsvImportDialog"),
+  brokerCsvImportTitle: document.querySelector("#brokerCsvImportTitle"),
+  brokerCsvInput: document.querySelector("#brokerCsvInput"),
+  brokerCsvAdapter: document.querySelector("#brokerCsvAdapter"),
+  downloadBrokerCsvTemplateBtn: document.querySelector("#downloadBrokerCsvTemplateBtn"),
+  brokerCsvImportMode: document.querySelector("#brokerCsvImportMode"),
+  brokerCsvAccountMappings: document.querySelector("#brokerCsvAccountMappings"),
+  brokerCsvCashMappings: document.querySelector("#brokerCsvCashMappings"),
+  brokerCsvImportStatus: document.querySelector("#brokerCsvImportStatus"),
+  brokerCsvPreviewSummary: document.querySelector("#brokerCsvPreviewSummary"),
+  brokerCsvRowFilter: document.querySelector("#brokerCsvRowFilter"),
+  brokerCsvErrorSummary: document.querySelector("#brokerCsvErrorSummary"),
+  brokerCsvPreviewRows: document.querySelector("#brokerCsvPreviewRows"),
+  applyBrokerCsvImportBtn: document.querySelector("#applyBrokerCsvImportBtn"),
+  cancelBrokerCsvImportBtn: document.querySelector("#cancelBrokerCsvImportBtn"),
   appNotice: document.querySelector("#appNotice"),
   syncDetail: document.querySelector("#syncDetail"),
   cloudConflictDialog: document.querySelector("#cloudConflictDialog"),
@@ -511,6 +607,10 @@ const uiState = {
   journalFilter: "ALL",
   investmentRecordTab: "JOURNAL",
   ledgerType: "ALL",
+  performanceRange: "YTD",
+  performanceStartDate: "",
+  performanceEndDate: "",
+  performanceBenchmark: "NONE",
   activeView: "DASHBOARD",
   historyRange: "ALL",
   realizedYear: "ALL",
@@ -519,6 +619,19 @@ const uiState = {
   autofilledAssetName: ""
 };
 let assetDetailOpener = null;
+let brokerCsvPreview = null;
+let brokerCsvDialogOpener = null;
+let brokerCsvReadToken = 0;
+let analysisStorageIssues = { external: null, etf: null };
+let analysisStorageRevisions = { external: null, etf: null };
+let etfCatalogReadToken = 0;
+let externalDataReadToken = 0;
+let externalDataStore = loadExternalDataStore();
+let butlerDataPreview = null;
+let etfCatalog = loadStoredEtfCatalog();
+let etfAnalysis = null;
+let currentEvidenceEnvelope = null;
+let currentDeterministicReport = null;
 
 function defaultAllocationBands(targets = {}) {
   const fallbackTargets = { domestic: 50, overseas: 30, cash: 10, manual: 10 };
@@ -549,6 +662,7 @@ function defaultState() {
     events: [],
     ledgerMeta: defaultLedgerMeta(),
     snapshots: [],
+    performanceObservations: [],
     meta: {
       cloudUpdatedAt: null,
       cloudRevision: 0,
@@ -664,7 +778,7 @@ function loadState(storageKey = activeStorageKey) {
         if (localStorage.getItem(backupKey) !== raw) throw new Error("마이그레이션 백업 검증에 실패했습니다.");
         const migratedRaw = JSON.stringify(storageSafeState(migrated));
         localStorage.setItem(storageKey, migratedRaw);
-        if (localStorage.getItem(storageKey) !== migratedRaw) throw new Error("v5 데이터 저장 검증에 실패했습니다.");
+        if (localStorage.getItem(storageKey) !== migratedRaw) throw new Error(`v${STATE_SCHEMA_VERSION} 데이터 저장 검증에 실패했습니다.`);
       } catch (error) {
         if (localStorage.getItem(storageKey) !== raw) {
           try {
@@ -673,7 +787,7 @@ function loadState(storageKey = activeStorageKey) {
             console.error("AssetTrail migration rollback failed", restoreError);
           }
         }
-        reportStorageFailure("기존 데이터 백업 후 v5 전환 저장에 실패했습니다. 원본은 보존했으며 자동 저장을 중단했습니다.");
+        reportStorageFailure(`기존 데이터 백업 후 v${STATE_SCHEMA_VERSION} 전환 저장에 실패했습니다. 원본은 보존했으며 자동 저장을 중단했습니다.`);
         return { ok: false, state: migrated, error, raw };
       }
     }
@@ -697,6 +811,210 @@ function persist() {
     reportStorageFailure("변경 내용을 이 기기에 저장하지 못했습니다. 브라우저 저장 권한 또는 남은 공간을 확인하고 데이터를 내보내세요.");
     return false;
   }
+}
+
+function externalDataStorageKey() {
+  return `${activeStorageKey}${EXTERNAL_DATA_STORAGE_SUFFIX}`;
+}
+
+function etfCatalogStorageKey() {
+  return `${activeStorageKey}${ETF_CATALOG_STORAGE_SUFFIX}`;
+}
+
+function defaultExternalDataStore() {
+  return {
+    schemaVersion: EXTERNAL_DATA_STORE_SCHEMA,
+    snapshots: [],
+    updatedAt: null
+  };
+}
+
+function recordAnalysisStorageIssue(kind, raw, message) {
+  analysisStorageIssues[kind] = {
+    key: kind === "external" ? externalDataStorageKey() : etfCatalogStorageKey(),
+    raw: typeof raw === "string" ? raw : "",
+    message
+  };
+}
+
+function loadExternalDataStore() {
+  const fallback = defaultExternalDataStore();
+  const key = externalDataStorageKey();
+  try {
+    const raw = localStorage.getItem(key);
+    analysisStorageRevisions.external = raw;
+    analysisStorageIssues.external = null;
+    if (!raw) return fallback;
+    if (serializedByteLength(raw) > EXTERNAL_DATA_STORE_MAX_BYTES) {
+      recordAnalysisStorageIssue("external", raw, "외부 데이터 저장소가 750KB 안전 한도를 넘었습니다.");
+      return fallback;
+    }
+    const parsed = JSON.parse(raw);
+    if (!isPlainObject(parsed) || parsed.schemaVersion !== EXTERNAL_DATA_STORE_SCHEMA || !Array.isArray(parsed.snapshots)) {
+      recordAnalysisStorageIssue("external", raw, "외부 데이터 저장소 형식이 올바르지 않습니다.");
+      return fallback;
+    }
+    if (parsed.snapshots.length > EXTERNAL_DATA_SNAPSHOT_LIMIT) {
+      recordAnalysisStorageIssue("external", raw, `외부 데이터가 ${EXTERNAL_DATA_SNAPSHOT_LIMIT}개 안전 한도를 넘었습니다.`);
+      return fallback;
+    }
+    const engine = window.AssetTrailExternalDataEngine;
+    if (!engine?.validateExternalSnapshot) {
+      recordAnalysisStorageIssue("external", raw, "외부 데이터 검증 엔진을 불러오지 못했습니다.");
+      return fallback;
+    }
+    const snapshots = [];
+    for (const snapshot of parsed.snapshots) {
+      const validation = engine.validateExternalSnapshot(snapshot);
+      if (!validation?.ok || !validation.snapshot) {
+        recordAnalysisStorageIssue("external", raw, "외부 데이터 저장소에서 검증되지 않은 항목을 발견했습니다.");
+        return fallback;
+      }
+      snapshots.push(validation.snapshot);
+    }
+    return {
+      schemaVersion: EXTERNAL_DATA_STORE_SCHEMA,
+      snapshots,
+      updatedAt: normalizeStoredDate(parsed.updatedAt)
+    };
+  } catch (error) {
+    let raw = "";
+    try {
+      raw = localStorage.getItem(key) || "";
+    } catch {}
+    recordAnalysisStorageIssue("external", raw, "외부 데이터 저장소를 읽거나 검증하지 못했습니다.");
+    return fallback;
+  }
+}
+
+function persistExternalDataStore(candidate = externalDataStore) {
+  if (storageWritesBlocked) {
+    throw new Error("보호 중인 원본 데이터가 있어 외부 데이터도 저장하지 않았습니다.");
+  }
+  if (analysisStorageIssues.external) {
+    throw new Error("손상 가능성이 있는 외부 데이터 원본을 보호 중입니다. 먼저 백업한 뒤 외부 데이터만 비우세요.");
+  }
+  const key = externalDataStorageKey();
+  const liveRaw = localStorage.getItem(key);
+  if (liveRaw !== analysisStorageRevisions.external) {
+    throw new Error("다른 탭에서 외부 데이터가 변경됐습니다. 최신 데이터를 다시 불러온 뒤 재시도하세요.");
+  }
+  if (!Array.isArray(candidate?.snapshots)) throw new Error("외부 데이터 목록 형식이 올바르지 않습니다.");
+  if (candidate.snapshots.length > EXTERNAL_DATA_SNAPSHOT_LIMIT) {
+    throw new Error(`외부 데이터는 최대 ${EXTERNAL_DATA_SNAPSHOT_LIMIT}개까지 보관할 수 있습니다. 기존 데이터를 백업하고 정리한 뒤 다시 시도하세요.`);
+  }
+  const engine = window.AssetTrailExternalDataEngine;
+  if (!engine?.validateExternalSnapshot) throw new Error("외부 데이터 검증 엔진을 불러오지 못했습니다.");
+  const snapshots = candidate.snapshots.map((snapshot) => {
+    const validation = engine.validateExternalSnapshot(snapshot);
+    if (!validation?.ok || !validation.snapshot) throw new Error("검증되지 않은 외부 데이터는 저장하지 않았습니다.");
+    return validation.snapshot;
+  });
+  const safe = {
+    schemaVersion: EXTERNAL_DATA_STORE_SCHEMA,
+    snapshots,
+    updatedAt: normalizeStoredDate(candidate?.updatedAt) || new Date().toISOString()
+  };
+  const serialized = JSON.stringify(safe);
+  if (serializedByteLength(serialized) > EXTERNAL_DATA_STORE_MAX_BYTES) {
+    throw new Error("정규화한 외부 데이터가 750KB 안전 한도를 넘었습니다. 오래된 스냅샷을 내보내 보관한 뒤 범위를 줄이세요.");
+  }
+  localStorage.setItem(key, serialized);
+  if (localStorage.getItem(key) !== serialized) {
+    throw new Error("외부 데이터 저장 검증에 실패했습니다.");
+  }
+  externalDataStore = safe;
+  analysisStorageRevisions.external = serialized;
+  analysisStorageIssues.external = null;
+  return true;
+}
+
+function loadStoredEtfCatalog() {
+  const key = etfCatalogStorageKey();
+  try {
+    const raw = localStorage.getItem(key);
+    analysisStorageRevisions.etf = raw;
+    analysisStorageIssues.etf = null;
+    if (!raw) return null;
+    if (serializedByteLength(raw) > ETF_CATALOG_MAX_BYTES) {
+      recordAnalysisStorageIssue("etf", raw, "ETF 구성 저장소가 2MB 안전 한도를 넘었습니다.");
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    const engine = window.AssetTrailEtfExposureEngine;
+    const validation = engine?.validateHoldingsCatalog?.(parsed);
+    if (!validation?.ok) {
+      recordAnalysisStorageIssue("etf", raw, "ETF 구성 저장소에서 검증되지 않은 항목을 발견했습니다.");
+      return null;
+    }
+    return canonicalEtfCatalog(validation);
+  } catch (error) {
+    let raw = "";
+    try {
+      raw = localStorage.getItem(key) || "";
+    } catch {}
+    recordAnalysisStorageIssue("etf", raw, "ETF 구성 저장소를 읽거나 검증하지 못했습니다.");
+    return null;
+  }
+}
+
+function persistEtfCatalog(catalog) {
+  if (storageWritesBlocked) {
+    throw new Error("보호 중인 원본 데이터가 있어 ETF 구성 데이터도 저장하지 않았습니다.");
+  }
+  if (analysisStorageIssues.etf) {
+    throw new Error("손상 가능성이 있는 ETF 구성 원본을 보호 중입니다. 먼저 백업한 뒤 ETF 데이터만 비우세요.");
+  }
+  const key = etfCatalogStorageKey();
+  const liveRaw = localStorage.getItem(key);
+  if (liveRaw !== analysisStorageRevisions.etf) {
+    throw new Error("다른 탭에서 ETF 구성이 변경됐습니다. 최신 데이터를 다시 불러온 뒤 재시도하세요.");
+  }
+  const engine = window.AssetTrailEtfExposureEngine;
+  const validation = engine?.validateHoldingsCatalog?.(catalog);
+  if (!validation?.ok) throw new Error("검증되지 않은 ETF 구성 데이터는 저장하지 않았습니다.");
+  const safeCatalog = canonicalEtfCatalog(validation);
+  const serialized = JSON.stringify(safeCatalog);
+  if (serializedByteLength(serialized) > ETF_CATALOG_MAX_BYTES) {
+    throw new Error("ETF 구성 파일은 2MB 이하여야 합니다.");
+  }
+  localStorage.setItem(key, serialized);
+  if (localStorage.getItem(key) !== serialized) {
+    throw new Error("ETF 구성 데이터 저장 검증에 실패했습니다.");
+  }
+  etfCatalog = safeCatalog;
+  analysisStorageRevisions.etf = serialized;
+  analysisStorageIssues.etf = null;
+  return true;
+}
+
+function switchAnalysisStores() {
+  etfCatalogReadToken += 1;
+  externalDataReadToken += 1;
+  externalDataStore = loadExternalDataStore();
+  etfCatalog = loadStoredEtfCatalog();
+  butlerDataPreview = null;
+  etfAnalysis = null;
+  currentEvidenceEnvelope = null;
+  currentDeterministicReport = null;
+  if (els.butlerAssetSelect) els.butlerAssetSelect.innerHTML = `<option value="">종목 선택</option>`;
+  if (els.butlerCurrency) els.butlerCurrency.value = "KRW";
+  if (els.butlerSourceUrl) els.butlerSourceUrl.value = "";
+  if (els.butlerClipboardText) els.butlerClipboardText.value = "";
+  if (els.saveButlerImportBtn) els.saveButlerImportBtn.disabled = true;
+  if (els.butlerImportStatus) els.butlerImportStatus.textContent = "사용자 데이터 영역을 전환했습니다. 가져올 기업과 출처를 다시 확인하세요.";
+  if (els.butlerImportPreview) els.butlerImportPreview.innerHTML = "";
+  if (els.externalCompanyList) els.externalCompanyList.innerHTML = "";
+  if (els.etfCatalogInput) els.etfCatalogInput.value = "";
+  if (els.etfCatalogStatus) els.etfCatalogStatus.textContent = "사용자 데이터 영역을 전환했습니다. ETF 구성 파일을 다시 확인하세요.";
+  if (els.etfCoverageSummary) els.etfCoverageSummary.innerHTML = "";
+  if (els.etfExposureList) els.etfExposureList.innerHTML = "";
+  if (els.etfFundQuality) els.etfFundQuality.innerHTML = "";
+  if (els.aiReportJson) els.aiReportJson.value = "";
+  if (els.aiReportValidationStatus) els.aiReportValidationStatus.textContent = "AI 결과는 자동 저장하거나 클라우드로 전송하지 않습니다.";
+  if (els.validatedAiReport) els.validatedAiReport.innerHTML = "";
+  if (els.deterministicReport) els.deterministicReport.innerHTML = "";
+  if (els.aiPrivacySummary) els.aiPrivacySummary.innerHTML = "";
 }
 
 function hasFirebaseConfig() {
@@ -770,6 +1088,7 @@ function storageSafeState(source = state) {
     events: source.events.map(normalizeLedgerEvent),
     ledgerMeta: normalizeLedgerMeta(source.ledgerMeta),
     snapshots: source.snapshots.map(normalizeSnapshot),
+    performanceObservations: (source.performanceObservations || []).map(normalizePerformanceObservation),
     meta: { ...source.meta },
     portfolioTargets: { ...source.portfolioTargets },
     policyProfile: normalizePolicyProfile(source.policyProfile, source.portfolioTargets),
@@ -802,7 +1121,10 @@ function migrateState(nextState) {
   );
   const sourceVersion = Number.isSafeInteger(Number(source.schemaVersion)) ? Number(source.schemaVersion) : 1;
   if (sourceVersion >= 5 && !Array.isArray(source.events)) {
-    throw new Error("v5 거래 원장 이벤트 목록이 없습니다.");
+    throw new Error("v5 이상 데이터에 거래 원장 이벤트 목록이 없습니다.");
+  }
+  if (sourceVersion >= 6 && !Array.isArray(source.performanceObservations)) {
+    throw new Error("v6 성과 평가 관측점 목록이 없습니다.");
   }
   const events = normalizeLedgerEvents(source, assets);
   const ledgerMeta = normalizeLedgerMeta(source.ledgerMeta, {
@@ -821,6 +1143,9 @@ function migrateState(nextState) {
     events,
     ledgerMeta,
     snapshots: Array.isArray(source.snapshots) ? source.snapshots.map(normalizeSnapshot) : [],
+    performanceObservations: Array.isArray(source.performanceObservations)
+      ? source.performanceObservations.map(normalizePerformanceObservation)
+      : [],
     meta: {
       cloudUpdatedAt: normalizeStoredDate(source.updatedAt || meta.cloudUpdatedAt),
       cloudRevision: normalizeRevision(source.revision ?? meta.cloudRevision),
@@ -851,6 +1176,7 @@ function replaceState(nextState) {
   state.events = migrated.events;
   state.ledgerMeta = migrated.ledgerMeta;
   state.snapshots = migrated.snapshots;
+  state.performanceObservations = migrated.performanceObservations;
   state.meta = migrated.meta;
   state.portfolioTargets = migrated.portfolioTargets;
   state.policyProfile = migrated.policyProfile;
@@ -1018,6 +1344,118 @@ function normalizeSnapshot(snapshot, index = 0) {
   };
 }
 
+function boundedPerformanceNumber(value, fallback = 0, { nonNegative = false } = {}) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || Math.abs(number) > 1e15) return fallback;
+  if (nonNegative && number < 0) return fallback;
+  return number;
+}
+
+function normalizePerformanceObservation(observation, index = 0) {
+  const source = isPlainObject(observation) ? observation : {};
+  const capturedAt = normalizeStoredDate(source.capturedAt) || new Date(0).toISOString();
+  const date = normalizeDateKey(source.date) || capturedAt.slice(0, 10);
+  const validRawNumber = (value, { nonNegative = false } = {}) => value !== ""
+    && value !== null
+    && value !== undefined
+    && Number.isFinite(Number(value))
+    && (!nonNegative || Number(value) >= 0);
+  const requiredNonNegative = ["navKRW", "marketValueKRW", "manualValueKRW",
+    "usMarketValueNative", "usMarketValueKRW", "usdKrw"];
+  const requiredSigned = ["cashKRW", "unsettledKRW"];
+  const requiredCumulative = ["externalFlowKRW", "depositsKRW", "withdrawalsKRW", "dividendsKRW",
+    "interestKRW", "feesKRW", "taxesKRW", "fxDifferenceKRW"];
+  const normalizationAdjusted = !normalizeStoredDate(source.capturedAt)
+    || !normalizeDateKey(source.date)
+    || String(source.cutoff || "").trim().toUpperCase() !== PERFORMANCE_CUTOFF
+    || !requiredNonNegative.every((field) => validRawNumber(source[field], { nonNegative: true }))
+    || !requiredSigned.every((field) => validRawNumber(source[field]))
+    || !isPlainObject(source.typeTotals)
+    || !["KRX", "US", "CASH", "MANUAL"].every((type) => validRawNumber(
+      source.typeTotals?.[type],
+      { nonNegative: type !== "CASH" }
+    ))
+    || !isPlainObject(source.cumulative)
+    || !requiredCumulative.every((field) => validRawNumber(source.cumulative?.[field]));
+  const typeTotals = {};
+  if (isPlainObject(source.typeTotals)) {
+    ["KRX", "US", "CASH", "MANUAL"].forEach((type) => {
+      const value = Number(source.typeTotals[type]);
+      if (Number.isFinite(value) && (type === "CASH" || value >= 0)) typeTotals[type] = value;
+    });
+  }
+  const cumulativeSource = isPlainObject(source.cumulative) ? source.cumulative : {};
+  const cumulative = {
+    externalFlowKRW: boundedPerformanceNumber(cumulativeSource.externalFlowKRW),
+    depositsKRW: boundedPerformanceNumber(cumulativeSource.depositsKRW, 0, { nonNegative: true }),
+    withdrawalsKRW: boundedPerformanceNumber(cumulativeSource.withdrawalsKRW, 0, { nonNegative: true }),
+    dividendsKRW: boundedPerformanceNumber(cumulativeSource.dividendsKRW, 0, { nonNegative: true }),
+    interestKRW: boundedPerformanceNumber(cumulativeSource.interestKRW, 0, { nonNegative: true }),
+    feesKRW: boundedPerformanceNumber(cumulativeSource.feesKRW, 0, { nonNegative: true }),
+    taxesKRW: boundedPerformanceNumber(cumulativeSource.taxesKRW, 0, { nonNegative: true }),
+    fxDifferenceKRW: boundedPerformanceNumber(cumulativeSource.fxDifferenceKRW)
+  };
+  const benchmarkLevels = {};
+  if (isPlainObject(source.benchmarkLevels)) {
+    ["KOSPI", "SP500"].forEach((key) => {
+      const item = isPlainObject(source.benchmarkLevels[key]) ? source.benchmarkLevels[key] : {};
+      const level = Number(item.level);
+      const benchmarkDate = normalizeDateKey(item.date);
+      if (!(level > 0) || !benchmarkDate) return;
+      benchmarkLevels[key] = {
+        level,
+        date: benchmarkDate,
+        currency: String(item.currency || "").trim().toUpperCase(),
+        returnType: String(item.returnType || "UNKNOWN").trim().toUpperCase(),
+        source: String(item.source || "").trim().slice(0, IMPORT_STRING_LIMITS.short),
+        priceBasis: String(item.priceBasis || "").trim().toUpperCase(),
+        distributionTreatment: String(item.distributionTreatment || "").trim().toUpperCase(),
+        levelUnit: String(item.levelUnit || "").trim().toUpperCase()
+      };
+    });
+  }
+  let completeness = ["COMPLETE", "LIMITED", "INCOMPLETE"].includes(String(source.completeness || "").toUpperCase())
+    ? String(source.completeness).toUpperCase()
+    : "INCOMPLETE";
+  const issueCodes = Array.isArray(source.issueCodes)
+    ? [...new Set(source.issueCodes.map((code) => String(code || "").trim().toUpperCase()).filter(Boolean))].slice(0, 30)
+    : [];
+  if (normalizationAdjusted) {
+    completeness = "INCOMPLETE";
+    if (!issueCodes.includes("NORMALIZATION_ADJUSTED")) issueCodes.push("NORMALIZATION_ADJUSTED");
+  }
+  issueCodes.splice(30);
+  return {
+    id: String(source.id || `performance-${date}-${index}`).slice(0, IMPORT_STRING_LIMITS.id),
+    date,
+    capturedAt,
+    cutoff: String(source.cutoff || PERFORMANCE_CUTOFF).trim().toUpperCase() === PERFORMANCE_CUTOFF
+      ? PERFORMANCE_CUTOFF
+      : PERFORMANCE_CUTOFF,
+    source: String(source.source || "AUTOMATIC_PRICE_CLOSE").trim().toUpperCase().slice(0, 80),
+    snapshotId: String(source.snapshotId || "").slice(0, IMPORT_STRING_LIMITS.id),
+    navKRW: boundedPerformanceNumber(source.navKRW, 0, { nonNegative: true }),
+    marketValueKRW: boundedPerformanceNumber(source.marketValueKRW, 0, { nonNegative: true }),
+    cashKRW: boundedPerformanceNumber(source.cashKRW),
+    manualValueKRW: boundedPerformanceNumber(source.manualValueKRW, 0, { nonNegative: true }),
+    unsettledKRW: boundedPerformanceNumber(source.unsettledKRW),
+    usMarketValueNative: boundedPerformanceNumber(source.usMarketValueNative, 0, { nonNegative: true }),
+    usMarketValueKRW: boundedPerformanceNumber(source.usMarketValueKRW, 0, { nonNegative: true }),
+    usdKrw: boundedPerformanceNumber(source.usdKrw, 0, { nonNegative: true }),
+    usdKrwDate: normalizeDateKey(source.usdKrwDate),
+    typeTotals,
+    cumulative,
+    benchmarkLevels,
+    priceBasis: String(source.priceBasis || "").trim().toUpperCase().slice(0, 80),
+    distributionTreatment: String(source.distributionTreatment || "").trim().toUpperCase().slice(0, 80),
+    ledgerAsOfFingerprint: String(source.ledgerAsOfFingerprint || "").slice(0, IMPORT_STRING_LIMITS.short),
+    priceFingerprint: String(source.priceFingerprint || "").slice(0, IMPORT_STRING_LIMITS.short),
+    markFingerprint: String(source.markFingerprint || "").slice(0, IMPORT_STRING_LIMITS.short),
+    completeness,
+    issueCodes
+  };
+}
+
 function reportStorageFailure(message) {
   if (!els?.appNotice) return;
   els.appNotice.hidden = false;
@@ -1076,6 +1514,7 @@ async function initPrices() {
     activePriceFileUrl = loaded.url;
     symbolsLoaded = !priceBook.symbolFile;
     applyPricesToAssets();
+    refreshPerformanceObservation({ source: "AUTOMATIC_PRICE_CLOSE" });
     setPriceStatus(priceBook.generatedAt ? `가격 ${compactDateTime(priceBook.generatedAt)}` : "가격 완료", true);
     render(false);
   } catch (error) {
@@ -1255,16 +1694,19 @@ async function initFirebase() {
 
 async function completeCloudSignIn(user) {
   if (cloud.user?.uid === user?.uid && cloud.docRef) return;
-
-  if (cloud.docRef && (cloudPushPending || cloudPushInFlight)) {
+  const generation = cloud.authGeneration + 1;
+  cloud.authGeneration = generation;
+  pendingCloudConflictFinish?.("later");
+  cancelCloudPush();
+  if (cloudWriteInFlight) {
     try {
-      await flushCloudPush();
+      await cloudWriteInFlight;
     } catch (error) {
       console.error(error);
     }
   }
+  if (generation !== cloud.authGeneration) return;
   persist();
-  cancelCloudPush();
   cloud.user = user;
   cloud.docRef = null;
   cloud.lastPushedFingerprint = null;
@@ -1274,6 +1716,7 @@ async function completeCloudSignIn(user) {
   cloud.schemaBlockSource = null;
   cloud.schemaBlockVersion = null;
   activeStorageKey = storageKeyForUser(user);
+  switchAnalysisStores();
   const localLoad = loadState(activeStorageKey);
   storageWritesBlocked = !localLoad.ok;
   protectedStorageRaw = localLoad.ok ? null : localLoad.raw;
@@ -1291,7 +1734,24 @@ async function completeCloudSignIn(user) {
     updateAuthUi();
     return;
   }
-  await pullCloudData();
+  await pullCloudData({ context: captureCloudContext() });
+}
+
+function captureCloudContext() {
+  return {
+    generation: cloud.authGeneration,
+    uid: cloud.user?.uid || null,
+    docRef: cloud.docRef,
+    storageKey: activeStorageKey
+  };
+}
+
+function cloudContextIsCurrent(context) {
+  return Boolean(context)
+    && context.generation === cloud.authGeneration
+    && context.uid === (cloud.user?.uid || null)
+    && context.docRef === cloud.docRef
+    && context.storageKey === activeStorageKey;
 }
 
 function cloudEventRef(eventId, ledgerId = state.ledgerMeta?.activeLedgerId) {
@@ -1299,9 +1759,9 @@ function cloudEventRef(eventId, ledgerId = state.ledgerMeta?.activeLedgerId) {
   return cloud.doc(cloud.db, "users", cloud.user.uid, "financeData", CLOUD_DOC_ID, "ledgers", ledgerId, "events", eventId);
 }
 
-function cloudLedgerCollectionRef(ledgerId) {
-  if (!cloud.docRef || !cloud.collection || !ledgerId) return null;
-  return cloud.collection(cloud.db, "users", cloud.user.uid, "financeData", CLOUD_DOC_ID, "ledgers", ledgerId, "events");
+function cloudLedgerCollectionRef(ledgerId, userUid = cloud.user?.uid) {
+  if (!cloud.collection || !ledgerId || !userUid) return null;
+  return cloud.collection(cloud.db, "users", userUid, "financeData", CLOUD_DOC_ID, "ledgers", ledgerId, "events");
 }
 
 function cloudBackupRef(backupId) {
@@ -1328,13 +1788,19 @@ function cloudRemoteBackup(snapshot, remoteRevision, { forcedOverwrite = false }
   };
 }
 
-async function pullCloudEvents(cloudData) {
+function assertCloudContextCurrent(context) {
+  if (cloudContextIsCurrent(context)) return;
+  throw createCloudSyncError("assettrail/cloud-context-changed", "로그인 사용자가 바뀌어 이전 클라우드 작업을 취소했습니다.");
+}
+
+async function pullCloudEvents(cloudData, context) {
+  assertCloudContextCurrent(context);
   const ledgerId = String(cloudData?.ledgerMeta?.activeLedgerId || "");
   if (!ledgerId) {
     const events = Array.isArray(cloudData?.events) ? cloudData.events.map(normalizeLedgerEvent) : [];
     return { events, complete: true };
   }
-  const collectionRef = cloudLedgerCollectionRef(ledgerId);
+  const collectionRef = cloudLedgerCollectionRef(ledgerId, context.uid);
   const expectedCount = Number(cloudData?.ledgerMeta?.eventCount || 0);
   if (!collectionRef || typeof cloud.getDocs !== "function") {
     if (expectedCount === 0) {
@@ -1346,6 +1812,7 @@ async function pullCloudEvents(cloudData) {
     );
   }
   const snapshot = await cloud.getDocs(collectionRef);
+  assertCloudContextCurrent(context);
   const events = [];
   snapshot.forEach((documentSnapshot) => {
     events.push(normalizeLedgerEvent({
@@ -1369,9 +1836,11 @@ function cloudLedgerHead(data) {
   });
 }
 
-async function readCloudStateConsistently(maxAttempts = 3) {
+async function readCloudStateConsistently(context, maxAttempts = 3) {
+  assertCloudContextCurrent(context);
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const firstSnapshot = await cloud.getDoc(cloud.docRef);
+    const firstSnapshot = await cloud.getDoc(context.docRef);
+    assertCloudContextCurrent(context);
     if (!firstSnapshot.exists()) return { snapshot: firstSnapshot, data: null };
     const firstData = firstSnapshot.data();
     try {
@@ -1384,8 +1853,9 @@ async function readCloudStateConsistently(maxAttempts = 3) {
       error.schemaVersion = firstData?.schemaVersion;
       throw error;
     }
-    const pulled = await pullCloudEvents(firstData);
-    const secondSnapshot = await cloud.getDoc(cloud.docRef);
+    const pulled = await pullCloudEvents(firstData, context);
+    const secondSnapshot = await cloud.getDoc(context.docRef);
+    assertCloudContextCurrent(context);
     if (secondSnapshot.exists() && cloudLedgerHead(firstData) === cloudLedgerHead(secondSnapshot.data())) {
       if (!pulled.complete) {
         throw createCloudSyncError(
@@ -1395,6 +1865,7 @@ async function readCloudStateConsistently(maxAttempts = 3) {
       }
       const data = { ...secondSnapshot.data() };
       if (data.ledgerMeta?.activeLedgerId || Array.isArray(data.events)) data.events = pulled.events;
+      assertCloudContextCurrent(context);
       cloud.knownEventIds = new Set(pulled.events.map((event) => event.eventId));
       return { snapshot: secondSnapshot, data };
     }
@@ -1459,7 +1930,7 @@ function updateAuthUi() {
 }
 
 function cloudConflictRecordCount(data) {
-  return ["decisionProfiles", "watchlist", "snapshots", "realizedTrades", "tradeJournalEntries", "events", "retirementScenarios"]
+  return ["decisionProfiles", "watchlist", "snapshots", "performanceObservations", "realizedTrades", "tradeJournalEntries", "events", "retirementScenarios"]
     .reduce((sum, key) => sum + (Array.isArray(data?.[key]) ? data[key].length : 0), 0);
 }
 
@@ -1470,6 +1941,8 @@ function cloudConflictMetaText(data, { remote = false } = {}) {
   const assetCount = Array.isArray(data?.assets) ? data.assets.length : 0;
   return `${formatDate(savedAt)} · 자산 ${assetCount.toLocaleString("ko-KR")}개 · 기록 ${cloudConflictRecordCount(data).toLocaleString("ko-KR")}개`;
 }
+
+let pendingCloudConflictFinish = null;
 
 async function chooseCloudConflict(cloudData) {
   const localData = storageSafeState();
@@ -1506,6 +1979,7 @@ async function chooseCloudConflict(cloudData) {
       if (previousFocus?.isConnected && typeof previousFocus.focus === "function") {
         previousFocus.focus({ preventScroll: true });
       }
+      if (pendingCloudConflictFinish === finish) pendingCloudConflictFinish = null;
       resolve(choice);
     };
     const handleClick = (event) => {
@@ -1523,6 +1997,7 @@ async function chooseCloudConflict(cloudData) {
     els.app?.setAttribute("inert", "");
     if (typeof dialog.showModal === "function") dialog.showModal();
     else dialog.setAttribute("open", "");
+    pendingCloudConflictFinish = finish;
     dialog.querySelector('[data-cloud-conflict-choice="download"]')?.focus();
   });
 }
@@ -1532,8 +2007,9 @@ function backupBeforeCloudConflictResolution() {
   return downloadStateFile(storageSafeState(), `assettrail-before-cloud-sync-${timestamp}.json`);
 }
 
-async function pullCloudData() {
-  if (!cloud.docRef) return false;
+async function pullCloudData(options = {}) {
+  const context = options.context || captureCloudContext();
+  if (!cloudContextIsCurrent(context) || !context.docRef) return false;
   if (storageWritesBlocked) {
     setCloudSchemaBlock("local");
     return false;
@@ -1541,14 +2017,17 @@ async function pullCloudData() {
   setSyncStatus("클라우드 확인중", true);
   let cloudRead;
   try {
-    cloudRead = await readCloudStateConsistently();
+    cloudRead = await readCloudStateConsistently(context);
   } catch (error) {
+    if (error?.code === "assettrail/cloud-context-changed") return false;
     if (error?.code === "assettrail/cloud-schema-unsupported") {
+      if (!cloudContextIsCurrent(context)) return false;
       setCloudSchemaBlock("remote", error.schemaVersion);
       return false;
     }
     throw error;
   }
+  if (!cloudContextIsCurrent(context)) return false;
   const { snapshot, data: consistentCloudData } = cloudRead;
   if (snapshot.exists()) {
     const cloudData = consistentCloudData;
@@ -1566,6 +2045,7 @@ async function pullCloudData() {
       setSyncStatus("동기화 선택 필요");
       setSyncDetail("클라우드와 이 기기 중 사용할 데이터를 선택하세요.");
       const choice = await chooseCloudConflict(cloudData);
+      if (!cloudContextIsCurrent(context)) return false;
       if (choice === "later") {
         cloud.conflictPending = true;
         cancelCloudPush();
@@ -1582,11 +2062,14 @@ async function pullCloudData() {
       if (choice === "upload") {
         rotateLedgerGeneration();
         await pushCloudData("upload", {
-          expectedRemoteRevision: normalizeRevision(cloudData.revision ?? cloudData.meta?.cloudRevision)
+          expectedRemoteRevision: normalizeRevision(cloudData.revision ?? cloudData.meta?.cloudRevision),
+          context
         });
+        if (!cloudContextIsCurrent(context)) return false;
         return true;
       }
     }
+    if (!cloudContextIsCurrent(context)) return false;
     replaceState(cloudData);
     cloud.conflictPending = false;
     storageWritesBlocked = false;
@@ -1595,12 +2078,13 @@ async function pullCloudData() {
     render(false);
     if (remoteSchemaVersion < STATE_SCHEMA_VERSION) {
       try {
-        await pushCloudData("upload", { expectedRemoteRevision: remoteRevision });
+        await pushCloudData("upload", { expectedRemoteRevision: remoteRevision, context });
+        if (!cloudContextIsCurrent(context)) return false;
       } catch (error) {
         console.error(error);
         setSyncStatus("원장 이전 실패");
-        setSyncDetail("로컬 v5 데이터는 보존했지만 클라우드 원장 승격에 실패했습니다. 다시 동기화하세요.");
-        reportStorageFailure("클라우드 구버전 백업·원장 승격을 완료하지 못했습니다. 이 기기의 v5 데이터는 보존했습니다.");
+        setSyncDetail(`로컬 v${STATE_SCHEMA_VERSION} 데이터는 보존했지만 클라우드 원장 승격에 실패했습니다. 다시 동기화하세요.`);
+        reportStorageFailure(`클라우드 구버전 백업·원장 승격을 완료하지 못했습니다. 이 기기의 v${STATE_SCHEMA_VERSION} 데이터는 보존했습니다.`);
         updateAuthUi();
         return false;
       }
@@ -1611,20 +2095,43 @@ async function pullCloudData() {
     state.meta.cloudUpdatedAt = null;
     state.meta.cloudRevision = 0;
     if (localHasUserData()) {
-      await pushCloudData("upload", { expectedRemoteRevision: 0 });
+      await pushCloudData("upload", { expectedRemoteRevision: 0, context });
+      if (!cloudContextIsCurrent(context)) return false;
     } else {
+      if (!cloudContextIsCurrent(context)) return false;
       replaceState(defaultState());
       state.meta.lastSyncDirection = "local";
       persist();
       render(false);
     }
   }
+  if (!cloudContextIsCurrent(context)) return false;
   updateAuthUi();
   return true;
 }
 
 async function pushCloudData(direction = "save", options = {}) {
-  if (!cloud.docRef || storageWritesBlocked || cloud.schemaBlocked) {
+  const context = options.context || captureCloudContext();
+  while (cloudWriteInFlight) {
+    const pendingWrite = cloudWriteInFlight;
+    try {
+      await pendingWrite;
+    } catch {}
+    if (!cloudContextIsCurrent(context)) return false;
+  }
+  if (!cloudContextIsCurrent(context)) return false;
+  const operation = pushCloudDataForContext(direction, { ...options, context });
+  cloudWriteInFlight = operation;
+  try {
+    return await operation;
+  } finally {
+    if (cloudWriteInFlight === operation) cloudWriteInFlight = null;
+  }
+}
+
+async function pushCloudDataForContext(direction = "save", options = {}) {
+  const context = options.context || captureCloudContext();
+  if (!cloudContextIsCurrent(context) || !context.docRef || storageWritesBlocked || cloud.schemaBlocked) {
     updateAuthUi();
     return false;
   }
@@ -1636,6 +2143,7 @@ async function pushCloudData(direction = "save", options = {}) {
   setSyncStatus("클라우드 저장중", true);
   try {
     const payload = await writeCloudState(options);
+    if (!cloudContextIsCurrent(context)) return false;
     cloud.lastPushedFingerprint = dataFingerprint(storageSafeState());
     cloud.lastErrorCode = null;
     state.meta.cloudUpdatedAt = payload.updatedAt;
@@ -1647,6 +2155,7 @@ async function pushCloudData(direction = "save", options = {}) {
     updateAuthUi();
     return true;
   } catch (error) {
+    if (!cloudContextIsCurrent(context) || error?.code === "assettrail/cloud-context-changed") return false;
     exposeCloudSyncError(error);
     throw error;
   }
@@ -1844,6 +2353,7 @@ function scheduleCloudPush() {
 }
 
 async function flushCloudPush() {
+  const context = captureCloudContext();
   if (cloudPushTimer !== null) {
     window.clearTimeout(cloudPushTimer);
     cloudPushTimer = null;
@@ -1860,6 +2370,7 @@ async function flushCloudPush() {
       } catch (error) {
         console.error(error);
       }
+      if (!cloudContextIsCurrent(context)) return;
       continue;
     }
     if (!cloudPushPending) return;
@@ -1879,9 +2390,10 @@ async function flushCloudPush() {
     } finally {
       if (cloudPushInFlight === activePush) cloudPushInFlight = null;
     }
+    if (!cloudContextIsCurrent(context)) return;
     if (cloud.conflictPending) {
       try {
-        await pullCloudData();
+        await pullCloudData({ context });
       } catch (error) {
         console.error(error);
       }
@@ -1946,6 +2458,7 @@ function localHasUserData() {
     || state.tradeJournalEntries.length
     || state.events.length
     || state.snapshots.length
+    || state.performanceObservations.length
     || state.retirementScenarios.length
     || JSON.stringify(state.portfolioTargets) !== JSON.stringify(defaults.portfolioTargets)
     || JSON.stringify(state.policyProfile) !== JSON.stringify(defaults.policyProfile)
@@ -1964,6 +2477,7 @@ function dataFingerprint(data) {
     events: (data.events || []).map(normalizeLedgerEvent).sort(compareLedgerEventIds),
     ledgerMeta: normalizeLedgerMeta(data.ledgerMeta),
     snapshots: (data.snapshots || []).map(normalizeSnapshot),
+    performanceObservations: (data.performanceObservations || []).map(normalizePerformanceObservation),
     portfolioTargets: normalizePortfolioTargets(data.portfolioTargets),
     policyProfile: normalizePolicyProfile(data.policyProfile, data.portfolioTargets),
     contributionPlan: normalizeContributionPlan(data.contributionPlan),
@@ -2556,6 +3070,18 @@ function validateTicker(type, ticker) {
 
 function normalizePriceBook(data) {
   const nextBook = {
+    benchmarks: normalizeBenchmarks(data?.benchmarks),
+    dataPolicy: {
+      distributionTreatment: String(
+        data?.methodology?.distributionTreatment
+          || data?.dataPolicy?.distributionTreatment
+          || data?.distributionTreatment
+          || ""
+      ).trim().toUpperCase() || null,
+      priceBasis: String(
+        data?.methodology?.priceBasis || data?.dataPolicy?.priceBasis || data?.priceBasis || ""
+      ).trim().toUpperCase() || null
+    },
     errors: Array.isArray(data?.errors) ? data.errors : [],
     fx: normalizeFx(data?.fx),
     generatedAt: data?.generatedAt || data?.updatedAt || data?.date || null,
@@ -2587,6 +3113,32 @@ function normalizePriceBook(data) {
   }
 
   return nextBook;
+}
+
+function normalizeBenchmarks(value) {
+  if (!isPlainObject(value)) return {};
+  const result = {};
+  ["KOSPI", "SP500"].forEach((key) => {
+    const source = isPlainObject(value[key]) ? value[key] : {};
+    const level = Number(source.level ?? source.close ?? source.value);
+    const date = normalizeDateKey(source.date || source.asOf);
+    if (!(level > 0) || !date) return;
+    const currency = String(source.quoteCurrency || source.currency || "").trim().toUpperCase();
+    const returnType = typeof source.totalReturn === "boolean"
+      ? source.totalReturn ? "TOTAL_RETURN" : "PRICE_ONLY"
+      : String(source.returnType || "UNKNOWN").trim().toUpperCase();
+    result[key] = {
+      level,
+      date,
+      currency,
+      returnType,
+      source: String(source.source || "").trim(),
+      priceBasis: String(source.priceBasis || "").trim().toUpperCase(),
+      distributionTreatment: String(source.distributionTreatment || "").trim().toUpperCase(),
+      levelUnit: String(source.levelUnit || "").trim().toUpperCase()
+    };
+  });
+  return result;
 }
 
 function normalizeFx(fx) {
@@ -3253,6 +3805,1067 @@ function formatRetirementMoneyInput(input) {
   input.value = formatIntegerNumber(parseAmount(input.value));
 }
 
+const EXTERNAL_METRIC_LABELS = {
+  REVENUE: "매출액",
+  OPERATING_INCOME: "영업이익",
+  NET_INCOME: "순이익",
+  TOTAL_ASSETS: "자산총계",
+  TOTAL_LIABILITIES: "부채총계",
+  TOTAL_EQUITY: "자본총계",
+  OPERATING_CASH_FLOW: "영업현금흐름",
+  CAPEX: "CAPEX",
+  FREE_CASH_FLOW: "FCF"
+};
+
+const EXTERNAL_PERIOD_LABELS = {
+  TTM: "4분기 누적",
+  QUARTER: "분기",
+  ANNUAL: "연도"
+};
+
+function analysisInstrumentOptions() {
+  const unique = new Map();
+  state.assets.filter((asset) => isMarketType(assetType(asset))).forEach((asset) => {
+    const type = assetType(asset);
+    const ticker = normalizeTicker(type, asset.ticker);
+    const key = `INSTRUMENT:${type}:${ticker}`;
+    if (!unique.has(key)) unique.set(key, { key, type, ticker, name: asset.name || ticker, held: true });
+  });
+  state.watchlist.forEach((item) => {
+    const type = ["KRX", "US"].includes(String(item?.type || "").toUpperCase())
+      ? String(item.type).toUpperCase()
+      : "KRX";
+    const ticker = normalizeTicker(type, item.ticker);
+    const key = `INSTRUMENT:${type}:${ticker}`;
+    if (!unique.has(key)) unique.set(key, { key, type, ticker, name: item.name || ticker, held: false });
+  });
+  return [...unique.values()].sort((left, right) => (
+    Number(right.held) - Number(left.held)
+    || KO_COLLATOR.compare(left.name, right.name)
+    || left.key.localeCompare(right.key)
+  ));
+}
+
+function renderButlerInstrumentOptions() {
+  if (!els.butlerAssetSelect) return;
+  const current = els.butlerAssetSelect.value;
+  const options = analysisInstrumentOptions();
+  els.butlerAssetSelect.innerHTML = `<option value="">종목 선택</option>${options.map((item) => `
+    <option value="${escapeHtml(item.key)}">${escapeHtml(item.name)} · ${escapeHtml(item.type)} ${escapeHtml(item.ticker)}${item.held ? " · 보유" : " · 관심"}</option>
+  `).join("")}`;
+  if (options.some((item) => item.key === current)) els.butlerAssetSelect.value = current;
+}
+
+function selectedButlerInstrument() {
+  const key = String(els.butlerAssetSelect?.value || "");
+  return analysisInstrumentOptions().find((item) => item.key === key) || null;
+}
+
+function formatExternalValue(value, currency) {
+  if (!Number.isFinite(Number(value))) return "—";
+  if (currency === "KRW") return money(Number(value));
+  if (currency === "USD") return USD_FORMATTER.format(Number(value));
+  return `${new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 2 }).format(Number(value))} ${currency || ""}`.trim();
+}
+
+function externalMetricCards(summary, limit = 6) {
+  const metrics = Object.entries(summary?.metrics || {})
+    .filter(([, metric]) => metric?.latestActual)
+    .slice(0, limit);
+  if (!metrics.length) return `<p class="decision-empty">표시할 확정 실적이 없습니다.</p>`;
+  return `<div class="external-metric-grid">${metrics.map(([key, metric]) => {
+    const fact = metric.latestActual;
+    const change = Number(metric.actualChangeRate);
+    const changeText = Number.isFinite(change) ? `${change >= 0 ? "+" : ""}${percent(change)}` : "비교 기간 없음";
+    return `<article class="external-metric">
+      <span>${escapeHtml(EXTERNAL_METRIC_LABELS[key] || key)} · ${escapeHtml(fact.periodEnd)}</span>
+      <strong>${escapeHtml(formatExternalValue(fact.value, fact.currency))}</strong>
+      <small class="${Number.isFinite(change) ? change > 0 ? "positive" : change < 0 ? "negative" : "" : ""}">${escapeHtml(changeText)}</small>
+    </article>`;
+  }).join("")}</div>`;
+}
+
+function renderButlerPreview() {
+  if (!els.butlerImportPreview) return;
+  if (!butlerDataPreview?.ok || !butlerDataPreview.snapshot) {
+    els.butlerImportPreview.innerHTML = `<p class="decision-empty">표를 붙여넣으면 기간·지표·누락값과 저장될 정규화 데이터만 미리 보여줍니다.</p>`;
+    if (els.saveButlerImportBtn) els.saveButlerImportBtn.disabled = true;
+    return;
+  }
+  const snapshot = butlerDataPreview.snapshot;
+  const summaryResult = window.AssetTrailExternalDataEngine?.summarizeCompanyFacts(snapshot);
+  const summary = summaryResult?.ok ? summaryResult.summary : null;
+  const warnings = (butlerDataPreview.diagnostics || []).filter((item) => item.severity !== "info");
+  els.butlerImportPreview.innerHTML = `<article class="external-preview-card">
+    <div class="external-preview-head">
+      <div><strong>${escapeHtml(snapshot.entity.name)}</strong><p>${escapeHtml(snapshot.entity.market)} ${escapeHtml(snapshot.entity.ticker)} · ${escapeHtml(EXTERNAL_PERIOD_LABELS[snapshot.periodType] || snapshot.periodType)}</p></div>
+      <span class="analysis-status-chip status-${String(snapshot.quality.coverage || "partial").toLowerCase()}">${escapeHtml(snapshot.quality.coverage === "COMPLETE" ? "완전" : "부분")}</span>
+    </div>
+    ${externalMetricCards(summary)}
+    <ul class="external-data-meta">
+      <li>기간 ${snapshot.quality.periodCount.toLocaleString("ko-KR")}개 · 사실 ${snapshot.quality.factCount.toLocaleString("ko-KR")}개 · 통화 ${escapeHtml(snapshot.entity.currency)}</li>
+      <li>누락 셀 ${snapshot.quality.missingCellCount.toLocaleString("ko-KR")}개 · 미지원 지표 행 ${snapshot.quality.unknownMetricRowCount.toLocaleString("ko-KR")}개</li>
+      <li>Butler 사용자 복사본 · 2차 집계 출처 · 조회 ${escapeHtml(formatDate(snapshot.source.retrievedAt))}</li>
+      <li>내용 변경 감지 ${escapeHtml(snapshot.contentDigest)} · 출처 진위의 독립 감사 증명은 아님</li>
+      ${warnings.map((item) => `<li>${escapeHtml(item.message)}</li>`).join("")}
+    </ul>
+  </article>`;
+  if (els.saveButlerImportBtn) els.saveButlerImportBtn.disabled = false;
+}
+
+function renderExternalCompanyList() {
+  if (!els.externalCompanyList) return;
+  const engine = window.AssetTrailExternalDataEngine;
+  const snapshots = [...(externalDataStore.snapshots || [])].sort((left, right) => (
+    String(right.source?.retrievedAt || "").localeCompare(String(left.source?.retrievedAt || ""))
+    || String(left.snapshotId || "").localeCompare(String(right.snapshotId || ""))
+  ));
+  if (!snapshots.length) {
+    els.externalCompanyList.innerHTML = `<p class="decision-empty">저장된 기업 실적이 없습니다. Butler 원문은 저장하지 않고 검증된 수치와 출처 metadata만 이 브라우저의 현재 사용자 영역에 보관합니다.</p>`;
+    return;
+  }
+  els.externalCompanyList.innerHTML = snapshots.map((snapshot) => {
+    const summaryResult = engine?.summarizeCompanyFacts(snapshot);
+    const summary = summaryResult?.ok ? summaryResult.summary : null;
+    const safeUrl = /^https:\/\/www\.butler\.works\//.test(snapshot.source?.url || "") ? snapshot.source.url : "https://www.butler.works/ko/home";
+    const actualAsOf = (snapshot.facts || []).filter((fact) => fact.valueType === "ACTUAL")
+      .map((fact) => fact.periodEnd).sort().at(-1) || "";
+    const actualAge = actualAsOf ? calendarDaysSince(actualAsOf) : Number.POSITIVE_INFINITY;
+    const staleAfterDays = EXTERNAL_ACTUAL_STALE_DAYS[snapshot.periodType] || 180;
+    const freshnessLabel = !actualAsOf ? "확정치 없음" : actualAge > staleAfterDays ? "오래됨" : "확정치 기준";
+    return `<article class="external-company-card">
+      <div class="external-company-head">
+        <div><strong>${escapeHtml(snapshot.entity.name)}</strong><p>${escapeHtml(snapshot.entity.market)} ${escapeHtml(snapshot.entity.ticker)} · ${escapeHtml(EXTERNAL_PERIOD_LABELS[snapshot.periodType] || snapshot.periodType)} · revision ${Number(snapshot.revision || 1)}</p></div>
+        <span>${escapeHtml(actualAsOf || summary?.asOf || "기준일 없음")} · ${escapeHtml(freshnessLabel)}</span>
+      </div>
+      ${externalMetricCards(summary, 4)}
+      <ul class="external-data-meta">
+        <li><a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">Butler 원문 페이지 확인</a></li>
+        <li>${escapeHtml(snapshot.source.authority)} · ${escapeHtml(snapshot.source.acquisitionMethod)} · 조회 ${escapeHtml(formatDate(snapshot.source.retrievedAt))}</li>
+        <li>${escapeHtml(snapshot.quality.coverage)} · 사실 ${Number(snapshot.quality.factCount || 0).toLocaleString("ko-KR")}개</li>
+      </ul>
+      <div class="analysis-form-actions"><button class="ghost-button" type="button" data-remove-external-snapshot="${escapeHtml(snapshot.snapshotId)}">이 스냅샷 삭제</button></div>
+    </article>`;
+  }).join("");
+}
+
+function removeExternalSnapshot(snapshotId) {
+  const snapshot = externalDataStore.snapshots.find((item) => item.snapshotId === snapshotId);
+  if (!snapshot) throw new Error("삭제할 외부 데이터 스냅샷을 찾지 못했습니다.");
+  if (!confirm(`${snapshot.entity?.name || "선택한 기업"}의 ${snapshot.periodType || "외부"} 스냅샷을 삭제할까요?`)) return false;
+  if (!downloadAnalysisStore("external")) throw new Error("삭제 전 외부 데이터 백업에 실패했습니다.");
+  persistExternalDataStore({
+    schemaVersion: EXTERNAL_DATA_STORE_SCHEMA,
+    snapshots: externalDataStore.snapshots.filter((item) => item.snapshotId !== snapshotId),
+    updatedAt: new Date().toISOString()
+  });
+  renderExternalData();
+  refreshAnalysisEvidence();
+  return true;
+}
+
+async function importExternalDataBackupFile(file) {
+  if (!file) return false;
+  if (file.size > EXTERNAL_DATA_STORE_MAX_BYTES) throw new Error("외부 데이터 백업은 750KB 이하여야 합니다.");
+  const startKey = externalDataStorageKey();
+  const readToken = ++externalDataReadToken;
+  const text = await file.text();
+  if (readToken !== externalDataReadToken || startKey !== externalDataStorageKey()) {
+    throw new Error("사용자 데이터 영역이 바뀌어 외부 데이터 가져오기를 취소했습니다.");
+  }
+  if (serializedByteLength(text) > EXTERNAL_DATA_STORE_MAX_BYTES) throw new Error("외부 데이터 백업은 750KB 이하여야 합니다.");
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("외부 데이터 백업 JSON이 올바르지 않습니다.");
+  }
+  if (!isPlainObject(parsed) || parsed.schemaVersion !== EXTERNAL_DATA_STORE_SCHEMA || !Array.isArray(parsed.snapshots)) {
+    throw new Error("AssetTrail 외부 데이터 백업 형식이 아닙니다.");
+  }
+  if (parsed.snapshots.length > EXTERNAL_DATA_SNAPSHOT_LIMIT) {
+    throw new Error(`외부 데이터 백업은 최대 ${EXTERNAL_DATA_SNAPSHOT_LIMIT}개 스냅샷까지 가져올 수 있습니다.`);
+  }
+  const engine = window.AssetTrailExternalDataEngine;
+  const snapshots = parsed.snapshots.map((snapshot) => {
+    const validation = engine?.validateExternalSnapshot?.(snapshot);
+    if (!validation?.ok || !validation.snapshot) throw new Error("백업에 검증되지 않은 외부 데이터가 있습니다.");
+    return validation.snapshot;
+  });
+  if (!confirm(`검증된 외부 데이터 ${snapshots.length.toLocaleString("ko-KR")}개로 현재 외부 데이터 저장소를 교체할까요?`)) return false;
+  const liveRaw = localStorage.getItem(startKey);
+  if (liveRaw && !downloadAnalysisStore("external")) throw new Error("교체 전 기존 외부 데이터 백업에 실패했습니다.");
+  if (readToken !== externalDataReadToken || startKey !== externalDataStorageKey()) {
+    throw new Error("사용자 데이터 영역이 바뀌어 외부 데이터 가져오기를 취소했습니다.");
+  }
+  const previousIssue = analysisStorageIssues.external;
+  analysisStorageIssues.external = null;
+  analysisStorageRevisions.external = liveRaw;
+  try {
+    persistExternalDataStore({
+      schemaVersion: EXTERNAL_DATA_STORE_SCHEMA,
+      snapshots,
+      updatedAt: normalizeStoredDate(parsed.updatedAt) || new Date().toISOString()
+    });
+  } catch (error) {
+    analysisStorageIssues.external = previousIssue;
+    analysisStorageRevisions.external = liveRaw;
+    throw error;
+  }
+  renderExternalData();
+  refreshAnalysisEvidence();
+  return true;
+}
+
+function previewButlerImport() {
+  const engine = window.AssetTrailExternalDataEngine;
+  const instrument = selectedButlerInstrument();
+  if (!engine?.parseButlerClipboard) throw new Error("외부 데이터 엔진을 불러오지 못했습니다.");
+  if (!instrument) throw new Error("연결할 보유 또는 관심 종목을 선택하세요.");
+  const text = String(els.butlerClipboardText?.value || "");
+  const result = engine.parseButlerClipboard(text, {
+    market: instrument.type,
+    ticker: instrument.ticker,
+    entityName: instrument.name,
+    currency: String(els.butlerCurrency?.value || (instrument.type === "US" ? "USD" : "KRW")),
+    sourceUrl: String(els.butlerSourceUrl?.value || ""),
+    retrievedAt: new Date().toISOString()
+  });
+  butlerDataPreview = result?.ok ? result : null;
+  if (!result?.ok) {
+    const message = result?.diagnostics?.find((item) => item.severity === "error")?.message || "Butler 표를 해석하지 못했습니다.";
+    throw new Error(message);
+  }
+  if (els.butlerImportStatus) {
+    els.butlerImportStatus.textContent = `미리보기 완료 · ${result.summary.periodCount.toLocaleString("ko-KR")}개 기간 · ${result.summary.factCount.toLocaleString("ko-KR")}개 수치. 아직 저장되지 않았습니다.`;
+  }
+  renderButlerPreview();
+  return result;
+}
+
+function saveButlerPreview() {
+  if (!butlerDataPreview?.ok || !butlerDataPreview.snapshot) throw new Error("먼저 Butler 표 미리보기를 완료하세요.");
+  const engine = window.AssetTrailExternalDataEngine;
+  const merged = engine?.mergeSnapshots(externalDataStore.snapshots || [], butlerDataPreview.snapshot);
+  if (!merged?.ok) {
+    const message = merged?.diagnostics?.find((item) => item.severity === "error")?.message || "같은 시각의 상충 데이터가 있어 저장하지 않았습니다.";
+    throw new Error(message);
+  }
+  persistExternalDataStore({
+    schemaVersion: EXTERNAL_DATA_STORE_SCHEMA,
+    snapshots: merged.snapshots,
+    updatedAt: new Date().toISOString()
+  });
+  butlerDataPreview = null;
+  if (els.butlerClipboardText) els.butlerClipboardText.value = "";
+  if (els.saveButlerImportBtn) els.saveButlerImportBtn.disabled = true;
+  if (els.butlerImportStatus) {
+    els.butlerImportStatus.textContent = merged.status === "DUPLICATE"
+      ? "같은 내용이 이미 있어 중복 저장하지 않았습니다. 원문은 메모리에서 제거했습니다."
+      : "정규화한 실적과 출처만 현재 사용자 브라우저에 저장했습니다. 원문은 메모리에서 제거했습니다.";
+  }
+  renderButlerPreview();
+  renderExternalCompanyList();
+  refreshAnalysisEvidence();
+  return true;
+}
+
+function renderExternalData() {
+  renderButlerInstrumentOptions();
+  renderButlerPreview();
+  renderExternalCompanyList();
+  if (analysisStorageIssues.external) {
+    if (els.saveButlerImportBtn) els.saveButlerImportBtn.disabled = true;
+    if (els.butlerImportStatus) {
+      els.butlerImportStatus.textContent = `${analysisStorageIssues.external.message} 원본을 덮어쓰지 않았습니다. ‘외부 데이터 백업’ 후 ‘외부 데이터 비우기’로 복구하세요.`;
+    }
+  }
+}
+
+const ETF_BUCKET_LABELS = {
+  CASH: "ETF 내부 현금·직접 현금",
+  OTHER: "기타 자산",
+  UNMAPPED: "식별자 미매핑",
+  UNREPORTED: "구성종목 미공개",
+  UNSUPPORTED: "미지원·구성 없음"
+};
+
+const AI_REPORT_SECTION_LABELS = {
+  ALLOCATION: "자산 배분",
+  EXPOSURE: "실질 노출",
+  PERFORMANCE: "성과",
+  RISK: "위험",
+  EXTERNAL_DATA: "외부 실적",
+  DATA_QUALITY: "데이터 품질"
+};
+
+function emptyEtfCatalog() {
+  return {
+    schemaVersion: "assettrail.etf-holdings.v1",
+    funds: []
+  };
+}
+
+function etfPortfolioPositions() {
+  return state.assets.map((asset) => {
+    const type = assetType(asset);
+    const valueKRW = assetValue(asset);
+    if (type === "CASH") return { bucket: "CASH", valueKRW, kind: "CASH" };
+    if (type === "MANUAL") return { bucket: "OTHER", valueKRW, kind: assetKind(asset) };
+    return {
+      market: type,
+      ticker: normalizeTicker(type, asset.ticker),
+      instrumentKind: assetKind(asset),
+      valueKRW
+    };
+  }).filter((position) => position.valueKRW > 0);
+}
+
+function etfValuationQuality() {
+  const missingAssets = state.assets.filter((asset) => (
+    isMarketType(assetType(asset))
+    && Number(asset.quantity || 0) > 0
+    && !assetHasUsableValuation(asset)
+  ));
+  const heldEtfAssets = state.assets.filter((asset) => (
+    ["ETF", "FUND", "ETN"].includes(assetKind(asset))
+    && isMarketType(assetType(asset))
+    && Number(asset.quantity || 0) > 0
+  ));
+  const valuedEtfAssets = heldEtfAssets.filter((asset) => assetHasUsableValuation(asset) && assetValue(asset) > 0);
+  return {
+    missingValuationCount: missingAssets.length,
+    missingEtfValuationCount: heldEtfAssets.length - valuedEtfAssets.length,
+    etfAssetCount: heldEtfAssets.length,
+    valuedEtfAssetCount: valuedEtfAssets.length
+  };
+}
+
+function heldEtfRootIds() {
+  return new Set(state.assets.filter((asset) => (
+    isMarketType(assetType(asset))
+    && ["ETF", "FUND", "ETN"].includes(assetKind(asset))
+    && assetValue(asset) > 0
+  )).map((asset) => `${assetType(asset)}:${normalizeTicker(assetType(asset), asset.ticker)}`));
+}
+
+function canonicalEtfCatalog(validation) {
+  return {
+    schemaVersion: validation.schemaVersion,
+    ...(validation.generatedAt ? { generatedAt: validation.generatedAt } : {}),
+    ...(validation.asOf ? { asOf: validation.asOf } : {}),
+    ...(validation.source ? { source: validation.source } : {}),
+    ...(validation.redistribution ? { redistribution: validation.redistribution } : {}),
+    funds: (validation.funds || []).map((fund) => ({
+      instrumentId: fund.instrumentId,
+      name: fund.name,
+      asOf: fund.asOf,
+      source: fund.source,
+      redistribution: fund.redistribution,
+      structure: fund.structure,
+      holdings: (fund.holdings || []).map((holding) => ({
+        ...(holding.instrumentId ? { instrumentId: holding.instrumentId } : { bucket: holding.bucket }),
+        ...(holding.instrumentKind ? { instrumentKind: holding.instrumentKind } : {}),
+        weight: holding.weight,
+        ...(holding.name ? { name: holding.name } : {})
+      }))
+    }))
+  };
+}
+
+function relevantEtfCatalogFreshness() {
+  const roots = heldEtfRootIds();
+  if (!roots.size) return { asOfDate: localDateInputValue(), state: "VERIFIED", ageDays: 0 };
+  const validation = window.AssetTrailEtfExposureEngine?.validateHoldingsCatalog?.(etfCatalog || emptyEtfCatalog());
+  if (!validation?.ok) return { asOfDate: null, state: "UNAVAILABLE", ageDays: null };
+  const funds = new Map(validation.funds.map((fund) => [fund.instrumentId, fund]));
+  const queue = [...roots];
+  const visited = new Set();
+  const dates = [];
+  while (queue.length) {
+    const instrumentId = queue.shift();
+    if (visited.has(instrumentId)) continue;
+    visited.add(instrumentId);
+    const fund = funds.get(instrumentId);
+    if (!fund) continue;
+    if (fund.asOf) dates.push(fund.asOf);
+    (fund.holdings || []).forEach((holding) => {
+      const holdingKind = String(holding.instrumentKind || "").toUpperCase();
+      const expandsNestedFund = ["ETF", "FUND", "ETN"].includes(holdingKind)
+        || (!holdingKind && funds.has(holding.instrumentId));
+      if (holding.instrumentId && expandsNestedFund && funds.has(holding.instrumentId) && !visited.has(holding.instrumentId)) {
+        queue.push(holding.instrumentId);
+      }
+    });
+  }
+  if (!dates.length) return { asOfDate: null, state: "LIMITED", ageDays: null };
+  const asOfDate = dates.sort()[0];
+  const today = localDateInputValue();
+  if (asOfDate > today) return { asOfDate, state: "LIMITED", ageDays: null };
+  const ageDays = Math.max(0, calendarDaysSince(asOfDate, today));
+  return {
+    asOfDate,
+    state: ageDays > ETF_HOLDINGS_STALE_DAYS ? "STALE" : "VERIFIED",
+    ageDays
+  };
+}
+
+function etfLookThroughTotals(analysis = etfAnalysis) {
+  const total = Number(analysis?.totalValueKRW || 0);
+  const roots = heldEtfRootIds();
+  const contributionValue = (row) => (row?.contributions || [])
+    .filter((entry) => roots.has(entry.rootInstrumentId))
+    .reduce((sum, entry) => sum + Number(entry.valueKRW || 0), 0);
+  let mappedLookThrough = (analysis?.exposures || []).reduce((sum, exposure) => (
+    sum + contributionValue(exposure)
+  ), 0);
+  const bucketByName = Object.fromEntries((analysis?.bucketExposures || []).map((bucket) => (
+    [bucket.bucket, contributionValue(bucket)]
+  )));
+  let opaqueLookThrough = ["UNMAPPED", "UNREPORTED", "UNSUPPORTED"]
+    .reduce((sum, key) => sum + Number(bucketByName[key] || 0), 0);
+  let cashOtherLookThrough = ["CASH", "OTHER"]
+    .reduce((sum, key) => sum + Number(bucketByName[key] || 0), 0);
+  const etfOriginTotal = state.assets.filter((asset) => (
+    isMarketType(assetType(asset))
+    && ["ETF", "FUND", "ETN"].includes(assetKind(asset))
+    && assetValue(asset) > 0
+  )).reduce((sum, asset) => sum + assetValue(asset), 0);
+  const contributionTotal = mappedLookThrough + opaqueLookThrough + cashOtherLookThrough;
+  const contributionDelta = etfOriginTotal - contributionTotal;
+  if (Math.abs(contributionDelta) <= 0.01 && contributionDelta !== 0) {
+    if (opaqueLookThrough > 0) opaqueLookThrough += contributionDelta;
+    else if (cashOtherLookThrough > 0) cashOtherLookThrough += contributionDelta;
+    else mappedLookThrough += contributionDelta;
+  }
+  const lookThroughTotal = etfOriginTotal;
+  const directOverlap = (analysis?.exposures || [])
+    .filter((exposure) => exposure.directValueKRW > 0)
+    .reduce((sum, exposure) => sum + contributionValue(exposure), 0);
+  return {
+    total,
+    mappedLookThrough,
+    opaqueLookThrough,
+    cashOtherLookThrough,
+    lookThroughTotal,
+    contributionDelta,
+    directOverlap
+  };
+}
+
+function analysisRate(value, total) {
+  return total > 0 ? value / total : 0;
+}
+
+function renderEtfCoverageSummary() {
+  if (!els.etfCoverageSummary) return;
+  const analysis = etfAnalysis;
+  if (!analysis) {
+    els.etfCoverageSummary.innerHTML = `<p class="decision-empty">ETF 룩스루 엔진을 불러오지 못했습니다.</p>`;
+    return;
+  }
+  const totals = etfLookThroughTotals(analysis);
+  const opaquePortfolio = Number(analysis.totals?.unmappedKRW || 0)
+    + Number(analysis.totals?.unreportedKRW || 0)
+    + Number(analysis.totals?.unsupportedKRW || 0);
+  const mappedEtfRate = analysisRate(totals.mappedLookThrough, totals.lookThroughTotal);
+  els.etfCoverageSummary.innerHTML = `<div class="etf-coverage-grid">
+    <article class="etf-coverage-item"><span>표준 종목으로 식별</span><strong>${escapeHtml(percent(analysisRate(Number(analysis.totals?.instrumentsKRW || 0), totals.total)))}</strong><small>${escapeHtml(money(Number(analysis.totals?.instrumentsKRW || 0)))}</small></article>
+    <article class="etf-coverage-item"><span>ETF 내부 매핑률</span><strong>${totals.lookThroughTotal > 0 ? escapeHtml(percent(mappedEtfRate)) : "해당 없음"}</strong><small>${totals.lookThroughTotal > 0 ? `ETF 원금 ${escapeHtml(money(totals.lookThroughTotal))} 중 종목 매핑 ${escapeHtml(money(totals.mappedLookThrough))}` : "평가된 ETF 보유 없음"}</small></article>
+    <article class="etf-coverage-item"><span>불투명·미지원</span><strong>${escapeHtml(percent(analysisRate(opaquePortfolio, totals.total)))}</strong><small>${escapeHtml(money(opaquePortfolio))}</small></article>
+    <article class="etf-coverage-item"><span>합계 보존</span><strong>${Math.abs(Number(analysis.invariantDeltaKRW || 0)) < 0.000001 ? "일치" : "검토 필요"}</strong><small>차이 ${escapeHtml(money(Number(analysis.invariantDeltaKRW || 0)))}</small></article>
+  </div>`;
+}
+
+function renderEtfExposureList() {
+  if (!els.etfExposureList) return;
+  const analysis = etfAnalysis;
+  if (!analysis?.totalValueKRW) {
+    els.etfExposureList.innerHTML = `<p class="decision-empty">평가 가능한 보유 자산이 없습니다.</p>`;
+    return;
+  }
+  const rows = [
+    ...(analysis.exposures || []).map((exposure) => ({
+      label: exposure.instrumentId,
+      direct: exposure.directValueKRW,
+      lookThrough: exposure.lookThroughValueKRW,
+      total: exposure.valueKRW,
+      overlap: exposure.directValueKRW > 0 && exposure.lookThroughValueKRW > 0
+    })),
+    ...(analysis.bucketExposures || []).filter((bucket) => bucket.valueKRW > 0).map((bucket) => ({
+      label: ETF_BUCKET_LABELS[bucket.bucket] || bucket.bucket,
+      direct: bucket.directValueKRW,
+      lookThrough: bucket.lookThroughValueKRW,
+      total: bucket.valueKRW,
+      overlap: false
+    }))
+  ].sort((left, right) => right.total - left.total || left.label.localeCompare(right.label)).slice(0, 30);
+  els.etfExposureList.innerHTML = `<div class="etf-exposure-scroll" tabindex="0" aria-label="ETF 실질노출 표 가로 스크롤">
+    <table class="etf-exposure-table">
+      <thead><tr><th scope="col">실질 노출</th><th class="number" scope="col">직접</th><th class="number" scope="col">ETF 경유</th><th class="number" scope="col">합계 비중</th></tr></thead>
+      <tbody>${rows.map((row) => `<tr>
+        <td>${escapeHtml(row.label)}${row.overlap ? ` <span class="analysis-status-chip status-limited">중복 노출</span>` : ""}</td>
+        <td class="number">${escapeHtml(money(row.direct))}</td>
+        <td class="number">${escapeHtml(money(row.lookThrough))}</td>
+        <td class="number">${escapeHtml(percent(analysisRate(row.total, analysis.totalValueKRW)))}</td>
+      </tr>`).join("")}</tbody>
+    </table>
+  </div>`;
+}
+
+function safeHttpLink(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "https:" ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function renderEtfFundQuality(validation) {
+  if (!els.etfFundQuality) return;
+  const funds = validation?.funds || [];
+  const diagnostics = [...(validation?.diagnostics || []), ...(etfAnalysis?.diagnostics || [])]
+    .filter((item, index, rows) => rows.findIndex((candidate) => (
+      candidate.code === item.code
+      && candidate.fundId === item.fundId
+      && candidate.positionIndex === item.positionIndex
+      && candidate.message === item.message
+    )) === index);
+  const quality = etfAnalysis?.appQuality || etfValuationQuality();
+  if (!funds.length) {
+    const issueItems = diagnostics.filter((item) => item.code !== "NO_COVERAGE").slice(0, 12);
+    els.etfFundQuality.innerHTML = `<article class="etf-quality-card">
+      <div class="etf-quality-head"><strong>구성종목 데이터 없음</strong><span>fail-closed</span></div>
+      <p class="field-help">알려진 ETF 보유분은 미지원 버킷에 그대로 남기며 구성종목을 추정하지 않습니다. 표준 양식을 채워 다시 불러오세요.</p>
+      ${quality.missingValuationCount ? `<p class="field-help negative">가격이 없는 시장자산 ${quality.missingValuationCount.toLocaleString("ko-KR")}개는 계산 범위에서 제외됐습니다.</p>` : ""}
+    </article>${issueItems.length ? `<ul class="etf-diagnostic-list">${issueItems.map((item) => `<li>${escapeHtml(item.message || item.code)}</li>`).join("")}</ul>` : ""}`;
+    return;
+  }
+  const fundCards = funds.map((fund) => {
+    const sourceUrl = safeHttpLink(fund.source?.url);
+    return `<article class="etf-quality-card">
+      <div class="etf-quality-head"><strong>${escapeHtml(fund.name || fund.instrumentId)}</strong><span class="analysis-status-chip status-${fund.eligible ? "verified" : "blocked"}">${fund.eligible ? "계산 가능" : "차단"}</span></div>
+      <ul class="external-data-meta">
+        <li>${escapeHtml(fund.instrumentId)} · 기준일 ${escapeHtml(fund.asOf || "없음")} · 커버리지 ${escapeHtml(percent(Number(fund.coverageWeight || 0)))}</li>
+        <li>구성 ${Number(fund.holdings?.length || 0).toLocaleString("ko-KR")}개 · ${escapeHtml(fund.structure || "구조 미확인")}</li>
+        <li>${sourceUrl ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(fund.source?.name || "출처 확인")}</a>` : "출처 URL 없음"} · 재배포 ${escapeHtml(fund.redistribution?.status || "미확인")}</li>
+      </ul>
+    </article>`;
+  }).join("");
+  const issueItems = diagnostics.filter((item) => item.code !== "NO_COVERAGE").slice(0, 12);
+  els.etfFundQuality.innerHTML = `${fundCards}${issueItems.length ? `<ul class="etf-diagnostic-list">${issueItems.map((item) => `<li>${escapeHtml(item.message || item.code)}</li>`).join("")}</ul>` : ""}${quality.missingValuationCount ? `<p class="field-help negative">가격이 없는 시장자산 ${quality.missingValuationCount.toLocaleString("ko-KR")}개는 계산 범위에서 제외됐습니다.</p>` : ""}`;
+}
+
+function renderEtfLookThrough() {
+  const engine = window.AssetTrailEtfExposureEngine;
+  if (!engine?.analyzeLookThrough || !engine?.validateHoldingsCatalog) {
+    etfAnalysis = null;
+    if (els.etfCatalogStatus) els.etfCatalogStatus.textContent = "ETF 룩스루 엔진을 불러오지 못했습니다.";
+    renderEtfCoverageSummary();
+    return;
+  }
+  const catalog = etfCatalog || emptyEtfCatalog();
+  const validation = engine.validateHoldingsCatalog(catalog);
+  const quality = etfValuationQuality();
+  const freshness = relevantEtfCatalogFreshness();
+  etfAnalysis = {
+    ...engine.analyzeLookThrough(etfPortfolioPositions(), catalog),
+    appQuality: quality,
+    appFreshness: freshness
+  };
+  if (els.etfCatalogStatus) {
+    const sourceState = etfCatalog
+      ? `구성 파일 ${validation.funds.length.toLocaleString("ko-KR")}개 펀드 · ${validation.funds.filter((fund) => fund.eligible).length.toLocaleString("ko-KR")}개 계산 가능`
+      : "구성 파일 없음 · 알려진 ETF는 미지원 노출로 보존";
+    const valuationState = quality.missingValuationCount
+      ? ` · 가격 누락 ${quality.missingValuationCount.toLocaleString("ko-KR")}개 제외`
+      : "";
+    const freshnessState = quality.etfAssetCount
+      ? freshness.asOfDate
+        ? ` · 보유 ETF 최저 기준일 ${freshness.asOfDate}${freshness.state === "STALE" ? ` (${freshness.ageDays}일 경과)` : freshness.state === "LIMITED" ? " (날짜 검토 필요)" : ""}`
+        : " · 보유 ETF 기준일 없음"
+      : "";
+    els.etfCatalogStatus.textContent = `${sourceState} · 결과 ${etfAnalysis.availability}${freshnessState}${valuationState}`;
+  }
+  if (analysisStorageIssues.etf && els.etfCatalogStatus) {
+    els.etfCatalogStatus.textContent = `${analysisStorageIssues.etf.message} 원본을 덮어쓰지 않았습니다. ‘구성 백업’ 후 ‘구성 비우기’로 복구하세요.`;
+  }
+  renderEtfCoverageSummary();
+  renderEtfExposureList();
+  renderEtfFundQuality(validation);
+}
+
+async function importEtfCatalogFile(file) {
+  if (!file) return false;
+  if (file.size > ETF_CATALOG_MAX_BYTES) throw new Error("ETF 구성 파일은 2MB 이하여야 합니다.");
+  const startKey = etfCatalogStorageKey();
+  const readToken = ++etfCatalogReadToken;
+  const text = await file.text();
+  if (readToken !== etfCatalogReadToken || startKey !== etfCatalogStorageKey()) {
+    throw new Error("사용자 데이터 영역이 바뀌어 ETF 구성 가져오기를 취소했습니다.");
+  }
+  if (serializedByteLength(text) > ETF_CATALOG_MAX_BYTES) throw new Error("ETF 구성 파일은 2MB 이하여야 합니다.");
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("ETF 구성 파일이 올바른 JSON이 아닙니다.");
+  }
+  const engine = window.AssetTrailEtfExposureEngine;
+  if (!engine?.validateHoldingsCatalog) throw new Error("ETF 룩스루 엔진을 불러오지 못했습니다.");
+  const validation = engine.validateHoldingsCatalog(parsed);
+  if (!validation.ok) {
+    const issue = validation.diagnostics.find((item) => item.severity === "error");
+    throw new Error(issue?.message || "ETF 구성 파일 검증에 실패했습니다.");
+  }
+  const liveRaw = localStorage.getItem(startKey);
+  if (!analysisStorageIssues.etf && liveRaw !== analysisStorageRevisions.etf) {
+    throw new Error("다른 탭에서 ETF 구성이 변경됐습니다. 최신 데이터를 다시 불러온 뒤 재시도하세요.");
+  }
+  if (liveRaw) {
+    if (!confirm(`현재 ETF 구성 전체를 ${validation.funds.length.toLocaleString("ko-KR")}개 펀드가 든 선택 파일로 교체할까요?`)) return false;
+    if (!downloadAnalysisStore("etf")) throw new Error("교체 전 기존 ETF 구성 백업에 실패했습니다.");
+  }
+  if (readToken !== etfCatalogReadToken || startKey !== etfCatalogStorageKey()) {
+    throw new Error("사용자 데이터 영역이 바뀌어 ETF 구성 가져오기를 취소했습니다.");
+  }
+  const previousIssue = analysisStorageIssues.etf;
+  analysisStorageIssues.etf = null;
+  analysisStorageRevisions.etf = liveRaw;
+  try {
+    persistEtfCatalog(canonicalEtfCatalog(validation));
+  } catch (error) {
+    analysisStorageIssues.etf = previousIssue;
+    analysisStorageRevisions.etf = liveRaw;
+    throw error;
+  }
+  renderEtfLookThrough();
+  refreshAnalysisEvidence();
+  return true;
+}
+
+function buildEtfCatalogTemplate() {
+  const today = localDateInputValue();
+  return {
+    schemaVersion: "assettrail.etf-holdings.v1",
+    generatedAt: new Date().toISOString(),
+    funds: [{
+      instrumentId: "REPLACE_WITH_KRX_OR_US_ID",
+      name: "저장 전 실제 ETF 이름으로 교체",
+      structure: "PHYSICAL_LONG_ONLY",
+      asOf: today,
+      source: {
+        name: "실제 구성종목 출처로 교체",
+        url: "https://example.com/replace-with-source",
+        retrievedAt: new Date().toISOString()
+      },
+      redistribution: {
+        status: "USER_SUPPLIED",
+        notice: "사용자가 적법하게 확보한 데이터"
+      },
+      holdings: [
+        { instrumentId: "REPLACE_WITH_KRX_OR_US_ID", name: "실제 구성종목으로 교체", weight: 0.9 },
+        { bucket: "CASH", weight: 0.1 }
+      ]
+    }]
+  };
+}
+
+function downloadEtfCatalogTemplate() {
+  const today = localDateInputValue();
+  const template = buildEtfCatalogTemplate();
+  return downloadTextFile(JSON.stringify(template, null, 2), `assettrail-etf-holdings-template-${today}.json`);
+}
+
+function downloadAnalysisStore(kind) {
+  const today = localDateInputValue();
+  const issue = analysisStorageIssues[kind];
+  const value = kind === "external" ? externalDataStore : (etfCatalog || emptyEtfCatalog());
+  const key = kind === "external" ? externalDataStorageKey() : etfCatalogStorageKey();
+  let liveRaw = null;
+  try {
+    liveRaw = localStorage.getItem(key);
+  } catch {}
+  const content = issue?.raw || liveRaw || JSON.stringify(value, null, 2);
+  const suffix = issue ? "protected-original" : "backup";
+  return downloadTextFile(content, `assettrail-${kind}-data-${suffix}-${today}.json`);
+}
+
+function clearAnalysisStore(kind) {
+  const label = kind === "external" ? "외부 기업 실적" : "ETF 구성";
+  if (!confirm(`${label} 데이터를 이 브라우저의 현재 사용자 영역에서 비울까요? 먼저 백업했는지 확인하세요.`)) return false;
+  const key = kind === "external" ? externalDataStorageKey() : etfCatalogStorageKey();
+  const liveRaw = localStorage.getItem(key);
+  if (liveRaw !== analysisStorageRevisions[kind]) {
+    throw new Error("다른 탭에서 분석 데이터가 변경됐습니다. 최신 데이터를 다시 불러온 뒤 재시도하세요.");
+  }
+  if (kind === "external") externalDataReadToken += 1;
+  else etfCatalogReadToken += 1;
+  localStorage.removeItem(key);
+  analysisStorageIssues[kind] = null;
+  analysisStorageRevisions[kind] = null;
+  if (kind === "external") {
+    externalDataStore = defaultExternalDataStore();
+    butlerDataPreview = null;
+    if (els.butlerClipboardText) els.butlerClipboardText.value = "";
+    if (els.butlerSourceUrl) els.butlerSourceUrl.value = "";
+  } else {
+    etfCatalog = null;
+    etfAnalysis = null;
+  }
+  renderAnalysisWorkspace();
+  return true;
+}
+
+function allPerformanceEvidence() {
+  const marks = state.performanceObservations.map(normalizePerformanceObservation)
+    .sort((left, right) => left.date.localeCompare(right.date));
+  const engine = performanceEngine();
+  if (!engine || marks.length < 2) return { status: "INCOMPLETE", facts: [], asOfDate: marks.at(-1)?.date || localDateInputValue() };
+  const bounds = {
+    startDate: marks[0].date,
+    endDate: marks.at(-1).date,
+    baselineDate: normalizeDateKey(state.ledgerMeta?.baselineDate),
+    error: ""
+  };
+  const dataset = performanceInputForRange(bounds);
+  const analysis = dataset.observations.length >= 2
+    ? engine.analyzePerformance({ observations: dataset.observations })
+    : null;
+  const exact = Boolean(
+    dataset.boundaryExact
+    && dataset.observations.length === dataset.marks.length
+    && dataset.observations.every((observation) => observation.completeness === true)
+    && !dataset.missingFlowDates.length
+    && analysis?.series?.ok
+    && analysis.series.availability === "VERIFIED"
+    && analysis?.twr?.ok
+    && analysis.twr.availability === "VERIFIED"
+  );
+  const asOfDate = marks.at(-1)?.date || localDateInputValue();
+  const ageDays = calendarDaysSince(asOfDate);
+  const status = !exact || ageDays < 0 || !Number.isFinite(ageDays)
+    ? "INCOMPLETE"
+    : ageDays > PERFORMANCE_EVIDENCE_STALE_DAYS ? "STALE" : "VERIFIED";
+  const facts = [];
+  if (exact) {
+    facts.push({ metric: "TWR_RETURN", returnRate: analysis.twr.periodReturn });
+    if (analysis.drawdown?.ok) facts.push({ metric: "MAX_DRAWDOWN", returnRate: analysis.drawdown.maxDrawdown });
+    const irregular = (analysis.series?.quality?.irregularGapCount || 0) > 0;
+    if (analysis.volatility?.ok && analysis.volatility.displayEligible && !irregular) {
+      facts.push({ metric: "ANNUALIZED_VOLATILITY", returnRate: analysis.volatility.annualizedVolatility });
+    }
+  }
+  const xirr = performanceXirr(engine, dataset);
+  if (exact && xirr?.ok && xirr.availability === "VERIFIED") {
+    facts.push({ metric: "XIRR_RETURN", returnRate: xirr.annualizedReturn });
+  }
+  return {
+    status,
+    facts,
+    asOfDate
+  };
+}
+
+function externalEvidenceStatus() {
+  const today = localDateInputValue();
+  const snapshots = [...(externalDataStore.snapshots || [])].sort((left, right) => (
+    String(right.periods?.at(-1)?.endDate || "").localeCompare(String(left.periods?.at(-1)?.endDate || ""))
+    || String(right.source?.retrievedAt || "").localeCompare(String(left.source?.retrievedAt || ""))
+  ));
+  const actualRows = snapshots.map((snapshot) => {
+    const actualDates = (snapshot.facts || [])
+      .filter((fact) => fact.valueType === "ACTUAL" && fact.periodEnd <= today)
+      .map((fact) => fact.periodEnd)
+      .sort();
+    return actualDates.length ? { snapshot, asOfDate: actualDates.at(-1) } : null;
+  }).filter(Boolean).sort((left, right) => right.asOfDate.localeCompare(left.asOfDate));
+  const latest = actualRows[0] || null;
+  if (!latest) return { count: snapshots.length, actualCount: 0, asOfDate: null, state: snapshots.length ? "INCOMPLETE" : "UNAVAILABLE" };
+  const staleAfterDays = EXTERNAL_ACTUAL_STALE_DAYS[latest.snapshot.periodType] || 180;
+  const ageDays = calendarDaysSince(latest.asOfDate, today);
+  return {
+    count: snapshots.length,
+    actualCount: actualRows.length,
+    asOfDate: latest.asOfDate,
+    state: ageDays > staleAfterDays ? "STALE" : "LIMITED",
+    ageDays
+  };
+}
+
+function analysisWorstQuality(...values) {
+  const ranks = { VERIFIED: 0, LIMITED: 1, STALE: 2, INCOMPLETE: 3, UNAVAILABLE: 4, UNKNOWN: 5 };
+  return values.filter((value) => Object.hasOwn(ranks, value))
+    .sort((left, right) => ranks[right] - ranks[left])[0] || "UNKNOWN";
+}
+
+function heldPriceEvidenceState() {
+  const heldMarketAssets = state.assets.filter((asset) => (
+    isMarketType(assetType(asset)) && Number(asset.quantity || 0) > 0
+  ));
+  if (!heldMarketAssets.length) return { status: "VERIFIED", asOfDate: localDateInputValue() };
+  const missingCount = marketAssetsMissingPrices().length;
+  const heldPriceRows = heldMarketAssets.map((asset) => priceForAsset(asset));
+  const sourceMissingCount = heldPriceRows.filter((price) => !price).length;
+  const dates = heldPriceRows.map((price) => String(price?.date || "").slice(0, 10))
+    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+    .sort();
+  const undatedCount = heldPriceRows.filter((price) => price && !/^\d{4}-\d{2}-\d{2}$/.test(String(price.date || "").slice(0, 10))).length;
+  const ages = dates.map((date) => calendarDaysSince(date));
+  const futureCount = ages.filter((age) => age < 0).length;
+  const status = missingCount || sourceMissingCount || undatedCount || futureCount
+    ? "INCOMPLETE"
+    : ages.some((age) => age > PRICE_STALE_DAYS) ? "STALE" : "VERIFIED";
+  return { status, asOfDate: dates[0] || localDateInputValue() };
+}
+
+function buildAnalysisEvidenceInput() {
+  const asOfDate = localDateInputValue();
+  const evidence = [];
+  const weights = [];
+  const returns = [];
+  const ratios = [];
+  const statuses = [];
+  const total = totalAssets();
+  const portfolioEvidenceId = "portfolio-relative-calculation";
+  const qualityEvidenceId = "analysis-data-quality";
+  const totals = bucketTotals();
+  const priceEvidence = heldPriceEvidenceState();
+  evidence.push({ id: portfolioEvidenceId, kind: "PORTFOLIO_CALCULATION", status: priceEvidence.status, asOfDate: priceEvidence.asOfDate });
+  if (total > 0) {
+    [
+      ["DOMESTIC_WEIGHT", "DOMESTIC", totals.domestic],
+      ["OVERSEAS_WEIGHT", "OVERSEAS", totals.overseas],
+      ["CASH_WEIGHT", "CASH", totals.cash],
+      ["MANUAL_WEIGHT", "MANUAL", totals.manual]
+    ].forEach(([metric, scope, value]) => weights.push({
+      metric,
+      scope,
+      weightPct: analysisRate(Number(value), total) * 100,
+      quality: priceEvidence.status,
+      evidenceIds: [portfolioEvidenceId]
+    }));
+    const decision = analyzeDecisionPortfolio();
+    if (Number.isFinite(decision.top1Weight)) {
+      weights.push({
+        metric: "PORTFOLIO_CONCENTRATION",
+        scope: "PORTFOLIO",
+        weightPct: Number(decision.top1Weight) * 100,
+        quality: priceEvidence.status,
+        evidenceIds: [portfolioEvidenceId]
+      });
+    }
+  }
+
+  const etfQuality = etfValuationQuality();
+  const etfFreshness = relevantEtfCatalogFreshness();
+  const etfEvidenceId = "etf-look-through-calculation";
+  const etfCoverageStatus = etfQuality.etfAssetCount === 0
+    ? "VERIFIED"
+    : etfQuality.missingEtfValuationCount
+      ? "INCOMPLETE"
+      : etfAnalysis?.availability === "VERIFIED" && !etfQuality.missingValuationCount
+      ? "VERIFIED"
+      : etfAnalysis ? "LIMITED" : "UNAVAILABLE";
+  const etfStatus = etfQuality.etfAssetCount === 0
+    ? "VERIFIED"
+    : analysisWorstQuality(etfCoverageStatus, etfFreshness.state);
+  evidence.push({ id: etfEvidenceId, kind: "ETF_HOLDINGS", status: etfStatus, asOfDate: etfFreshness.asOfDate || asOfDate });
+  if (etfAnalysis?.totalValueKRW > 0 && etfQuality.valuedEtfAssetCount > 0) {
+    const lookThrough = etfLookThroughTotals(etfAnalysis);
+    weights.push({
+      metric: "ETF_TOTAL_WEIGHT",
+      scope: "PORTFOLIO",
+      weightPct: analysisRate(lookThrough.lookThroughTotal, etfAnalysis.totalValueKRW) * 100,
+      quality: etfStatus,
+      evidenceIds: [etfEvidenceId]
+    });
+    weights.push({
+      metric: "ETF_MAPPED_WEIGHT",
+      scope: "PORTFOLIO",
+      weightPct: analysisRate(lookThrough.mappedLookThrough, etfAnalysis.totalValueKRW) * 100,
+      quality: etfStatus,
+      evidenceIds: [etfEvidenceId]
+    });
+    weights.push({
+      metric: "ETF_UNMAPPED_WEIGHT",
+      scope: "PORTFOLIO",
+      weightPct: analysisRate(lookThrough.opaqueLookThrough, etfAnalysis.totalValueKRW) * 100,
+      quality: etfStatus,
+      evidenceIds: [etfEvidenceId]
+    });
+    weights.push({
+      metric: "ETF_CASH_OTHER_WEIGHT",
+      scope: "PORTFOLIO",
+      weightPct: analysisRate(lookThrough.cashOtherLookThrough, etfAnalysis.totalValueKRW) * 100,
+      quality: etfStatus,
+      evidenceIds: [etfEvidenceId]
+    });
+    weights.push({
+      metric: "DIRECT_OVERLAP_WEIGHT",
+      scope: "PORTFOLIO",
+      weightPct: analysisRate(lookThrough.directOverlap, etfAnalysis.totalValueKRW) * 100,
+      quality: etfStatus,
+      evidenceIds: [etfEvidenceId]
+    });
+  }
+
+  const performance = allPerformanceEvidence();
+  const performanceEvidenceId = "verified-ledger-performance";
+  evidence.push({ id: performanceEvidenceId, kind: "PERFORMANCE_CALCULATION", status: performance.status, asOfDate: performance.asOfDate });
+  performance.facts.forEach((fact) => returns.push({
+    ...fact,
+    scope: "PORTFOLIO",
+    quality: performance.status,
+    evidenceIds: [performanceEvidenceId]
+  }));
+
+  const external = externalEvidenceStatus();
+  const externalEvidenceId = "butler-company-data-status";
+  const externalState = external.state;
+  evidence.push({
+    id: externalEvidenceId,
+    kind: external.count ? "BUTLER_SNAPSHOT" : "DATA_QUALITY",
+    status: externalState,
+    asOfDate: external.asOfDate || asOfDate
+  });
+
+  const performanceState = performance.status;
+  const etfState = etfQuality.etfAssetCount === 0 ? "AVAILABLE" : etfStatus === "VERIFIED" ? "VERIFIED" : etfStatus;
+  const priceState = priceEvidence.status;
+  const optionalExternalQuality = externalState === "UNAVAILABLE" ? "LIMITED" : externalState;
+  const readinessQuality = total > 0
+    ? analysisWorstQuality(priceState, performanceState, etfStatus, optionalExternalQuality)
+    : "INCOMPLETE";
+  const readinessState = readinessQuality === "VERIFIED" ? "AVAILABLE" : readinessQuality;
+  evidence.push({ id: qualityEvidenceId, kind: "DATA_QUALITY", status: readinessQuality, asOfDate });
+  [
+    { metric: "AI_READINESS", state: readinessState, quality: readinessQuality, evidenceIds: [qualityEvidenceId] },
+    { metric: "PRICE_DATA", state: priceState, quality: priceState, evidenceIds: [portfolioEvidenceId] },
+    { metric: "PERFORMANCE_DATA", state: performanceState, quality: performanceState, evidenceIds: [performanceEvidenceId] },
+    { metric: "ETF_COVERAGE", state: etfState, quality: etfStatus, evidenceIds: [etfEvidenceId] },
+    { metric: "COMPANY_DATA", state: externalState, quality: externalState, evidenceIds: [externalEvidenceId] }
+  ].forEach((status) => statuses.push({ ...status, scope: "PORTFOLIO" }));
+
+  return { asOfDate, evidence, weights, returns, ratios, statuses };
+}
+
+function renderReport(report, target, { emptyText = "표시할 근거 항목이 없습니다." } = {}) {
+  if (!target) return;
+  const items = Array.isArray(report?.items) ? report.items : [];
+  if (!items.length) {
+    target.innerHTML = `<p class="decision-empty">${escapeHtml(emptyText)}</p>`;
+    return;
+  }
+  const grouped = new Map();
+  items.forEach((item) => {
+    if (!grouped.has(item.section)) grouped.set(item.section, []);
+    grouped.get(item.section).push(item);
+  });
+  target.innerHTML = [...grouped.entries()].map(([section, sectionItems]) => `<section class="report-section">
+    <div class="report-section-head"><h3>${escapeHtml(AI_REPORT_SECTION_LABELS[section] || section)}</h3><span>근거 연결 ${new Set(sectionItems.flatMap((item) => item.evidenceIds || [])).size.toLocaleString("ko-KR")}개</span></div>
+    <ul class="report-item-list">${sectionItems.map((item) => `<li>${escapeHtml(item.text)}<small>${escapeHtml(item.kind)} · 사실 ${escapeHtml((item.factIds || []).join(", "))} · 근거 ${escapeHtml((item.evidenceIds || []).join(", "))}</small></li>`).join("")}</ul>
+  </section>`).join("");
+}
+
+function renderAnalysisEvidence() {
+  const envelope = currentEvidenceEnvelope;
+  if (!envelope) {
+    if (els.aiPrivacySummary) els.aiPrivacySummary.innerHTML = `<p class="decision-empty">AI 근거 엔진을 불러오지 못했습니다.</p>`;
+    renderReport(null, els.deterministicReport);
+    return;
+  }
+  if (els.aiPrivacySummary) {
+    els.aiPrivacySummary.innerHTML = `
+      <article class="ai-privacy-item"><span>상대 지표</span><strong>${envelope.facts.length.toLocaleString("ko-KR")}개</strong></article>
+      <article class="ai-privacy-item"><span>익명 근거</span><strong>${envelope.evidence.length.toLocaleString("ko-KR")}개</strong></article>
+      <article class="ai-privacy-item"><span>정확한 금액·식별자</span><strong>제외</strong></article>
+      <article class="ai-privacy-item"><span>자동 AI/API 요청</span><strong>0회</strong></article>`;
+    if (envelope.limitations.length) {
+      els.aiPrivacySummary.innerHTML += `<p class="field-help">품질 ${escapeHtml(envelope.qualityStatus)} · 제한 ${escapeHtml(envelope.limitations.join(", "))}</p>`;
+    }
+  }
+  renderReport(currentDeterministicReport, els.deterministicReport, {
+    emptyText: "검증된 상대 지표가 쌓이면 AI 없이도 근거 연결 보고서를 표시합니다."
+  });
+  if (els.downloadEvidenceBtn) els.downloadEvidenceBtn.disabled = false;
+  if (els.copyAiHandoffBtn) els.copyAiHandoffBtn.disabled = !envelope.facts.length;
+}
+
+function refreshAnalysisEvidence({ announce = false } = {}) {
+  const engine = window.AssetTrailAiReportEngine;
+  if (!engine?.buildEvidenceEnvelope || !engine?.buildDeterministicReport) {
+    currentEvidenceEnvelope = null;
+    currentDeterministicReport = null;
+    renderAnalysisEvidence();
+    return null;
+  }
+  const previousDigest = currentEvidenceEnvelope?.digest || "";
+  currentEvidenceEnvelope = engine.buildEvidenceEnvelope(buildAnalysisEvidenceInput());
+  const validation = engine.validateEvidenceEnvelope?.(currentEvidenceEnvelope);
+  currentDeterministicReport = validation?.ok
+    ? engine.buildDeterministicReport(currentEvidenceEnvelope)
+    : null;
+  if (previousDigest && previousDigest !== currentEvidenceEnvelope.digest && els.validatedAiReport) {
+    els.validatedAiReport.innerHTML = "";
+    if (els.aiReportValidationStatus) els.aiReportValidationStatus.textContent = "근거가 변경됐습니다. 기존 AI 결과를 다시 검증하세요.";
+  } else if (announce && els.aiReportValidationStatus) {
+    els.aiReportValidationStatus.textContent = `근거를 다시 계산했습니다. ${currentEvidenceEnvelope.facts.length.toLocaleString("ko-KR")}개 상대 지표가 포함됐습니다.`;
+  }
+  renderAnalysisEvidence();
+  return currentEvidenceEnvelope;
+}
+
+async function copyAnalysisHandoff() {
+  const engine = window.AssetTrailAiReportEngine;
+  const envelope = currentEvidenceEnvelope || refreshAnalysisEvidence();
+  if (!engine?.buildChatGptHandoff || !envelope?.facts?.length) throw new Error("전달할 검증 근거가 아직 없습니다.");
+  const handoff = engine.buildChatGptHandoff(envelope);
+  if (handoff?.ok === false) throw new Error("ChatGPT 전달 패키지를 만들지 못했습니다.");
+  const serialized = JSON.stringify(handoff, null, 2);
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(serialized);
+  } else {
+    const input = document.createElement("textarea");
+    input.value = serialized;
+    input.setAttribute("readonly", "");
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.append(input);
+    input.select();
+    const copied = typeof document.execCommand === "function" && document.execCommand("copy");
+    input.remove();
+    if (!copied) throw new Error("클립보드 권한이 없어 복사하지 못했습니다. 근거 JSON을 내려받아 사용하세요.");
+  }
+  return true;
+}
+
+function validateAndRenderAiReport() {
+  const engine = window.AssetTrailAiReportEngine;
+  const envelope = currentEvidenceEnvelope || refreshAnalysisEvidence();
+  const raw = String(els.aiReportJson?.value || "").trim();
+  if (!raw) throw new Error("ChatGPT가 반환한 JSON을 붙여넣으세요.");
+  if (!engine?.validateAiReport || !envelope) throw new Error("AI 보고서 검증 엔진을 불러오지 못했습니다.");
+  const validation = engine.validateAiReport(raw, envelope);
+  if (!validation.ok) {
+    const codes = [...new Set(validation.errors.map((error) => error.code))].slice(0, 8);
+    throw new Error(`검증 거부: ${codes.join(", ")}`);
+  }
+  const report = JSON.parse(raw);
+  renderReport(report, els.validatedAiReport, { emptyText: "AI 보고서에 표시할 항목이 없습니다." });
+  if (els.aiReportValidationStatus) {
+    els.aiReportValidationStatus.textContent = `현재 근거 ${envelope.digest.slice(0, 20)}…와 일치하는 JSON만 표시했습니다. 결과는 저장하지 않습니다.`;
+  }
+  return true;
+}
+
+function renderAnalysisWorkspace() {
+  renderExternalData();
+  renderEtfLookThrough();
+  refreshAnalysisEvidence();
+}
+
 const VIEW_RENDERERS = {
   DASHBOARD: () => {
     renderSummary();
@@ -3267,12 +4880,16 @@ const VIEW_RENDERERS = {
     renderJournal();
     renderRealized();
     renderLedger();
+    renderPerformance();
     renderInvestmentRecordTabs();
   },
   PORTFOLIO: () => {
     renderBreakdown();
     renderPortfolioBreakdownToggle();
     renderActionSupport();
+  },
+  ANALYSIS: () => {
+    renderAnalysisWorkspace();
   },
   GOALS: () => {
     renderHistory();
@@ -4005,6 +5622,373 @@ function snapshotReadiness() {
   return { ok: true, message: "", warnings };
 }
 
+function deterministicFingerprint(prefix, value) {
+  const canonical = typeof value === "string" ? value : JSON.stringify(value);
+  let hash = 2166136261;
+  for (let index = 0; index < canonical.length; index += 1) {
+    hash ^= canonical.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${prefix}:${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function strongDeterministicFingerprint(prefix, value) {
+  const canonical = typeof value === "string" ? value : JSON.stringify(value);
+  let h1 = 1779033703;
+  let h2 = 3144134277;
+  let h3 = 1013904242;
+  let h4 = 2773480762;
+  for (let index = 0; index < canonical.length; index += 1) {
+    const code = canonical.charCodeAt(index);
+    h1 = h2 ^ Math.imul(h1 ^ code, 597399067);
+    h2 = h3 ^ Math.imul(h2 ^ code, 2869860233);
+    h3 = h4 ^ Math.imul(h3 ^ code, 951274213);
+    h4 = h1 ^ Math.imul(h4 ^ code, 2716044179);
+  }
+  h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067);
+  h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233);
+  h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213);
+  h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179);
+  const digest = [h1, h2, h3, h4]
+    .map((valuePart) => (valuePart >>> 0).toString(16).padStart(8, "0"))
+    .join("");
+  return `${prefix}:${digest}`;
+}
+
+function performanceObservationFingerprint(observation) {
+  const benchmarkLevels = Object.fromEntries(["KOSPI", "SP500"]
+    .filter((key) => observation?.benchmarkLevels?.[key])
+    .map((key) => [key, observation.benchmarkLevels[key]]));
+  return strongDeterministicFingerprint("performance-mark-v1", {
+    id: observation?.id || "",
+    date: observation?.date || "",
+    capturedAt: observation?.capturedAt || "",
+    cutoff: observation?.cutoff || "",
+    source: observation?.source || "",
+    snapshotId: observation?.snapshotId || "",
+    navKRW: Number(observation?.navKRW || 0),
+    marketValueKRW: Number(observation?.marketValueKRW || 0),
+    cashKRW: Number(observation?.cashKRW || 0),
+    manualValueKRW: Number(observation?.manualValueKRW || 0),
+    unsettledKRW: Number(observation?.unsettledKRW || 0),
+    usMarketValueNative: Number(observation?.usMarketValueNative || 0),
+    usMarketValueKRW: Number(observation?.usMarketValueKRW || 0),
+    usdKrw: Number(observation?.usdKrw || 0),
+    usdKrwDate: observation?.usdKrwDate || "",
+    typeTotals: observation?.typeTotals || {},
+    cumulative: observation?.cumulative || {},
+    benchmarkLevels,
+    priceBasis: observation?.priceBasis || "",
+    distributionTreatment: observation?.distributionTreatment || "",
+    ledgerAsOfFingerprint: observation?.ledgerAsOfFingerprint || "",
+    priceFingerprint: observation?.priceFingerprint || "",
+    completeness: observation?.completeness || "",
+    issueCodes: [...(observation?.issueCodes || [])].sort()
+  });
+}
+
+function performanceNumbersClose(left, right) {
+  const a = Number(left);
+  const b = Number(right);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return Math.abs(a - b) <= Math.max(0.01, Math.abs(a) * 1e-9, Math.abs(b) * 1e-9);
+}
+
+function performanceObservationIdentityValid(observation) {
+  const cumulative = observation?.cumulative || {};
+  const typeTotals = observation?.typeTotals || {};
+  const navIdentity = Number(observation?.marketValueKRW || 0)
+    + Number(observation?.manualValueKRW || 0)
+    + Number(observation?.cashKRW || 0)
+    + Number(observation?.unsettledKRW || 0);
+  const marketIdentity = Number(typeTotals.KRX || 0) + Number(typeTotals.US || 0);
+  const externalIdentity = Number(cumulative.depositsKRW || 0) - Number(cumulative.withdrawalsKRW || 0);
+  const usNative = Number(observation?.usMarketValueNative || 0);
+  const usKrwIdentity = usNative * Number(observation?.usdKrw || 0);
+  return performanceNumbersClose(observation?.navKRW, navIdentity)
+    && performanceNumbersClose(observation?.marketValueKRW, marketIdentity)
+    && performanceNumbersClose(cumulative.externalFlowKRW, externalIdentity)
+    && performanceNumbersClose(observation?.manualValueKRW, typeTotals.MANUAL || 0)
+    && performanceNumbersClose(
+      typeTotals.CASH || 0,
+      Number(observation?.cashKRW || 0) + Number(observation?.unsettledKRW || 0)
+    )
+    && (usNative === 0 || performanceNumbersClose(observation?.usMarketValueKRW, usKrwIdentity));
+}
+
+function sealPerformanceObservation(observation, index = 0) {
+  const normalized = normalizePerformanceObservation(observation, index);
+  normalized.markFingerprint = performanceObservationFingerprint(normalized);
+  return normalized;
+}
+
+function performanceEventDate(event) {
+  if (["DEPOSIT", "WITHDRAWAL", "DIVIDEND", "INTEREST", "FEE", "TAX", "FX"].includes(event?.type)) {
+    return event.settlementDate || event.tradeDate || "";
+  }
+  if (event?.type === "OPENING_BALANCE" && event.balanceKind === "CASH") {
+    return event.settlementDate || event.tradeDate || "";
+  }
+  return event?.tradeDate || "";
+}
+
+function activePerformanceLedgerEvents() {
+  const validated = ledgerEngine().validateLedger(state.events, {
+    baselineDate: state.ledgerMeta?.baselineDate || undefined
+  });
+  return validated.ok ? validated.activeEvents : [];
+}
+
+function performanceLedgerFingerprintAsOf(date, activeEvents = activePerformanceLedgerEvents()) {
+  return ledgerEventFingerprint(activeEvents.filter((event) => performanceEventDate(event) <= date));
+}
+
+function performancePriceDates() {
+  const dates = [];
+  let hasUs = false;
+  state.assets.forEach((asset) => {
+    if (!isMarketType(assetType(asset)) || !(Number(asset.quantity || 0) > 0)) return;
+    const price = priceForAsset(asset);
+    if (normalizeDateKey(price?.date)) dates.push(normalizeDateKey(price.date));
+    if (assetType(asset) === "US") hasUs = true;
+  });
+  if (hasUs && normalizeDateKey(priceBook.fx?.USDKRW?.date)) {
+    dates.push(normalizeDateKey(priceBook.fx.USDKRW.date));
+  }
+  return dates;
+}
+
+function performanceValuationDate() {
+  const dates = performancePriceDates();
+  if (!dates.length) return localDateInputValue();
+  const unique = [...new Set(dates)].sort();
+  return unique.length === 1 ? unique[0] : unique.at(-1);
+}
+
+function unsettledTradeValueKRW(activeEvents, asOfDate) {
+  return activeEvents.reduce((sum, event) => {
+    if (!["BUY", "SELL"].includes(event.type)
+        || event.tradeDate > asOfDate
+        || event.settlementDate <= asOfDate) return sum;
+    const gross = Number(event.grossAmountKRW || 0);
+    const costs = Number(event.feeKRW || 0) + Number(event.taxKRW || 0);
+    return sum + (event.type === "BUY" ? -(gross + costs) : gross - costs);
+  }, 0);
+}
+
+function performanceCumulativeSummary(activeEvents, asOfDate) {
+  const summary = {
+    externalFlowKRW: 0,
+    depositsKRW: 0,
+    withdrawalsKRW: 0,
+    dividendsKRW: 0,
+    interestKRW: 0,
+    feesKRW: 0,
+    taxesKRW: 0,
+    fxDifferenceKRW: 0
+  };
+  activeEvents.forEach((event) => {
+    const settlementDate = event.settlementDate || event.tradeDate;
+    if (["BUY", "SELL"].includes(event.type) && event.tradeDate <= asOfDate) {
+      summary.feesKRW += Number(event.feeKRW || 0);
+      summary.taxesKRW += Number(event.taxKRW || 0);
+      return;
+    }
+    if (settlementDate > asOfDate) return;
+    const amount = Number(event.amountKRW || 0);
+    if (event.type === "DEPOSIT") {
+      summary.depositsKRW += amount;
+      summary.externalFlowKRW += amount;
+    } else if (event.type === "WITHDRAWAL") {
+      summary.withdrawalsKRW += amount;
+      summary.externalFlowKRW -= amount;
+    } else if (event.type === "DIVIDEND") {
+      summary.dividendsKRW += amount;
+    } else if (event.type === "INTEREST") {
+      summary.interestKRW += amount;
+    } else if (event.type === "FEE") {
+      summary.feesKRW += amount;
+    } else if (event.type === "TAX") {
+      summary.taxesKRW += amount;
+    } else if (event.type === "FX") {
+      summary.feesKRW += Number(event.feeKRW || 0);
+      summary.fxDifferenceKRW += Number(event.counterAmountKRW || 0) - Number(event.amountKRW || 0);
+    }
+  });
+  return Object.fromEntries(Object.entries(summary).map(([key, value]) => [key, Math.round(value * 10000) / 10000]));
+}
+
+function performancePriceFingerprint(date) {
+  const heldPrices = state.assets
+    .filter((asset) => isMarketType(assetType(asset)) && Number(asset.quantity || 0) > 0)
+    .map((asset) => {
+      const type = assetType(asset);
+      const price = priceForAsset(asset);
+      return {
+        assetId: asset.id,
+        type,
+        ticker: normalizeTicker(type, asset.ticker),
+        close: Number(price?.close || 0),
+        date: normalizeDateKey(price?.date)
+      };
+    })
+    .sort((left, right) => String(left.assetId).localeCompare(String(right.assetId)));
+  return strongDeterministicFingerprint("performance-price-v1", {
+    date,
+    heldPrices,
+    usdKrw: priceBook.fx?.USDKRW || null,
+    benchmarks: priceBook.benchmarks,
+    dataPolicy: priceBook.dataPolicy
+  });
+}
+
+function currentPerformanceObservation({ source = "AUTOMATIC_PRICE_CLOSE", snapshotId = "" } = {}) {
+  if (!state.assets.length || !priceBook.loaded) return null;
+  const date = performanceValuationDate();
+  const issueCodes = [];
+  const fatalIssues = [];
+  const priceDates = performancePriceDates();
+  if (new Set(priceDates).size > 1) fatalIssues.push("MARKET_CUTOFF_MISMATCH");
+  if (priceBook.dataPolicy.priceBasis !== "UNADJUSTED_CLOSE"
+      || priceBook.dataPolicy.distributionTreatment !== "EXCLUDED") {
+    fatalIssues.push("PRICE_METHODOLOGY_UNVERIFIED");
+  }
+
+  const projection = ledgerEngine().projectLedger(state.events, {
+    baselineDate: state.ledgerMeta?.baselineDate || undefined,
+    asOfDate: date
+  });
+  if (!projection.ok) fatalIssues.push("LEDGER_PROJECTION_FAILED");
+  const activeEvents = activePerformanceLedgerEvents();
+  const assetsById = new Map(state.assets.map((asset) => [asset.id, asset]));
+  const usdRate = Number(priceBook.fx?.USDKRW?.rate || 0);
+  let krxValueKRW = 0;
+  let usValueNative = 0;
+  let usValueKRW = 0;
+
+  (projection.positions || []).forEach((position) => {
+    if (!(Number(position.quantity || 0) > 0)) return;
+    const asset = assetsById.get(position.assetId);
+    if (!asset || !isMarketType(assetType(asset))) {
+      fatalIssues.push("POSITION_ASSET_MISSING");
+      return;
+    }
+    const price = priceForAsset(asset);
+    if (!(Number(price?.close || 0) > 0) || !normalizeDateKey(price?.date)) {
+      fatalIssues.push("HELD_PRICE_MISSING");
+      return;
+    }
+    const nativeValue = Number(position.quantity) * Number(price.close);
+    if (assetType(asset) === "US") {
+      if (!(usdRate > 0) || !normalizeDateKey(priceBook.fx?.USDKRW?.date)) {
+        fatalIssues.push("USDKRW_MISSING");
+        return;
+      }
+      usValueNative += nativeValue;
+      usValueKRW += nativeValue * usdRate;
+    } else {
+      krxValueKRW += nativeValue;
+    }
+  });
+
+  const cashKRW = (projection.cashBalances || []).reduce(
+    (sum, balance) => sum + Number(balance.amountKRW || 0),
+    0
+  );
+  const manualValueKRW = (projection.valuations || []).reduce(
+    (sum, valuation) => sum + Number(valuation.valueKRW || 0),
+    0
+  );
+  const unsettledKRW = unsettledTradeValueKRW(activeEvents, date);
+  const marketValueKRW = krxValueKRW + usValueKRW;
+  const navKRW = marketValueKRW + manualValueKRW + cashKRW + unsettledKRW;
+  if (!Number.isFinite(navKRW) || navKRW < 0) fatalIssues.push("INVALID_NAV");
+
+  const manualAssets = state.assets.filter((asset) => assetType(asset) === "MANUAL" && Number(asset.amount || 0) > 0);
+  if (manualAssets.some((asset) => normalizeStoredDate(asset.updatedAt)?.slice(0, 10) !== date)) {
+    issueCodes.push("MANUAL_VALUATION_DATE_LIMITED");
+  }
+  const baselineDate = normalizeDateKey(state.ledgerMeta?.baselineDate);
+  if (baselineDate && date < baselineDate) fatalIssues.push("BEFORE_LEDGER_BASELINE");
+
+  const benchmarkLevels = Object.fromEntries(Object.entries(priceBook.benchmarks || {}).map(([key, benchmark]) => [key, {
+    level: Number(benchmark.level),
+    date: benchmark.date,
+    currency: benchmark.currency || "",
+    returnType: benchmark.returnType || "UNKNOWN",
+    source: benchmark.source || "",
+    priceBasis: benchmark.priceBasis || "",
+    distributionTreatment: benchmark.distributionTreatment || "",
+    levelUnit: benchmark.levelUnit || ""
+  }]));
+  const summary = performanceCumulativeSummary(activeEvents, date);
+  const uniqueFatalIssues = [...new Set(fatalIssues)];
+  const uniqueIssues = [...new Set([...issueCodes, ...uniqueFatalIssues])];
+  const completeness = uniqueFatalIssues.length ? "INCOMPLETE" : issueCodes.length ? "LIMITED" : "COMPLETE";
+  return sealPerformanceObservation({
+    id: `performance-${date}`,
+    date,
+    capturedAt: new Date().toISOString(),
+    cutoff: PERFORMANCE_CUTOFF,
+    source,
+    snapshotId,
+    navKRW,
+    marketValueKRW,
+    cashKRW,
+    manualValueKRW,
+    unsettledKRW,
+    usMarketValueNative: usValueNative,
+    usMarketValueKRW: usValueKRW,
+    usdKrw: usdRate,
+    usdKrwDate: normalizeDateKey(priceBook.fx?.USDKRW?.date),
+    typeTotals: {
+      KRX: krxValueKRW,
+      US: usValueKRW,
+      CASH: cashKRW + unsettledKRW,
+      MANUAL: manualValueKRW
+    },
+    cumulative: {
+      externalFlowKRW: summary.externalFlowKRW,
+      depositsKRW: summary.depositsKRW,
+      withdrawalsKRW: summary.withdrawalsKRW,
+      dividendsKRW: summary.dividendsKRW,
+      interestKRW: summary.interestKRW,
+      feesKRW: summary.feesKRW,
+      taxesKRW: summary.taxesKRW,
+      fxDifferenceKRW: summary.fxDifferenceKRW
+    },
+    benchmarkLevels,
+    priceBasis: priceBook.dataPolicy.priceBasis,
+    distributionTreatment: priceBook.dataPolicy.distributionTreatment,
+    ledgerAsOfFingerprint: performanceLedgerFingerprintAsOf(date, activeEvents),
+    priceFingerprint: performancePriceFingerprint(date),
+    completeness,
+    issueCodes: uniqueIssues
+  });
+}
+
+function refreshPerformanceObservation(options = {}) {
+  const observation = currentPerformanceObservation(options);
+  if (!observation || observation.completeness === "INCOMPLETE") return null;
+  const index = state.performanceObservations.findIndex((item) => item.date === observation.date);
+  if (index < 0 && state.performanceObservations.length >= PERFORMANCE_OBSERVATION_LIMIT) {
+    showStatusNotice(`성과 평가점 ${PERFORMANCE_OBSERVATION_LIMIT.toLocaleString("ko-KR")}개를 보존 중이라 새 날짜 평가점을 추가하지 않았습니다. JSON으로 내보낸 뒤 장기 보관 정책을 정리하세요.`);
+    return null;
+  }
+  if (index >= 0) {
+    const previous = state.performanceObservations[index];
+    observation.id = previous.id || observation.id;
+    if (!observation.snapshotId) observation.snapshotId = previous.snapshotId || "";
+    state.performanceObservations[index] = sealPerformanceObservation(observation, index);
+  } else {
+    state.performanceObservations.push(observation);
+  }
+  state.performanceObservations.sort((left, right) => left.date.localeCompare(right.date)
+    || left.capturedAt.localeCompare(right.capturedAt)
+    || left.id.localeCompare(right.id));
+  return observation;
+}
+
 function renderPriceNotice() {
   if (!els.priceAlert) return;
 
@@ -4600,15 +6584,387 @@ function renderActionSupport() {
   renderRiskExposure(riskAnalysis);
 }
 
+function performanceEngine() {
+  return window.AssetTrailPerformanceEngine || null;
+}
+
+function offsetDateKey(dateKey, days) {
+  const date = new Date(`${dateKey}T00:00:00.000Z`);
+  if (!Number.isFinite(date.getTime())) return "";
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function performanceRangeBounds() {
+  const observations = state.performanceObservations.map(normalizePerformanceObservation)
+    .sort((left, right) => left.date.localeCompare(right.date));
+  const latestDate = observations.at(-1)?.date || localDateInputValue();
+  const earliestDate = observations[0]?.date || normalizeDateKey(state.ledgerMeta?.baselineDate) || latestDate;
+  const range = uiState.performanceRange;
+  let startDate;
+  let endDate = latestDate;
+  if (range === "30D") startDate = offsetDateKey(endDate, -29);
+  else if (range === "90D") startDate = offsetDateKey(endDate, -89);
+  else if (range === "1Y") startDate = offsetDateKey(endDate, -365);
+  else if (range === "YTD") startDate = `${endDate.slice(0, 4)}-01-01`;
+  else if (range === "ALL") startDate = earliestDate;
+  else {
+    startDate = normalizeDateKey(uiState.performanceStartDate || els.performanceStartDate?.value);
+    endDate = normalizeDateKey(uiState.performanceEndDate || els.performanceEndDate?.value);
+  }
+  const baselineDate = normalizeDateKey(state.ledgerMeta?.baselineDate);
+  const error = !startDate || !endDate
+    ? "시작일과 종료일을 올바르게 선택하세요."
+    : startDate > endDate
+      ? "시작일은 종료일보다 늦을 수 없습니다."
+      : baselineDate && startDate < baselineDate
+        ? `성과 시작일은 원장 기준일 ${baselineDate} 이후여야 합니다.`
+        : "";
+  if (els.performanceStartDate && range !== "CUSTOM") els.performanceStartDate.value = startDate || "";
+  if (els.performanceEndDate && range !== "CUSTOM") els.performanceEndDate.value = endDate || "";
+  if (els.performanceStartDate) els.performanceStartDate.disabled = range !== "CUSTOM";
+  if (els.performanceEndDate) els.performanceEndDate.disabled = range !== "CUSTOM";
+  return { startDate, endDate, baselineDate, error };
+}
+
+function externalPerformanceFlows(startDate, endDate, activeEvents) {
+  return activeEvents
+    .filter((event) => ["DEPOSIT", "WITHDRAWAL"].includes(event.type))
+    .map((event) => ({
+      date: event.settlementDate || event.tradeDate,
+      amountKRW: event.type === "DEPOSIT" ? Number(event.amountKRW || 0) : -Number(event.amountKRW || 0),
+      type: event.type
+    }))
+    .filter((row) => row.date > startDate && row.date <= endDate && row.amountKRW !== 0)
+    .sort((left, right) => left.date.localeCompare(right.date));
+}
+
+function performanceInputForRange(bounds) {
+  const marks = state.performanceObservations
+    .map(normalizePerformanceObservation)
+    .filter((mark) => mark.date >= bounds.startDate && mark.date <= bounds.endDate)
+    .sort((left, right) => left.date.localeCompare(right.date) || left.capturedAt.localeCompare(right.capturedAt));
+  const activeEvents = activePerformanceLedgerEvents();
+  const benchmarkKey = uiState.performanceBenchmark;
+  const observations = marks.map((mark, index) => {
+    const previous = marks[index - 1];
+    const currentLedgerFingerprint = performanceLedgerFingerprintAsOf(mark.date, activeEvents);
+    const exactMark = mark.completeness === "COMPLETE"
+      && mark.cutoff === PERFORMANCE_CUTOFF
+      && mark.priceBasis === "UNADJUSTED_CLOSE"
+      && mark.distributionTreatment === "EXCLUDED"
+      && mark.issueCodes.length === 0
+      && performanceObservationIdentityValid(mark)
+      && Boolean(mark.ledgerAsOfFingerprint)
+      && mark.ledgerAsOfFingerprint === currentLedgerFingerprint
+      && /^performance-price-v1:[a-f0-9]{32}$/.test(mark.priceFingerprint)
+      && /^performance-mark-v1:[a-f0-9]{32}$/.test(mark.markFingerprint)
+      && mark.markFingerprint === performanceObservationFingerprint(mark);
+    const row = {
+      date: mark.date,
+      navKRW: mark.navKRW,
+      externalFlowKRW: previous
+        ? mark.cumulative.externalFlowKRW - previous.cumulative.externalFlowKRW
+        : 0,
+      completeness: exactMark,
+      ledgerFingerprint: mark.ledgerAsOfFingerprint,
+      priceFingerprint: mark.priceFingerprint
+    };
+    if (previous) {
+      const dividendKRW = mark.cumulative.dividendsKRW - previous.cumulative.dividendsKRW;
+      const interestKRW = mark.cumulative.interestKRW - previous.cumulative.interestKRW;
+      const feeKRW = mark.cumulative.feesKRW - previous.cumulative.feesKRW;
+      const taxKRW = mark.cumulative.taxesKRW - previous.cumulative.taxesKRW;
+      const externalFlowKRW = row.externalFlowKRW;
+      const manualValuationEffectKRW = mark.manualValueKRW - previous.manualValueKRW;
+      const marketFxEffectKRW = ((previous.usMarketValueNative + mark.usMarketValueNative) / 2)
+        * (mark.usdKrw - previous.usdKrw);
+      const ledgerFxEffectKRW = mark.cumulative.fxDifferenceKRW - previous.cumulative.fxDifferenceKRW;
+      const fxEffectKRW = marketFxEffectKRW + ledgerFxEffectKRW;
+      const totalChangeKRW = mark.navKRW - previous.navKRW;
+      const priceEffectKRW = totalChangeKRW
+        - externalFlowKRW
+        - fxEffectKRW
+        - dividendKRW
+        - interestKRW
+        + feeKRW
+        + taxKRW
+        - manualValuationEffectKRW;
+      row.attribution = {
+        priceEffectKRW,
+        fxEffectKRW,
+        dividendKRW,
+        interestKRW,
+        feeKRW,
+        taxKRW,
+        manualValuationEffectKRW,
+        otherEffectKRW: 0
+      };
+    }
+    if (["KOSPI", "SP500"].includes(benchmarkKey)) {
+      const benchmark = mark.benchmarkLevels[benchmarkKey];
+      const expectedCurrency = benchmarkKey === "SP500" ? "USD" : "KRW";
+      const methodologyVerified = benchmark?.currency === expectedCurrency
+        && benchmark?.returnType === "PRICE_ONLY"
+        && benchmark?.priceBasis === "PRICE_INDEX_LEVEL"
+        && benchmark?.distributionTreatment === "EXCLUDED"
+        && benchmark?.levelUnit === "INDEX_POINTS";
+      const fxDateVerified = benchmarkKey !== "SP500" || mark.usdKrwDate === mark.date;
+      if (benchmark && benchmark.date === mark.date && methodologyVerified && fxDateVerified) {
+        const krwLevel = benchmarkKey === "SP500" ? benchmark.level * mark.usdKrw : benchmark.level;
+        if (krwLevel > 0) {
+          row.benchmark = {
+            level: krwLevel,
+            kind: benchmark.returnType || "PRICE_ONLY",
+            currency: "KRW",
+            source: benchmark.source
+          };
+        }
+      }
+    }
+    return row;
+  });
+  const first = marks[0];
+  const last = marks.at(-1);
+  const flows = first && last ? externalPerformanceFlows(first.date, last.date, activeEvents) : [];
+  const observationDates = new Set(marks.map((mark) => mark.date));
+  const missingFlowDates = [...new Set(flows.map((flow) => flow.date).filter((date) => !observationDates.has(date)))];
+  const boundaryExact = observations.length >= 2
+    && observations[0].completeness === true
+    && observations.at(-1).completeness === true;
+  return { marks, observations, flows, missingFlowDates, activeEvents, boundaryExact };
+}
+
+function performanceXirr(engine, dataset) {
+  if (!engine || dataset.marks.length < 2 || !dataset.boundaryExact) return null;
+  const first = dataset.marks[0];
+  const last = dataset.marks.at(-1);
+  const cashFlows = [{ date: first.date, amountKRW: -first.navKRW }];
+  dataset.flows.forEach((flow) => cashFlows.push({
+    date: flow.date,
+    amountKRW: -flow.amountKRW
+  }));
+  cashFlows.push({ date: last.date, amountKRW: last.navKRW });
+  return engine.calculateXirr({ cashFlows });
+}
+
+function metricPercent(value, fallback = "계산 불가") {
+  return Number.isFinite(value) ? percent(value) : fallback;
+}
+
+function renderPerformanceCoverage(bounds, dataset, analysis) {
+  if (!els.performanceCoverage) return;
+  if (bounds.error) {
+    els.performanceCoverage.innerHTML = `<strong>기간을 확인하세요</strong><span>${escapeHtml(bounds.error)}</span>`;
+    return;
+  }
+  if (!dataset.marks.length) {
+    const live = currentPerformanceObservation();
+    const reason = live?.issueCodes?.length
+      ? `현재 평가점 미생성: ${live.issueCodes.join(", ")}`
+      : "가격표와 원장을 확인한 뒤 앱을 열거나 조회 기록을 저장하면 첫 평가점이 생성됩니다.";
+    els.performanceCoverage.innerHTML = `<strong>아직 계산 가능한 평가점이 없어요</strong><span>${escapeHtml(reason)}</span>`;
+    return;
+  }
+  if (dataset.marks.length < 2) {
+    const exact = dataset.observations[0]?.completeness === true;
+    els.performanceCoverage.innerHTML = exact
+      ? `<strong>${escapeHtml(dataset.marks[0].date)}부터 정확한 측정을 시작했어요</strong><span>서로 다른 날짜의 완전한 평가점이 하나 더 쌓이면 기간 수익률을 계산합니다.</span>`
+      : `<strong>${escapeHtml(dataset.marks[0].date)} 평가점의 무결성을 확인할 수 없어요</strong><span>원장·방법론·가격 evidence digest와 내부 항등식을 모두 충족하는 새 평가점이 필요합니다.</span>`;
+    return;
+  }
+  if (dataset.missingFlowDates.length) {
+    els.performanceCoverage.innerHTML = `<strong>현금흐름 경계 평가점이 부족해 TWR을 계산하지 않았어요</strong><span>${escapeHtml(dataset.missingFlowDates.join(", "))} 입출금일의 완전한 평가점이 필요합니다. XIRR은 실제 입출금 날짜로 별도 계산합니다.</span>`;
+    return;
+  }
+  if (!analysis?.twr?.ok || dataset.observations.some((row) => row.completeness !== true)) {
+    els.performanceCoverage.innerHTML = `<strong>평가점 검증이 완료되지 않아 TWR을 계산하지 않았어요</strong><span>원장 prefix, 평가 방법론, 가격 evidence digest, NAV·입출금 항등식과 평가점 무결성을 확인하세요.</span>`;
+    return;
+  }
+  const effective = `${dataset.marks[0].date} ~ ${dataset.marks.at(-1).date}`;
+  const availability = analysis?.availability === "VERIFIED" ? "검증 완료" : "제한적 계산";
+  els.performanceCoverage.innerHTML = `<strong>${availability} · ${dataset.marks.length}개 평가점</strong><span>${effective} · 장 종료 후 현금흐름 정책 · 원장 재검증 · 가격 evidence digest 기록 · 평가점 무결성 확인</span>`;
+}
+
+function renderPerformanceCapacityNotice() {
+  if (!els.performanceCoverage || state.performanceObservations.length < PERFORMANCE_OBSERVATION_LIMIT) return;
+  const notice = document.createElement("span");
+  notice.className = "performance-capacity-notice";
+  notice.textContent = `평가점 ${PERFORMANCE_OBSERVATION_LIMIT.toLocaleString("ko-KR")}개 보존 한도에 도달했습니다. 기존 데이터는 유지되지만 새 날짜 측정은 중단됩니다.`;
+  els.performanceCoverage.append(notice);
+}
+
+function renderPerformanceAttribution(attribution) {
+  if (!els.performanceAttribution) return;
+  const components = attribution?.components;
+  if (!components || !attribution.ok) {
+    els.performanceAttribution.innerHTML = `<p class="performance-empty">가격·환율·현금흐름을 정합하게 분리할 평가점이 더 필요합니다.</p>`;
+    return;
+  }
+  const items = [
+    ["순입출금", components.externalFlowKRW],
+    ["잔여 투자효과(추정)", components.marketPriceEffectKRW],
+    ["환율 효과", components.fxEffectKRW],
+    ["수동평가 효과", components.manualValuationEffectKRW],
+    ["배당·이자", components.incomeEffectKRW],
+    ["수수료·세금", components.costEffectKRW]
+  ];
+  els.performanceAttribution.innerHTML = items.map(([label, value]) => `
+    <article><span>${label}</span><strong class="${value > 0 ? "positive" : value < 0 ? "negative" : ""}">${money(value)}</strong></article>
+  `).join("") + `<p class="field-help">원화 가치변화 브리지입니다. 잔여 투자효과는 독립 가격 기여도가 아니라 전체 변화에서 다른 항목을 뺀 추정값입니다. 계산 잔여오차 ${money(attribution.residualKRW || 0)}</p>`;
+}
+
+function drawPerformanceChart(analysis) {
+  const canvas = els.performanceChart;
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const returns = analysis?.series?.returns || [];
+  const observations = analysis?.series?.observations || [];
+  const width = Math.max(320, canvas.clientWidth || Number(canvas.getAttribute("width")) || 1100);
+  const height = Math.max(220, canvas.clientHeight || Number(canvas.getAttribute("height")) || 300);
+  const ratio = Math.max(1, window.devicePixelRatio || 1);
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  if (typeof ctx.setTransform === "function") ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  if (!observations.length) {
+    if (els.performanceChartDescription) els.performanceChartDescription.textContent = "표시할 검증된 기간 성과가 없습니다.";
+    return;
+  }
+  const portfolio = [{ date: observations[0].date, value: 0 }];
+  let wealth = 1;
+  returns.forEach((row) => {
+    wealth *= 1 + row.return;
+    portfolio.push({ date: row.endDate, value: wealth - 1 });
+  });
+  const benchmarkPoints = observations.filter((row) => row.benchmark?.level > 0);
+  const benchmark = benchmarkPoints.length === observations.length
+    ? benchmarkPoints.map((row) => ({ date: row.date, value: row.benchmark.level / benchmarkPoints[0].benchmark.level - 1 }))
+    : [];
+  const allValues = [...portfolio, ...benchmark].map((point) => point.value);
+  const min = Math.min(0, ...allValues);
+  const max = Math.max(0, ...allValues);
+  const span = Math.max(0.01, max - min);
+  const left = 44;
+  const right = width - 18;
+  const top = 20;
+  const bottom = height - 34;
+  const allDates = [...portfolio, ...benchmark].map((point) => Date.parse(`${point.date}T00:00:00.000Z`));
+  const minDate = Math.min(...allDates);
+  const maxDate = Math.max(...allDates);
+  const x = (date) => {
+    const timestamp = Date.parse(`${date}T00:00:00.000Z`);
+    return left + (right - left) * (maxDate === minDate ? 0 : (timestamp - minDate) / (maxDate - minDate));
+  };
+  const y = (value) => bottom - (bottom - top) * ((value - min) / span);
+  ctx.strokeStyle = "rgba(100, 116, 139, 0.35)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(left, y(0));
+  ctx.lineTo(right, y(0));
+  ctx.stroke();
+  const draw = (points, color) => {
+    if (points.length < 2) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    points.forEach((point, index) => {
+      if (index === 0) ctx.moveTo(x(point.date), y(point.value));
+      else ctx.lineTo(x(point.date), y(point.value));
+    });
+    ctx.stroke();
+  };
+  draw(portfolio, "#3157d5");
+  draw(benchmark, "#d97706");
+  if (els.performanceChartDescription) {
+    els.performanceChartDescription.textContent = `${portfolio[0].date}부터 ${portfolio.at(-1).date}까지 포트폴리오 누적 성과 ${metricPercent(portfolio.at(-1).value)}${benchmark.length ? `, 비교 기준 ${metricPercent(benchmark.at(-1).value)}` : ""}.`;
+  }
+}
+
+function renderPerformance() {
+  if (!els.performanceTabPanel) return;
+  const engine = performanceEngine();
+  const bounds = performanceRangeBounds();
+  if (els.performanceRangeValidation) {
+    els.performanceRangeValidation.textContent = bounds.error || "과거 조회 히스토리는 단순 자산 변화이며, 여기서는 원장 이후 검증된 평가점만 수익률로 계산합니다.";
+  }
+  const emptyDataset = { marks: [], observations: [], flows: [], missingFlowDates: [], boundaryExact: false };
+  const dataset = !bounds.error ? performanceInputForRange(bounds) : emptyDataset;
+  const analysis = engine && dataset.observations.length
+    ? engine.analyzePerformance({ observations: dataset.observations })
+    : null;
+  const returnAnalysis = dataset.missingFlowDates.length || !analysis?.twr?.ok ? null : analysis;
+  const exactTwr = returnAnalysis?.twr;
+  const xirr = performanceXirr(engine, dataset);
+  const first = dataset.marks[0];
+  const last = dataset.marks.at(-1);
+  const netFlow = dataset.boundaryExact
+    ? last.cumulative.externalFlowKRW - first.cumulative.externalFlowKRW
+    : null;
+  const gain = dataset.boundaryExact ? last.navKRW - first.navKRW - netFlow : null;
+  if (els.performanceTwr) els.performanceTwr.textContent = exactTwr?.ok ? metricPercent(exactTwr.periodReturn) : "계산 불가";
+  if (els.performanceXirr) els.performanceXirr.textContent = xirr?.ok ? metricPercent(xirr.annualizedReturn) : "계산 불가";
+  if (els.performanceNetFlow) els.performanceNetFlow.textContent = Number.isFinite(netFlow) ? money(netFlow) : "—";
+  if (els.performanceGain) els.performanceGain.textContent = Number.isFinite(gain) ? money(gain) : "—";
+
+  const benchmark = returnAnalysis?.benchmark;
+  if (uiState.performanceBenchmark === "NONE") {
+    if (els.performanceBenchmarkStatus) els.performanceBenchmarkStatus.textContent = "비교 기준 없음";
+    if (els.performanceBenchmarkReturn) els.performanceBenchmarkReturn.textContent = "—";
+    if (els.performanceExcessReturn) els.performanceExcessReturn.textContent = "—";
+  } else if (benchmark?.ok) {
+    if (els.performanceBenchmarkStatus) {
+      els.performanceBenchmarkStatus.textContent = uiState.performanceBenchmark === "KOSPI"
+        ? "KOSPI 가격지수 · 배당 미포함"
+        : "S&P 500 가격지수 · 배당 미포함 · 원화 환산 · 환헤지 아님";
+    }
+    if (els.performanceBenchmarkReturn) els.performanceBenchmarkReturn.textContent = metricPercent(benchmark.benchmarkReturn);
+    if (els.performanceExcessReturn) {
+      els.performanceExcessReturn.textContent = Number.isFinite(benchmark.percentagePointDifference)
+        ? `${(benchmark.percentagePointDifference * 100).toFixed(2)}%p`
+        : "계산 불가";
+    }
+  } else {
+    if (els.performanceBenchmarkStatus) els.performanceBenchmarkStatus.textContent = "같은 날짜·통화·방법론·환율 기준을 충족하는 벤치마크 평가점 부족";
+    if (els.performanceBenchmarkReturn) els.performanceBenchmarkReturn.textContent = "계산 불가";
+    if (els.performanceExcessReturn) els.performanceExcessReturn.textContent = "계산 불가";
+  }
+
+  renderPerformanceCoverage(bounds, dataset, analysis);
+  renderPerformanceCapacityNotice();
+  renderPerformanceAttribution(returnAnalysis?.attribution);
+  const drawdown = returnAnalysis?.drawdown;
+  const volatility = returnAnalysis?.volatility;
+  if (els.performanceMaxDrawdown) {
+    els.performanceMaxDrawdown.textContent = drawdown?.ok ? metricPercent(drawdown.maxDrawdown) : "계산 불가";
+  }
+  if (els.performanceRecoveryPeriod) {
+    els.performanceRecoveryPeriod.textContent = drawdown?.ok
+      ? drawdown.recovered
+        ? `${drawdown.recoveryDays}일`
+        : drawdown.maxDrawdown < 0 ? "미회복" : "낙폭 없음"
+      : "계산 불가";
+  }
+  const irregular = (returnAnalysis?.series?.quality?.irregularGapCount || 0) > 0;
+  if (els.performanceVolatility) {
+    els.performanceVolatility.textContent = volatility?.ok && volatility.displayEligible && !irregular
+      ? metricPercent(volatility.annualizedVolatility)
+      : "관측 부족";
+  }
+  drawPerformanceChart(returnAnalysis);
+}
+
 function renderInvestmentRecordTabs() {
-  const active = ["JOURNAL", "REALIZED", "LEDGER"].includes(uiState.investmentRecordTab)
+  const active = ["JOURNAL", "REALIZED", "LEDGER", "PERFORMANCE"].includes(uiState.investmentRecordTab)
     ? uiState.investmentRecordTab
     : "JOURNAL";
   uiState.investmentRecordTab = active;
   const tabPairs = [
     ["JOURNAL", els.investmentJournalTab, els.journalTabPanel],
     ["REALIZED", els.investmentRealizedTab, els.realizedTabPanel],
-    ["LEDGER", els.investmentLedgerTab, els.ledgerTabPanel]
+    ["LEDGER", els.investmentLedgerTab, els.ledgerTabPanel],
+    ["PERFORMANCE", els.investmentPerformanceTab, els.performanceTabPanel]
   ];
 
   tabPairs.forEach(([tab, button, panel]) => {
@@ -4629,21 +6985,24 @@ function activeRealizedTrades() {
 }
 
 function setInvestmentRecordTab(tab, { scroll = false } = {}) {
-  if (!["JOURNAL", "REALIZED", "LEDGER"].includes(tab)) return;
+  if (!["JOURNAL", "REALIZED", "LEDGER", "PERFORMANCE"].includes(tab)) return;
   uiState.investmentRecordTab = tab;
+  if (tab === "PERFORMANCE") renderPerformance();
   renderInvestmentRecordTabs();
   if (scroll) {
     const panel = tab === "REALIZED"
       ? els.realizedTabPanel
       : tab === "LEDGER"
         ? els.ledgerTabPanel
-        : els.journalTabPanel;
+        : tab === "PERFORMANCE"
+          ? els.performanceTabPanel
+          : els.journalTabPanel;
     panel?.scrollIntoView?.({ behavior: "smooth", block: "start" });
   }
 }
 
 function handleInvestmentTabKeydown(event) {
-  const items = [els.investmentJournalTab, els.investmentRealizedTab, els.investmentLedgerTab].filter(Boolean);
+  const items = [els.investmentJournalTab, els.investmentRealizedTab, els.investmentLedgerTab, els.investmentPerformanceTab].filter(Boolean);
   const targetIndex = rovingTargetIndex(event, items);
   if (targetIndex < 0) return;
   event.preventDefault();
@@ -4908,18 +7267,22 @@ function renderCurrentViewWithoutPersist() {
   setActiveView(uiState.activeView, { scroll: false });
 }
 
-function commitLedgerMutation(mutator) {
+function commitLedgerMutation(mutator, { safeError = false } = {}) {
   const before = storageSafeState();
   try {
     const output = mutator();
     applyPricesToAssets();
+    refreshPerformanceObservation({ source: "LEDGER_CHANGE" });
     if (!render()) throw new Error("변경 내용을 로컬 저장소에 기록하지 못했습니다.");
     return { ok: true, output };
   } catch (error) {
-    console.error(error);
+    if (safeError) console.error("CSV 원장 변경을 적용하지 못했습니다.");
+    else console.error(error);
     replaceState(before);
     renderCurrentViewWithoutPersist();
-    alert(`거래 원장을 저장하지 않았습니다. ${error.message}`);
+    alert(safeError
+      ? "거래 원장을 저장하지 않았습니다. 미리보기를 다시 만들고 원장 상태를 확인하세요."
+      : `거래 원장을 저장하지 않았습니다. ${error.message}`);
     return { ok: false, error };
   }
 }
@@ -6095,6 +8458,16 @@ function daysSince(value) {
   return (Date.now() - date.getTime()) / (24 * 60 * 60 * 1000);
 }
 
+function calendarDaysSince(dateKey, todayKey = localDateInputValue()) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || "")) || !/^\d{4}-\d{2}-\d{2}$/.test(String(todayKey || ""))) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const start = Date.parse(`${dateKey}T00:00:00.000Z`);
+  const end = Date.parse(`${todayKey}T00:00:00.000Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return Number.POSITIVE_INFINITY;
+  return Math.floor((end - start) / (24 * 60 * 60 * 1000));
+}
+
 function compactMoney(value) {
   if (value >= 100000000) return `${(value / 100000000).toFixed(1)}억`;
   if (value >= 10000) return `${(value / 10000).toFixed(0)}만`;
@@ -6868,6 +9241,192 @@ els.watchlistList?.addEventListener("click", (event) => {
   });
 });
 
+els.butlerImportForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  try {
+    previewButlerImport();
+  } catch (error) {
+    butlerDataPreview = null;
+    renderButlerPreview();
+    if (els.butlerImportStatus) els.butlerImportStatus.textContent = error.message || "Butler 표를 확인하세요.";
+  }
+});
+
+els.saveButlerImportBtn?.addEventListener("click", () => {
+  try {
+    saveButlerPreview();
+  } catch (error) {
+    if (els.butlerImportStatus) els.butlerImportStatus.textContent = error.message || "외부 데이터를 저장하지 못했습니다.";
+  }
+});
+
+window.addEventListener("storage", (event) => {
+  if (event.storageArea !== localStorage) return;
+  if (event.key === externalDataStorageKey()) {
+    externalDataReadToken += 1;
+    externalDataStore = loadExternalDataStore();
+    butlerDataPreview = null;
+    if (els.butlerClipboardText) els.butlerClipboardText.value = "";
+    renderExternalData();
+    refreshAnalysisEvidence();
+  } else if (event.key === etfCatalogStorageKey()) {
+    etfCatalogReadToken += 1;
+    etfCatalog = loadStoredEtfCatalog();
+    renderEtfLookThrough();
+    refreshAnalysisEvidence();
+  }
+});
+
+els.downloadExternalDataBtn?.addEventListener("click", () => {
+  const downloaded = downloadAnalysisStore("external");
+  if (els.butlerImportStatus) {
+    els.butlerImportStatus.textContent = downloaded
+      ? "현재 사용자의 외부 데이터 원본을 백업 파일로 만들었습니다."
+      : "외부 데이터 백업 파일을 만들지 못했습니다.";
+  }
+});
+
+els.externalDataBackupInput?.addEventListener("change", async (event) => {
+  const [file] = event.target.files || [];
+  if (!file) return;
+  if (els.butlerImportStatus) els.butlerImportStatus.textContent = "외부 데이터 백업을 로컬에서 검증하고 있습니다.";
+  try {
+    const imported = await importExternalDataBackupFile(file);
+    if (imported && els.butlerImportStatus) {
+      els.butlerImportStatus.textContent = "기존 외부 데이터를 백업하고 검증된 백업 파일로 교체했습니다.";
+    }
+  } catch (error) {
+    if (els.butlerImportStatus) els.butlerImportStatus.textContent = error.message || "외부 데이터 백업을 가져오지 못했습니다.";
+  } finally {
+    event.target.value = "";
+  }
+});
+
+els.externalCompanyList?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-remove-external-snapshot]");
+  if (!button) return;
+  try {
+    if (removeExternalSnapshot(button.dataset.removeExternalSnapshot) && els.butlerImportStatus) {
+      els.butlerImportStatus.textContent = "삭제 전 백업을 만들고 선택한 외부 데이터 스냅샷을 삭제했습니다.";
+    }
+  } catch (error) {
+    if (els.butlerImportStatus) els.butlerImportStatus.textContent = error.message || "외부 데이터 스냅샷을 삭제하지 못했습니다.";
+  }
+});
+
+els.clearExternalDataBtn?.addEventListener("click", () => {
+  try {
+    if (clearAnalysisStore("external") && els.butlerImportStatus) {
+      els.butlerImportStatus.textContent = "현재 사용자의 외부 기업 실적만 비웠습니다. 포트폴리오와 원장에는 영향이 없습니다.";
+    }
+  } catch (error) {
+    if (els.butlerImportStatus) els.butlerImportStatus.textContent = error.message || "외부 데이터를 비우지 못했습니다.";
+  }
+});
+
+[els.butlerAssetSelect, els.butlerCurrency, els.butlerSourceUrl, els.butlerClipboardText].filter(Boolean).forEach((input) => {
+  const eventName = input.tagName === "SELECT" ? "change" : "input";
+  input.addEventListener(eventName, () => {
+    if (input === els.butlerAssetSelect) {
+      const instrument = selectedButlerInstrument();
+      if (instrument && els.butlerCurrency) els.butlerCurrency.value = instrument.type === "US" ? "USD" : "KRW";
+      if (instrument && els.butlerSourceUrl && !els.butlerSourceUrl.value.trim()) {
+        els.butlerSourceUrl.value = window.AssetTrailExternalDataEngine?.buildButlerCompanyUrl?.() || "https://www.butler.works/ko/home";
+      }
+    }
+    if (!butlerDataPreview) return;
+    butlerDataPreview = null;
+    renderButlerPreview();
+    if (els.butlerImportStatus) els.butlerImportStatus.textContent = "입력이 바뀌었습니다. 저장 전에 다시 미리보기 하세요.";
+  });
+});
+
+els.etfCatalogInput?.addEventListener("change", async (event) => {
+  const [file] = event.target.files || [];
+  if (!file) return;
+  if (els.etfCatalogStatus) els.etfCatalogStatus.textContent = "ETF 구성 파일을 로컬에서 검증하고 있습니다.";
+  try {
+    await importEtfCatalogFile(file);
+    if (els.etfCatalogStatus) els.etfCatalogStatus.textContent = "검증된 ETF 구성 데이터만 현재 사용자 브라우저에 저장했습니다.";
+  } catch (error) {
+    if (els.etfCatalogStatus) els.etfCatalogStatus.textContent = error.message || "ETF 구성 파일을 읽지 못했습니다.";
+  } finally {
+    event.target.value = "";
+  }
+});
+
+els.downloadEtfTemplateBtn?.addEventListener("click", () => {
+  if (!downloadEtfCatalogTemplate() && els.etfCatalogStatus) {
+    els.etfCatalogStatus.textContent = "ETF 표준 양식 파일을 만들지 못했습니다.";
+  }
+});
+
+els.downloadEtfCatalogBtn?.addEventListener("click", () => {
+  const downloaded = downloadAnalysisStore("etf");
+  if (els.etfCatalogStatus) {
+    els.etfCatalogStatus.textContent = downloaded
+      ? "현재 사용자의 ETF 구성 원본을 백업 파일로 만들었습니다."
+      : "ETF 구성 백업 파일을 만들지 못했습니다.";
+  }
+});
+
+els.clearEtfCatalogBtn?.addEventListener("click", () => {
+  try {
+    if (clearAnalysisStore("etf") && els.etfCatalogStatus) {
+      els.etfCatalogStatus.textContent = "현재 사용자의 ETF 구성만 비웠습니다. ETF 보유 금액은 미지원 노출로 보존합니다.";
+    }
+  } catch (error) {
+    if (els.etfCatalogStatus) els.etfCatalogStatus.textContent = error.message || "ETF 구성을 비우지 못했습니다.";
+  }
+});
+
+els.refreshEvidenceBtn?.addEventListener("click", () => {
+  refreshAnalysisEvidence({ announce: true });
+});
+
+els.downloadEvidenceBtn?.addEventListener("click", () => {
+  const envelope = currentEvidenceEnvelope || refreshAnalysisEvidence();
+  if (!envelope) {
+    if (els.aiReportValidationStatus) els.aiReportValidationStatus.textContent = "근거 패키지를 만들지 못했습니다.";
+    return;
+  }
+  const downloaded = downloadTextFile(
+    JSON.stringify(envelope, null, 2),
+    `assettrail-ai-evidence-${envelope.asOfDate || localDateInputValue()}.json`
+  );
+  if (els.aiReportValidationStatus) {
+    els.aiReportValidationStatus.textContent = downloaded
+      ? "상대 지표와 익명 근거만 포함한 JSON을 만들었습니다."
+      : "근거 JSON 파일을 만들지 못했습니다.";
+  }
+});
+
+els.copyAiHandoffBtn?.addEventListener("click", async () => {
+  try {
+    await copyAnalysisHandoff();
+    if (els.aiReportValidationStatus) {
+      els.aiReportValidationStatus.textContent = "별도 API 호출 없이 수동 ChatGPT 전달문을 복사했습니다. ChatGPT 응답 JSON을 아래에서 검증하세요.";
+    }
+  } catch (error) {
+    if (els.aiReportValidationStatus) els.aiReportValidationStatus.textContent = error.message || "전달문을 복사하지 못했습니다.";
+  }
+});
+
+els.validateAiReportBtn?.addEventListener("click", () => {
+  try {
+    validateAndRenderAiReport();
+  } catch (error) {
+    if (els.validatedAiReport) els.validatedAiReport.innerHTML = "";
+    if (els.aiReportValidationStatus) els.aiReportValidationStatus.textContent = error.message || "AI 결과를 검증하지 못했습니다.";
+  }
+});
+
+els.clearAiReportBtn?.addEventListener("click", () => {
+  if (els.aiReportJson) els.aiReportJson.value = "";
+  if (els.validatedAiReport) els.validatedAiReport.innerHTML = "";
+  if (els.aiReportValidationStatus) els.aiReportValidationStatus.textContent = "AI 입력과 화면 표시를 지웠습니다. 저장된 데이터에는 영향이 없습니다.";
+});
+
 els.assetForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const editingId = els.assetId.value;
@@ -7561,8 +10120,30 @@ els.investmentLedgerTab?.addEventListener("click", () => {
   setInvestmentRecordTab("LEDGER");
 });
 
-[els.investmentJournalTab, els.investmentRealizedTab, els.investmentLedgerTab].filter(Boolean).forEach((button) => {
+els.investmentPerformanceTab?.addEventListener("click", () => {
+  setInvestmentRecordTab("PERFORMANCE");
+});
+
+[els.investmentJournalTab, els.investmentRealizedTab, els.investmentLedgerTab, els.investmentPerformanceTab].filter(Boolean).forEach((button) => {
   button.addEventListener("keydown", handleInvestmentTabKeydown);
+});
+
+els.performanceRange?.addEventListener("change", () => {
+  uiState.performanceRange = els.performanceRange.value;
+  renderPerformance();
+});
+
+[els.performanceStartDate, els.performanceEndDate].filter(Boolean).forEach((input) => {
+  input.addEventListener("change", () => {
+    uiState.performanceStartDate = els.performanceStartDate?.value || "";
+    uiState.performanceEndDate = els.performanceEndDate?.value || "";
+    renderPerformance();
+  });
+});
+
+els.performanceBenchmark?.addEventListener("change", () => {
+  uiState.performanceBenchmark = els.performanceBenchmark.value;
+  renderPerformance();
 });
 
 els.goalMobileButtons.forEach((button) => {
@@ -7967,6 +10548,14 @@ els.historyRange.addEventListener("change", () => {
   renderHistory();
 });
 
+els.openPerformanceFromHistoryBtn?.addEventListener("click", () => {
+  uiState.investmentRecordTab = "PERFORMANCE";
+  setActiveView("JOURNAL", { scroll: true, updateHash: true, focus: true });
+  renderPerformance();
+  renderInvestmentRecordTabs();
+  els.investmentPerformanceTab?.focus();
+});
+
 els.realizedYearFilter?.addEventListener("change", () => {
   uiState.realizedYear = els.realizedYearFilter.value;
   renderRealized();
@@ -7999,11 +10588,28 @@ els.snapshotBtn.addEventListener("click", () => {
     )
   };
   state.snapshots.push(normalizeSnapshot(snapshot));
+  const performanceDate = performanceValuationDate();
+  const previousPerformanceObservation = state.performanceObservations.find((item) => item.date === performanceDate);
+  const previousPerformanceCopy = previousPerformanceObservation
+    ? normalizePerformanceObservation(JSON.parse(JSON.stringify(previousPerformanceObservation)))
+    : null;
+  const performanceObservation = refreshPerformanceObservation({
+    source: "USER_SNAPSHOT",
+    snapshotId: snapshot.id
+  });
   if (els.snapshotNote) els.snapshotNote.value = "";
   render();
   const warning = readiness.warnings.length ? ` ${readiness.warnings.join(" ")}` : "";
   showUndoNotice(`조회 기록을 저장했습니다.${warning}`, () => {
     state.snapshots = state.snapshots.filter((item) => item.id !== snapshot.id);
+    if (performanceObservation) {
+      if (previousPerformanceCopy) {
+        const index = state.performanceObservations.findIndex((item) => item.id === performanceObservation.id);
+        if (index >= 0) state.performanceObservations[index] = previousPerformanceCopy;
+      } else {
+        state.performanceObservations = state.performanceObservations.filter((item) => item.id !== performanceObservation.id);
+      }
+    }
     render();
   });
 });
@@ -8134,6 +10740,454 @@ function downloadTextFile(content, filename) {
 
 function downloadStateFile(data, filename) {
   return downloadTextFile(JSON.stringify(data, null, 2), filename);
+}
+
+const BROKER_CSV_ISSUE_LABELS = {
+  AMBIGUOUS_ASSET_MAPPING: "자산 계좌 연결을 선택하세요.",
+  AMBIGUOUS_CASH_MAPPING: "결제 CASH 연결을 선택하세요.",
+  ASSET_NOT_FOUND: "기존 자산에서 종목을 찾지 못했습니다.",
+  BEFORE_BASELINE: "원장 기준일 이전 거래라 제외했습니다.",
+  CASH_NOT_FOUND: "연결할 CASH 자산이 없습니다.",
+  CSV_INVALID_QUOTE: "CSV 따옴표 형식이 올바르지 않습니다.",
+  DUPLICATE_EXACT: "이미 원장에 있는 동일 거래입니다.",
+  FILE_TOO_LARGE: "CSV 파일은 15MB 이하여야 합니다.",
+  INVALID_ASSET_MAPPING: "선택한 자산 연결이 유효하지 않습니다.",
+  INVALID_CASH_MAPPING: "선택한 CASH 연결이 유효하지 않습니다.",
+  INVALID_CURRENCY: "통화 코드가 올바르지 않습니다.",
+  INVALID_DATE: "날짜가 올바르지 않습니다.",
+  INVALID_NUMBER: "숫자 형식이 올바르지 않습니다.",
+  INVALID_TYPE: "지원하지 않는 거래 유형입니다.",
+  LEDGER_REJECTED: "원장 잔액·수량 정합성 때문에 제외했습니다.",
+  MISSING_FIELD: "필수 값이 없습니다.",
+  MISSING_FX_RATE: "외화 거래 환율이 없습니다.",
+  SOURCE_CHANGED: "같은 원본 거래 ID의 내용이 달라 적용을 중단했습니다.",
+  TOO_MANY_ROWS: "CSV 거래 행은 50,000건 이하여야 합니다.",
+  AMBIGUOUS_FORMAT: "여러 CSV 형식이 같은 신뢰도로 감지되어 자동 선택하지 않았습니다.",
+  UNSUPPORTED_FORMAT: "지원하는 CSV 형식을 감지하지 못했습니다. 표준 CSV 양식을 사용하세요."
+};
+
+function brokerCsvEngine() {
+  return window.AssetTrailBrokerCsvEngine || null;
+}
+
+function brokerCsvStateFingerprint() {
+  const engine = brokerCsvEngine();
+  const canonical = JSON.stringify({
+    assets: state.assets.map(serializeAsset),
+    ledgerMeta: normalizeLedgerMeta(state.ledgerMeta),
+    ledger: ledgerEventFingerprint(state.events)
+  });
+  return engine?.sha256Hex ? `broker-csv-state-sha256-v1:${engine.sha256Hex(canonical)}` : "";
+}
+
+function brokerCsvRegistryForSelection(engine) {
+  const selected = els.brokerCsvAdapter?.value || "AUTO";
+  if (selected === "AUTO") return undefined;
+  const adapters = [window.AssetTrailBrokerCsvStandardAdapter].filter(Boolean);
+  const adapter = adapters.find((item) => item.id === selected);
+  if (!adapter) return undefined;
+  const registry = engine.createRegistry();
+  registry.register(adapter);
+  return registry;
+}
+
+function populateBrokerCsvAdapters() {
+  const engine = brokerCsvEngine();
+  if (!engine || !els.brokerCsvAdapter) return;
+  const selected = els.brokerCsvAdapter.value || "AUTO";
+  const adapters = engine.listAdapters();
+  els.brokerCsvAdapter.innerHTML = `<option value="AUTO">자동 감지</option>${adapters.map((adapter) => (
+    `<option value="${escapeHtml(adapter.id)}">${escapeHtml(adapter.displayName)}</option>`
+  )).join("")}`;
+  els.brokerCsvAdapter.value = adapters.some((adapter) => adapter.id === selected) ? selected : "AUTO";
+}
+
+function openBrokerCsvDialog(opener) {
+  if (!els.brokerCsvImportDialog) return;
+  populateBrokerCsvAdapters();
+  brokerCsvDialogOpener = opener || document.activeElement;
+  if (els.app) els.app.setAttribute("inert", "");
+  if (typeof els.brokerCsvImportDialog.showModal === "function") els.brokerCsvImportDialog.showModal();
+  else els.brokerCsvImportDialog.setAttribute("open", "");
+  window.requestAnimationFrame(() => els.brokerCsvImportTitle?.focus({ preventScroll: true }));
+}
+
+function closeBrokerCsvDialog() {
+  if (!els.brokerCsvImportDialog) return;
+  brokerCsvReadToken += 1;
+  brokerCsvPreview = null;
+  if (els.brokerCsvInput) els.brokerCsvInput.value = "";
+  if (typeof els.brokerCsvImportDialog.close === "function" && els.brokerCsvImportDialog.open) {
+    els.brokerCsvImportDialog.close();
+  } else {
+    els.brokerCsvImportDialog.removeAttribute("open");
+  }
+  if (els.app) els.app.removeAttribute("inert");
+  const opener = brokerCsvDialogOpener;
+  brokerCsvDialogOpener = null;
+  opener?.focus?.({ preventScroll: true });
+  resetBrokerCsvPreviewUi();
+}
+
+function resetBrokerCsvPreviewUi() {
+  if (els.brokerCsvImportStatus) {
+    els.brokerCsvImportStatus.textContent = "CSV 원문은 미리보기 동안 브라우저 메모리에만 두며 기기 저장소나 서버에 저장·전송하지 않습니다.";
+    els.brokerCsvImportStatus.setAttribute("aria-busy", "false");
+  }
+  if (els.brokerCsvImportMode) els.brokerCsvImportMode.textContent = "파일 분석 대기";
+  if (els.brokerCsvAccountMappings) {
+    els.brokerCsvAccountMappings.innerHTML = `<h3 id="brokerCsvAccountMappingsTitle">계좌 매핑</h3><p>파일을 분석하면 원본 계좌와 AssetTrail 계좌 연결이 표시됩니다.</p>`;
+  }
+  if (els.brokerCsvCashMappings) {
+    els.brokerCsvCashMappings.innerHTML = `<h3 id="brokerCsvCashMappingsTitle">결제 CASH 매핑</h3><p>매수·매도와 현금흐름을 반영할 CASH 자산을 확인합니다.</p>`;
+  }
+  if (els.brokerCsvPreviewSummary) {
+    els.brokerCsvPreviewSummary.innerHTML = `<article><span>거래</span><strong>0건</strong><small>분석 대기</small></article><article><span>기간</span><strong>—</strong><small>분석 대기</small></article><article><span>중복 제외</span><strong>0건</strong><small>원본 ID 기준</small></article><article><span>오류</span><strong>0건</strong><small>적용 전 확인</small></article>`;
+  }
+  if (els.brokerCsvErrorSummary) els.brokerCsvErrorSummary.textContent = "파일을 선택하면 오류 행과 처리 가능 여부를 표시합니다.";
+  if (els.brokerCsvPreviewRows) {
+    els.brokerCsvPreviewRows.innerHTML = `<tr><td colspan="7" class="empty">CSV 파일을 선택하면 행별 미리보기가 표시됩니다.</td></tr>`;
+  }
+  if (els.applyBrokerCsvImportBtn) els.applyBrokerCsvImportBtn.disabled = true;
+}
+
+function validateBrokerCsvCandidates(preview) {
+  const initialEvents = preview.candidateEvents.map((event) => normalizeLedgerEvent(event));
+  let candidateEvents = initialEvents;
+  const eventLimitExceeded = state.events.length + candidateEvents.length > IMPORT_LIMITS.events;
+  if (eventLimitExceeded) {
+    return {
+      candidateEvents,
+      projection: null,
+      projectionError: `원장 기록은 최대 ${IMPORT_LIMITS.events.toLocaleString("ko-KR")}건까지 저장할 수 있습니다. 현재 ${state.events.length.toLocaleString("ko-KR")}건과 반영 예정 ${candidateEvents.length.toLocaleString("ko-KR")}건의 합계를 줄이세요.`,
+      eventLimitExceeded: true,
+      rejectedIds: new Set(),
+      rows: preview.rows.map((row) => ({ ...row, issueCodes: [...row.issueCodes] }))
+    };
+  }
+  let projection = null;
+  const rejectedIds = new Set();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    projection = ledgerProjection([...state.events, ...candidateEvents]);
+    if (projection.ok) break;
+    const candidateIds = new Set(candidateEvents.map((event) => event.eventId));
+    const newlyRejected = new Set((projection.errors || [])
+      .map((error) => String(error.eventId || ""))
+      .filter((eventId) => candidateIds.has(eventId) && !rejectedIds.has(eventId)));
+    if (!newlyRejected.size) break;
+    newlyRejected.forEach((eventId) => rejectedIds.add(eventId));
+    candidateEvents = candidateEvents.filter((event) => !newlyRejected.has(event.eventId));
+  }
+  const rows = preview.rows.map((row) => rejectedIds.has(row.eventId)
+    ? { ...row, status: "invalid", issueCodes: [...row.issueCodes, "LEDGER_REJECTED"] }
+    : { ...row, issueCodes: [...row.issueCodes] });
+  return {
+    candidateEvents,
+    projection,
+    projectionError: projection.ok ? "" : brokerCsvProjectionErrorSummary(projection),
+    eventLimitExceeded: false,
+    rejectedIds,
+    rows
+  };
+}
+
+function brokerCsvProjectionErrorSummary(projection) {
+  const errors = projection?.errors || [];
+  const counts = new Map();
+  errors.forEach((error) => {
+    const code = String(error?.code || "LEDGER_ERROR").replace(/[^A-Z0-9_]/g, "").slice(0, 80) || "LEDGER_ERROR";
+    counts.set(code, (counts.get(code) || 0) + 1);
+  });
+  const labels = [...counts.entries()].slice(0, 3).map(([code, count]) => `${code} ${count}건`);
+  return errors.length
+    ? `원장 검증 오류 ${errors.length.toLocaleString("ko-KR")}건${labels.length ? ` (${labels.join(", ")})` : ""}`
+    : "원장 계산에 실패했습니다.";
+}
+
+function brokerCsvFinancialSummary(events) {
+  let cashDeltaKRW = 0;
+  const positionAssetIds = new Set();
+  events.forEach((event) => {
+    const feeKRW = Number(event.feeKRW || 0);
+    const taxKRW = Number(event.taxKRW || 0);
+    if (event.type === "BUY") {
+      cashDeltaKRW -= Number(event.grossAmountKRW || 0) + feeKRW + taxKRW;
+      if (event.assetId) positionAssetIds.add(event.assetId);
+    } else if (event.type === "SELL") {
+      cashDeltaKRW += Number(event.grossAmountKRW || 0) - feeKRW - taxKRW;
+      if (event.assetId) positionAssetIds.add(event.assetId);
+    } else if (["DEPOSIT", "DIVIDEND", "INTEREST"].includes(event.type)) {
+      cashDeltaKRW += Number(event.amountKRW || 0);
+    } else if (["WITHDRAWAL", "FEE", "TAX"].includes(event.type)) {
+      cashDeltaKRW -= Number(event.amountKRW || 0);
+    }
+  });
+  return { cashDeltaKRW, positionCount: positionAssetIds.size };
+}
+
+function brokerCsvApplicability(preview = brokerCsvPreview) {
+  const prepared = preview?.prepared;
+  const validation = preview?.validation;
+  if (!prepared || !validation) return { ok: false, reason: "미리보기가 없습니다." };
+  if (preview.sourceFingerprint !== brokerCsvStateFingerprint()) {
+    return { ok: false, reason: "미리보기 후 원장이 바뀌었습니다. 파일을 다시 분석하세요." };
+  }
+  if (!validation.candidateEvents.length) return { ok: false, reason: "반영할 유효 거래가 없습니다." };
+  if (prepared.mappingRequests.length || prepared.summary.unresolved > 0) {
+    return { ok: false, reason: "필요한 자산·CASH 연결을 모두 선택하세요." };
+  }
+  if (prepared.summary.conflict > 0) {
+    return { ok: false, reason: "같은 원본 거래 ID의 내용이 달라 적용할 수 없습니다." };
+  }
+  if (validation.eventLimitExceeded
+      || state.events.length + validation.candidateEvents.length > IMPORT_LIMITS.events) {
+    return { ok: false, reason: `전체 원장 기록은 ${IMPORT_LIMITS.events.toLocaleString("ko-KR")}건을 넘을 수 없습니다.` };
+  }
+  if (!validation.projection?.ok || validation.projectionError) {
+    return { ok: false, reason: validation.projectionError || "후보 거래가 원장 검증을 통과하지 못했습니다." };
+  }
+  return { ok: true, reason: "" };
+}
+
+function prepareBrokerCsvPreview() {
+  const engine = brokerCsvEngine();
+  if (!engine || !brokerCsvPreview?.text) return;
+  try {
+    const registry = brokerCsvRegistryForSelection(engine);
+    const prepared = engine.preparePreview({
+      text: brokerCsvPreview.text,
+      byteLength: brokerCsvPreview.byteLength,
+      assets: state.assets.map(serializeAsset),
+      events: state.events,
+      baselineDate: state.ledgerMeta?.baselineDate || undefined,
+      mappings: brokerCsvPreview.mappings,
+      ...(registry ? { registry } : {})
+    });
+    const validation = validateBrokerCsvCandidates(prepared);
+    brokerCsvPreview = {
+      ...brokerCsvPreview,
+      prepared,
+      validation,
+      sourceFingerprint: brokerCsvPreview.sourceFingerprint || brokerCsvStateFingerprint()
+    };
+    renderBrokerCsvPreview();
+  } catch (error) {
+    const code = String(error?.code || "UNSUPPORTED_FORMAT");
+    brokerCsvPreview = { ...brokerCsvPreview, prepared: null, validation: null, errorCode: code };
+    if (els.brokerCsvImportStatus) {
+      els.brokerCsvImportStatus.textContent = BROKER_CSV_ISSUE_LABELS[code] || "CSV 파일 구조를 확인하세요.";
+      els.brokerCsvImportStatus.setAttribute("aria-busy", "false");
+    }
+    if (els.brokerCsvErrorSummary) {
+      els.brokerCsvErrorSummary.textContent = `${code}: ${BROKER_CSV_ISSUE_LABELS[code] || "파일을 분석하지 못했습니다."}`;
+    }
+    if (els.applyBrokerCsvImportBtn) els.applyBrokerCsvImportBtn.disabled = true;
+  }
+}
+
+function brokerCsvMappingMarkup(kind, requests) {
+  if (!requests.length) return `<p>자동 연결이 완료되었습니다.</p>`;
+  const visibleRequests = requests.slice(0, BROKER_CSV_MAPPING_RENDER_LIMIT);
+  const markup = visibleRequests.map((request) => {
+    const options = request.candidateAssetIds.map((assetId) => {
+      const asset = state.assets.find((item) => item.id === assetId);
+      const label = asset
+        ? `${asset.name || asset.ticker || "자산"} · ${asset.account || "계좌 미지정"}`
+        : "알 수 없는 자산";
+      const selected = brokerCsvPreview?.mappings?.[kind]?.[request.key] === assetId;
+      return `<option value="${escapeHtml(assetId)}"${selected ? " selected" : ""}>${escapeHtml(label)}</option>`;
+    }).join("");
+    const subject = request.ticker ? `${request.market}:${request.ticker}` : "CASH";
+    return `<label>${escapeHtml(request.hint)} · ${escapeHtml(subject)}
+      <select data-broker-csv-mapping-kind="${kind}" data-broker-csv-mapping-key="${escapeHtml(request.key)}">
+        <option value="">연결 대상 선택</option>${options}
+      </select>
+    </label>`;
+  }).join("");
+  const remaining = requests.length - visibleRequests.length;
+  return markup + (remaining > 0
+    ? `<p class="field-help">화면 성능을 위해 연결 항목을 ${BROKER_CSV_MAPPING_RENDER_LIMIT.toLocaleString("ko-KR")}개씩 표시합니다. 현재 항목을 연결하면 남은 ${remaining.toLocaleString("ko-KR")}개가 이어서 표시됩니다.</p>`
+    : "");
+}
+
+function renderBrokerCsvMappings(requests) {
+  const assetRequests = requests.filter((request) => request.kind === "asset");
+  const cashRequests = requests.filter((request) => request.kind === "cash");
+  if (els.brokerCsvAccountMappings) {
+    els.brokerCsvAccountMappings.innerHTML = `<h3 id="brokerCsvAccountMappingsTitle">계좌 매핑</h3>${brokerCsvMappingMarkup("assets", assetRequests)}`;
+  }
+  if (els.brokerCsvCashMappings) {
+    els.brokerCsvCashMappings.innerHTML = `<h3 id="brokerCsvCashMappingsTitle">결제 CASH 매핑</h3>${brokerCsvMappingMarkup("cash", cashRequests)}`;
+  }
+}
+
+function brokerCsvRowVisible(status) {
+  const filter = els.brokerCsvRowFilter?.value || "ALL";
+  if (filter === "ALL") return true;
+  if (filter === "READY") return status === "ready";
+  if (filter === "DUPLICATE") return status === "duplicate";
+  return !["ready", "duplicate"].includes(status);
+}
+
+function brokerCsvEventAmount(event) {
+  if (!event) return "—";
+  if (["BUY", "SELL"].includes(event.type)) {
+    return `${formatPlainNumber(event.quantity)}주 · ${money(event.grossAmountKRW)}`;
+  }
+  return Number.isFinite(Number(event.amountKRW)) ? money(event.amountKRW) : "—";
+}
+
+function renderBrokerCsvRows() {
+  if (!els.brokerCsvPreviewRows || !brokerCsvPreview?.prepared || !brokerCsvPreview?.validation) return;
+  const eventsById = new Map(brokerCsvPreview.validation.candidateEvents.map((event) => [event.eventId, event]));
+  const rows = brokerCsvPreview.validation.rows.filter((row) => brokerCsvRowVisible(row.status));
+  const visible = rows.slice(0, 500);
+  const statusLabels = {
+    ready: "반영 예정",
+    duplicate: "중복 제외",
+    conflict: "충돌",
+    invalid: "오류",
+    unresolved: "연결 필요",
+    excluded: "기준일 전 제외"
+  };
+  els.brokerCsvPreviewRows.innerHTML = visible.length ? visible.map((row) => {
+    const event = eventsById.get(row.eventId);
+    const asset = event ? state.assets.find((item) => item.id === event.assetId || item.id === event.cashAssetId) : null;
+    const accountAsset = event ? state.assets.find((item) => item.id === event.cashAssetId) : null;
+    const issues = row.issueCodes.map((code) => BROKER_CSV_ISSUE_LABELS[code] || code).join(" ");
+    return `<tr data-csv-status="${escapeHtml(row.status)}">
+      <td><strong>${escapeHtml(statusLabels[row.status] || row.status)}</strong>${issues ? `<small>${escapeHtml(issues)}</small>` : ""}</td>
+      <td class="number">${row.rowNumber}</td>
+      <td>${escapeHtml(row.tradeDate || "—")}</td>
+      <td>${escapeHtml(LEDGER_EVENT_LABELS[row.eventType] || row.eventType || "—")}</td>
+      <td>${escapeHtml(asset?.name || event?.instrumentKey || "—")}</td>
+      <td>${escapeHtml(accountAsset?.account || "—")}</td>
+      <td class="number">${escapeHtml(brokerCsvEventAmount(event))}</td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="7" class="empty">선택한 상태의 행이 없습니다.</td></tr>`;
+  if (rows.length > visible.length) {
+    els.brokerCsvPreviewRows.insertAdjacentHTML(
+      "beforeend",
+      `<tr><td colspan="7" class="empty">화면 성능을 위해 처음 500건만 표시합니다. 전체 ${rows.length.toLocaleString("ko-KR")}건의 집계는 위 요약에 반영되었습니다.</td></tr>`
+    );
+  }
+}
+
+function renderBrokerCsvPreview() {
+  const preview = brokerCsvPreview?.prepared;
+  const validation = brokerCsvPreview?.validation;
+  if (!preview || !validation) return;
+  const summary = preview.summary;
+  const readyCount = validation.candidateEvents.length;
+  const errorCount = summary.invalid + summary.conflict + summary.unresolved + validation.rejectedIds.size;
+  const financial = brokerCsvFinancialSummary(validation.candidateEvents);
+  if (els.brokerCsvImportStatus) {
+    els.brokerCsvImportStatus.textContent = `${preview.adapter.displayName} 감지 · 원문은 미리보기 동안 메모리에만 있으며 기기 저장소나 서버에 저장·전송하지 않습니다.`;
+    els.brokerCsvImportStatus.setAttribute("aria-busy", "false");
+  }
+  if (els.brokerCsvImportMode) {
+    els.brokerCsvImportMode.textContent = summary.excluded
+      ? `원장 기준일 이후 증분 추가 · 기준일 전 ${summary.excluded}건 제외`
+      : "원장 기준일 이후 증분 추가";
+  }
+  if (els.brokerCsvPreviewSummary) {
+    const period = summary.period.from ? `${summary.period.from} ~ ${summary.period.to}` : "—";
+    els.brokerCsvPreviewSummary.innerHTML = `
+      <article><span>반영 예정</span><strong>${readyCount.toLocaleString("ko-KR")}건</strong><small>전체 ${summary.totalRows.toLocaleString("ko-KR")}행 · 현금 ${escapeHtml(money(financial.cashDeltaKRW))}</small></article>
+      <article><span>기간</span><strong>${escapeHtml(period)}</strong><small>계좌 ${summary.accountCount.toLocaleString("ko-KR")}개</small></article>
+      <article><span>중복 제외</span><strong>${summary.duplicate.toLocaleString("ko-KR")}건</strong><small>원본 ID·경제 fingerprint</small></article>
+      <article><span>오류·확인</span><strong>${errorCount.toLocaleString("ko-KR")}건</strong><small>포지션 ${financial.positionCount.toLocaleString("ko-KR")}종목 · 기준일 전 ${summary.excluded.toLocaleString("ko-KR")}건 제외</small></article>`;
+  }
+  renderBrokerCsvMappings(preview.mappingRequests);
+  const conflictText = summary.conflict ? ` 같은 원본 거래 ID의 내용 변경 ${summary.conflict}건은 반드시 확인해야 합니다.` : "";
+  const projectionText = validation.projectionError ? ` 후보 원장 오류: ${validation.projectionError}` : "";
+  const applicability = brokerCsvApplicability();
+  if (els.brokerCsvErrorSummary) {
+    els.brokerCsvErrorSummary.textContent = !applicability.ok
+      ? applicability.reason
+      : errorCount || summary.excluded
+        ? `유효 행 ${readyCount}건은 유지했습니다.${conflictText}${projectionText}`
+        : "모든 행이 중복·잔액·수량 검증을 통과했습니다.";
+  }
+  if (els.applyBrokerCsvImportBtn) els.applyBrokerCsvImportBtn.disabled = !applicability.ok;
+  renderBrokerCsvRows();
+}
+
+async function readBrokerCsvFile(file, readToken = ++brokerCsvReadToken) {
+  const engine = brokerCsvEngine();
+  if (!engine) throw new Error("CSV 가져오기 엔진을 불러오지 못했습니다.");
+  if (file.size > engine.MAX_FILE_BYTES) throw Object.assign(new Error("FILE_TOO_LARGE"), { code: "FILE_TOO_LARGE" });
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (readToken !== brokerCsvReadToken) return false;
+  const decoded = engine.decodeCsv(bytes);
+  brokerCsvPreview = {
+    text: decoded.text,
+    byteLength: bytes.byteLength,
+    encoding: decoded.encoding,
+    mappings: { assets: {}, cash: {} },
+    sourceFingerprint: brokerCsvStateFingerprint()
+  };
+  prepareBrokerCsvPreview();
+  return true;
+}
+
+function applyBrokerCsvPreview() {
+  prepareBrokerCsvPreview();
+  const preview = brokerCsvPreview;
+  const applicability = brokerCsvApplicability(preview);
+  if (!applicability.ok) {
+    if (els.brokerCsvImportStatus) els.brokerCsvImportStatus.textContent = applicability.reason;
+    if (els.applyBrokerCsvImportBtn) els.applyBrokerCsvImportBtn.disabled = true;
+    return;
+  }
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  if (!downloadStateFile(storageSafeState(), `finance-ledger-before-csv-${timestamp}.json`)) {
+    if (els.brokerCsvImportStatus) els.brokerCsvImportStatus.textContent = "현재 데이터 자동 백업에 실패해 적용하지 않았습니다.";
+    return;
+  }
+  const candidateEvents = preview.validation.candidateEvents;
+  const result = commitLedgerMutation(() => appendLedgerEvents(candidateEvents), { safeError: true });
+  if (!result.ok) return;
+  const count = candidateEvents.length;
+  closeBrokerCsvDialog();
+  if (els.settingsCsvStatus) els.settingsCsvStatus.textContent = `최근 CSV ${count.toLocaleString("ko-KR")}건 반영`;
+  showStatusNotice(`현재 데이터를 JSON으로 백업하고 증권사 CSV 거래 ${count.toLocaleString("ko-KR")}건을 원장에 반영했습니다.`);
+}
+
+function downloadBrokerCsvTemplate() {
+  const adapter = window.AssetTrailBrokerCsvStandardAdapter;
+  if (!adapter?.format?.requiredHeaders) return;
+  const headers = adapter.format.requiredHeaders;
+  const example = {
+    assettrail_version: "1",
+    transaction_id: "BROKER-UNIQUE-ID",
+    type: "BUY",
+    trade_date: localDateInputValue(),
+    settlement_date: localDateInputValue(),
+    account: "계좌 별칭",
+    cash_account: "계좌 별칭",
+    market: "KRX",
+    ticker: "005930",
+    quantity: "1",
+    price: "70000",
+    currency: "KRW",
+    fx_rate: "1",
+    amount: "",
+    fee_krw: "0",
+    tax_krw: "0"
+  };
+  const csv = `\uFEFF${headers.join(",")}\n${headers.map((header) => `"${String(example[header] || "").replaceAll('"', '""')}"`).join(",")}\n`;
+  try {
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "assettrail-standard-transactions-v1.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (_error) {
+    if (els.brokerCsvImportStatus) els.brokerCsvImportStatus.textContent = "표준 CSV 양식을 만들지 못했습니다.";
+  }
 }
 
 function assertImportString(value, label, limit = IMPORT_STRING_LIMITS.short) {
@@ -8396,6 +11450,87 @@ function validateImportedSnapshot(snapshot, index) {
   }
 }
 
+function validateImportedPerformanceObservation(observation, index) {
+  const prefix = `performanceObservations[${index}]`;
+  ["id", "date", "cutoff", "source", "snapshotId", "priceBasis", "distributionTreatment",
+    "ledgerAsOfFingerprint", "priceFingerprint", "markFingerprint", "completeness"].forEach((field) => {
+    assertImportString(observation[field], `${prefix}.${field}`, field === "id" || field === "snapshotId"
+      ? IMPORT_STRING_LIMITS.id
+      : IMPORT_STRING_LIMITS.short);
+  });
+  assertImportDate(observation.capturedAt, `${prefix}.capturedAt`);
+  if (!String(observation.id || "").trim()) throw new Error(`${prefix}.id가 없습니다.`);
+  if (!normalizeDateKey(observation.date)) throw new Error(`${prefix}.date가 올바른 YYYY-MM-DD 날짜가 아닙니다.`);
+  if (observation.cutoff !== undefined && String(observation.cutoff).toUpperCase() !== PERFORMANCE_CUTOFF) {
+    throw new Error(`${prefix}.cutoff에 지원하지 않는 평가 시점이 있습니다.`);
+  }
+  if (observation.completeness !== undefined
+      && !["COMPLETE", "LIMITED", "INCOMPLETE"].includes(String(observation.completeness).toUpperCase())) {
+    throw new Error(`${prefix}.completeness에 알 수 없는 값이 있습니다.`);
+  }
+  ["navKRW", "marketValueKRW", "manualValueKRW", "usMarketValueNative", "usMarketValueKRW", "usdKrw"]
+    .forEach((field) => assertImportNumber(observation[field], `${prefix}.${field}`, { min: 0, max: 1e15 }));
+  if (observation.usdKrwDate !== undefined && observation.usdKrwDate !== ""
+      && !normalizeDateKey(observation.usdKrwDate)) {
+    throw new Error(`${prefix}.usdKrwDate가 올바르지 않습니다.`);
+  }
+  ["cashKRW", "unsettledKRW"].forEach((field) => {
+    assertImportNumber(observation[field], `${prefix}.${field}`, { min: -1e15, max: 1e15 });
+  });
+  if (observation.typeTotals !== undefined && !isPlainObject(observation.typeTotals)) {
+    throw new Error(`${prefix}.typeTotals가 객체가 아닙니다.`);
+  }
+  Object.entries(observation.typeTotals || {}).forEach(([type, value]) => {
+    if (!["KRX", "US", "CASH", "MANUAL"].includes(type)) {
+      throw new Error(`${prefix}.typeTotals에 알 수 없는 자산 유형이 있습니다.`);
+    }
+    assertImportNumber(value, `${prefix}.typeTotals.${type}`, { min: type === "CASH" ? -1e15 : 0, max: 1e15 });
+  });
+  if (observation.cumulative !== undefined && !isPlainObject(observation.cumulative)) {
+    throw new Error(`${prefix}.cumulative가 객체가 아닙니다.`);
+  }
+  Object.entries(observation.cumulative || {}).forEach(([field, value]) => {
+    const allowed = ["externalFlowKRW", "depositsKRW", "withdrawalsKRW", "dividendsKRW", "interestKRW",
+      "feesKRW", "taxesKRW", "fxDifferenceKRW"];
+    if (!allowed.includes(field)) throw new Error(`${prefix}.cumulative.${field}는 지원하지 않는 항목입니다.`);
+    assertImportNumber(value, `${prefix}.cumulative.${field}`, { min: -1e15, max: 1e15 });
+  });
+  if (observation.benchmarkLevels !== undefined && !isPlainObject(observation.benchmarkLevels)) {
+    throw new Error(`${prefix}.benchmarkLevels가 객체가 아닙니다.`);
+  }
+  Object.entries(observation.benchmarkLevels || {}).forEach(([key, item]) => {
+    if (!["KOSPI", "SP500"].includes(key) || !isPlainObject(item)) {
+      throw new Error(`${prefix}.benchmarkLevels에 지원하지 않는 항목이 있습니다.`);
+    }
+    assertImportNumber(item.level, `${prefix}.benchmarkLevels.${key}.level`, { min: 0, max: 1e15 });
+    if (!normalizeDateKey(item.date)) throw new Error(`${prefix}.benchmarkLevels.${key}.date가 올바르지 않습니다.`);
+    ["currency", "returnType", "source", "priceBasis", "distributionTreatment", "levelUnit"].forEach((field) => {
+      assertImportString(item[field], `${prefix}.benchmarkLevels.${key}.${field}`);
+    });
+  });
+  if (observation.issueCodes !== undefined) {
+    if (!Array.isArray(observation.issueCodes) || observation.issueCodes.length > 30) {
+      throw new Error(`${prefix}.issueCodes가 올바른 목록이 아닙니다.`);
+    }
+    observation.issueCodes.forEach((code, issueIndex) => {
+      assertImportString(code, `${prefix}.issueCodes[${issueIndex}]`, 120);
+    });
+  }
+  if (String(observation.completeness || "").toUpperCase() === "COMPLETE") {
+    const normalized = normalizePerformanceObservation(observation, index);
+    if (normalized.completeness !== "COMPLETE" || !performanceObservationIdentityValid(normalized)) {
+      throw new Error(`${prefix}의 NAV·시장가치·입출금 내부 항등식이 일치하지 않습니다.`);
+    }
+    if (!/^performance-price-v1:[a-f0-9]{32}$/.test(normalized.priceFingerprint)) {
+      throw new Error(`${prefix}.priceFingerprint 형식이 올바르지 않습니다.`);
+    }
+    if (!/^performance-mark-v1:[a-f0-9]{32}$/.test(normalized.markFingerprint)
+        || normalized.markFingerprint !== performanceObservationFingerprint(normalized)) {
+      throw new Error(`${prefix}.markFingerprint가 평가점 내용과 일치하지 않습니다.`);
+    }
+  }
+}
+
 function validateImportedScenario(scenario, index) {
   const prefix = `retirementScenarios[${index}]`;
   assertImportString(scenario.id, `${prefix}.id`, IMPORT_STRING_LIMITS.id);
@@ -8468,8 +11603,9 @@ function validateImportedContributionPlan(contributionPlan) {
 
 function validateImportPayload(imported) {
   if (!isPlainObject(imported)) throw new Error("가져오기 파일의 최상위 값은 객체여야 합니다.");
+  const importedVersion = Number(imported.schemaVersion || 1);
   if (imported.schemaVersion !== undefined) {
-    const version = Number(imported.schemaVersion);
+    const version = importedVersion;
     if (!Number.isSafeInteger(version) || version < 1 || version > STATE_SCHEMA_VERSION) {
       throw new Error(`지원하지 않는 데이터 스키마 버전입니다. 현재 지원 버전은 ${STATE_SCHEMA_VERSION}입니다.`);
     }
@@ -8477,8 +11613,15 @@ function validateImportPayload(imported) {
 
   validateImportCollection(imported, "assets", validateImportedAsset);
   validateImportCollection(imported, "snapshots", validateImportedSnapshot);
+  if (imported.performanceObservations === undefined) {
+    if (importedVersion >= 6) throw new Error("performanceObservations 목록이 없습니다.");
+    imported.performanceObservations = [];
+  }
+  validateImportCollection(imported, "performanceObservations", validateImportedPerformanceObservation);
   validateUniqueImportField(imported.assets, "id", "assets");
   validateUniqueImportField(imported.snapshots, "id", "snapshots");
+  validateUniqueImportField(imported.performanceObservations, "id", "performanceObservations");
+  validateUniqueImportField(imported.performanceObservations, "date", "performanceObservations");
   const assetKeys = new Set();
   imported.assets.forEach((asset, index) => {
     const key = assetIdentity(asset);
@@ -8511,7 +11654,6 @@ function validateImportPayload(imported) {
   validateUniqueImportField(imported.realizedTrades, "id", "realizedTrades");
   validateUniqueImportField(imported.tradeJournalEntries, "id", "tradeJournalEntries");
   validateUniqueImportField(imported.retirementScenarios, "id", "retirementScenarios");
-  const importedVersion = Number(imported.schemaVersion || 1);
   if (imported.events !== undefined) validateImportCollection(imported, "events", validateImportedLedgerEvent);
   else if (importedVersion >= 5) throw new Error("events 목록이 없습니다.");
   validateImportedLedgerMeta(imported.ledgerMeta, { required: importedVersion >= 5 });
@@ -8570,6 +11712,65 @@ function validateImportPayload(imported) {
   return migrated;
 }
 
+els.jsonImportBtn?.addEventListener("click", () => {
+  els.importInput?.click();
+});
+
+[els.openBrokerCsvImportBtn, els.settingsBrokerCsvImportBtn].filter(Boolean).forEach((button) => {
+  button.addEventListener("click", () => openBrokerCsvDialog(button));
+});
+
+els.cancelBrokerCsvImportBtn?.addEventListener("click", closeBrokerCsvDialog);
+els.brokerCsvImportDialog?.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeBrokerCsvDialog();
+});
+
+els.brokerCsvInput?.addEventListener("change", async (event) => {
+  const [file] = event.target.files || [];
+  if (!file) return;
+  const readToken = ++brokerCsvReadToken;
+  if (els.brokerCsvImportStatus) {
+    els.brokerCsvImportStatus.textContent = "CSV 파일을 분석하고 있습니다.";
+    els.brokerCsvImportStatus.setAttribute("aria-busy", "true");
+  }
+  try {
+    await readBrokerCsvFile(file, readToken);
+  } catch (error) {
+    if (readToken !== brokerCsvReadToken) return;
+    const code = String(error?.code || "UNSUPPORTED_FORMAT");
+    brokerCsvPreview = null;
+    if (els.brokerCsvImportStatus) {
+      els.brokerCsvImportStatus.textContent = BROKER_CSV_ISSUE_LABELS[code] || "CSV 파일을 읽지 못했습니다.";
+      els.brokerCsvImportStatus.setAttribute("aria-busy", "false");
+    }
+    if (els.applyBrokerCsvImportBtn) els.applyBrokerCsvImportBtn.disabled = true;
+  } finally {
+    event.target.value = "";
+  }
+});
+
+els.brokerCsvAdapter?.addEventListener("change", () => {
+  if (brokerCsvPreview?.text) prepareBrokerCsvPreview();
+});
+
+[els.brokerCsvAccountMappings, els.brokerCsvCashMappings].filter(Boolean).forEach((container) => {
+  container.addEventListener("change", (event) => {
+    const select = event.target.closest("[data-broker-csv-mapping-kind]");
+    if (!select || !brokerCsvPreview) return;
+    const kind = select.dataset.brokerCsvMappingKind;
+    const key = select.dataset.brokerCsvMappingKey;
+    if (!brokerCsvPreview.mappings?.[kind] || !key) return;
+    if (select.value) brokerCsvPreview.mappings[kind][key] = select.value;
+    else delete brokerCsvPreview.mappings[kind][key];
+    prepareBrokerCsvPreview();
+  });
+});
+
+els.brokerCsvRowFilter?.addEventListener("change", renderBrokerCsvRows);
+els.applyBrokerCsvImportBtn?.addEventListener("click", applyBrokerCsvPreview);
+els.downloadBrokerCsvTemplateBtn?.addEventListener("click", downloadBrokerCsvTemplate);
+
 els.exportBtn.addEventListener("click", () => {
   const exported = downloadStateFile(
     storageSafeState(),
@@ -8593,6 +11794,7 @@ els.importInput.addEventListener("change", async (event) => {
       `의사결정 프로필 ${candidate.decisionProfiles.length}개`,
       `관심종목 ${candidate.watchlist.length}개`,
       `히스토리 ${candidate.snapshots.length}개`,
+      `성과 관측점 ${candidate.performanceObservations.length}개`,
       `매매일지 ${candidate.tradeJournalEntries.length}개`,
       `원장 이벤트 ${candidate.events.length}개`,
       "은퇴 설정 포함",

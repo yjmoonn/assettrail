@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-store">
     <meta http-equiv="Pragma" content="no-cache">
     <title>자산 히스토리 & 은퇴 플래너</title>
-    <link rel="stylesheet" href="styles.css?v=20260805-stage2">
+    <link rel="stylesheet" href="styles.css?v=20260807-stage5">
   </head>
   <body>
     <div class="app">
@@ -35,6 +35,7 @@
         <button class="app-nav-item" type="button" data-nav-view="ASSETS" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2H5a2 2 0 0 0-2 2z"></path><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2H5"></path><circle cx="17" cy="13" r="1.4" fill="currentColor" stroke="none"></circle></svg><span class="nav-label">자산</span></button>
         <button class="app-nav-item" type="button" data-nav-view="JOURNAL" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4a2 2 0 0 1 2-2h11a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6a2 2 0 0 1-2-2z"></path><path d="M4 4v16"></path><path d="M9 7h5M9 11h5"></path></svg><span class="nav-label">투자기록</span></button>
         <button class="app-nav-item" type="button" data-nav-view="PORTFOLIO" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-9z"></path><path d="M12 3v9"></path><path d="M12 3a9 9 0 0 1 7.5 4"></path></svg><span class="nav-label">포트폴리오</span></button>
+        <button class="app-nav-item" type="button" data-nav-view="ANALYSIS" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"></path><path d="m16 7 3-3 3 3"></path></svg><span class="nav-label">분석</span></button>
         <button class="app-nav-item" type="button" data-nav-view="GOALS" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"></circle></svg><span class="nav-label">목표</span></button>
         <button class="app-nav-item" type="button" data-nav-view="SETTINGS" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15H4.5a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 6 9.4l-.06-.06a2 2 0 1 1 2.83-2.83l.06-.06A1.65 1.65 0 0 0 11 4.6V4.5a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 2.82 1.17l.06-.06a2 2 0 1 1 2.83 2.83l-.06-.06A1.65 1.65 0 0 0 19.4 11h.1a2 2 0 0 1 0 4h-.1z"></path></svg><span class="nav-label">설정</span></button>
       </nav>
@@ -558,6 +559,9 @@
               <button class="record-tab" id="investmentLedgerTab" type="button" role="tab" aria-selected="false" aria-controls="ledgerTabPanel" data-investment-tab="LEDGER" tabindex="-1">
                 거래 원장 <span id="ledgerTabCount">0건</span>
               </button>
+              <button class="record-tab" id="investmentPerformanceTab" type="button" role="tab" aria-selected="false" aria-controls="performanceTabPanel" data-investment-tab="PERFORMANCE" tabindex="-1">
+                기간 성과
+              </button>
             </div>
           </div>
 
@@ -691,6 +695,7 @@
                   <option value="CANCEL">취소</option>
                 </select>
               </label>
+              <button class="ghost-button" id="openBrokerCsvImportBtn" type="button" aria-haspopup="dialog" aria-controls="brokerCsvImportDialog">증권사 CSV 가져오기</button>
               <button class="primary-button" id="toggleCashFlowFormBtn" type="button" aria-expanded="false" aria-controls="cashFlowFormPanel">현금흐름 기록</button>
             </div>
 
@@ -804,6 +809,131 @@
               </table>
             </div>
           </div>
+
+          <div class="record-tab-panel performance-panel" id="performanceTabPanel" role="tabpanel" aria-labelledby="investmentPerformanceTab" data-investment-panel="PERFORMANCE" hidden>
+            <div class="performance-toolbar">
+              <fieldset class="performance-range-fieldset">
+                <legend>성과 조회 기간</legend>
+                <div class="performance-range-controls">
+                  <label>
+                    기간
+                    <select id="performanceRange" aria-describedby="performanceRangeValidation performanceCoverage">
+                      <option value="30D">최근 30일</option>
+                      <option value="90D">최근 90일</option>
+                      <option value="YTD" selected>올해</option>
+                      <option value="1Y">최근 1년</option>
+                      <option value="ALL">원장 전체</option>
+                      <option value="CUSTOM">직접 선택</option>
+                    </select>
+                  </label>
+                  <label>
+                    시작일
+                    <input id="performanceStartDate" type="date" aria-describedby="performanceRangeValidation performanceCoverage">
+                  </label>
+                  <label>
+                    종료일
+                    <input id="performanceEndDate" type="date" aria-describedby="performanceRangeValidation performanceCoverage">
+                  </label>
+                </div>
+              </fieldset>
+              <label class="performance-benchmark-field">
+                비교 기준
+                <select id="performanceBenchmark" aria-describedby="performanceBenchmarkStatus">
+                  <option value="NONE">비교 안 함</option>
+                  <option value="KOSPI">KOSPI</option>
+                  <option value="SP500">S&amp;P 500</option>
+                </select>
+              </label>
+            </div>
+
+            <p class="field-help performance-range-validation" id="performanceRangeValidation" role="status" aria-live="polite">원장 기준일 이후의 기간을 선택하세요.</p>
+            <div class="performance-coverage" id="performanceCoverage" role="status" aria-live="polite" aria-atomic="true">
+              <strong>성과 데이터 확인 중</strong>
+              <span>거래 원장 기준일과 평가 데이터 범위를 확인합니다.</span>
+            </div>
+
+            <div class="performance-summary" id="performanceSummary" aria-label="선택 기간 성과 요약">
+              <article class="performance-summary-item">
+                <span>시간가중수익률</span>
+                <strong id="performanceTwr">계산 대기</strong>
+                <small>입출금 영향을 분리한 TWR</small>
+              </article>
+              <article class="performance-summary-item">
+                <span>금액가중수익률</span>
+                <strong id="performanceXirr">계산 대기</strong>
+                <small>현금흐름 시점을 반영한 XIRR</small>
+              </article>
+              <article class="performance-summary-item">
+                <span>순입출금</span>
+                <strong id="performanceNetFlow">—</strong>
+                <small>입금에서 출금을 차감</small>
+              </article>
+              <article class="performance-summary-item">
+                <span>투자손익</span>
+                <strong id="performanceGain">—</strong>
+                <small>총자산 변화에서 순입출금 분리</small>
+              </article>
+            </div>
+
+            <section class="performance-chart-section" aria-labelledby="performanceChartTitle">
+              <div class="performance-section-head">
+                <div>
+                  <h3 id="performanceChartTitle">기간별 누적 성과</h3>
+                  <p>포트폴리오와 선택한 비교 기준의 누적 수익률을 봅니다.</p>
+                </div>
+                <span class="performance-benchmark-status" id="performanceBenchmarkStatus" role="status" aria-live="polite">비교 기준 없음</span>
+              </div>
+              <p class="sr-only" id="performanceChartDescription">선택 기간의 포트폴리오 누적 성과 차트 설명이 여기에 표시됩니다.</p>
+              <div class="performance-benchmark-summary" id="performanceBenchmarkSummary" aria-label="비교 기준 성과">
+                <article>
+                  <span>비교 기준 수익률</span>
+                  <strong id="performanceBenchmarkReturn">—</strong>
+                </article>
+                <article>
+                  <span>참고 수익률 차이</span>
+                  <strong id="performanceExcessReturn">—</strong>
+                </article>
+              </div>
+              <canvas id="performanceChart" width="1100" height="300" role="img" aria-label="선택 기간 포트폴리오 누적 성과 차트" aria-describedby="performanceChartDescription"></canvas>
+            </section>
+
+            <div class="performance-detail-grid">
+              <section class="performance-section" aria-labelledby="performanceAttributionTitle">
+                <div class="performance-section-head">
+                  <div>
+                    <h3 id="performanceAttributionTitle">성과 원인</h3>
+                    <p>자산 변화와 투자 결과를 항목별로 분리합니다.</p>
+                  </div>
+                </div>
+                <div class="performance-attribution" id="performanceAttribution" aria-live="polite">
+                  <p class="performance-empty">평가 데이터가 준비되면 잔여 투자효과·환율·배당·비용의 가치변화 브리지를 표시합니다.</p>
+                </div>
+              </section>
+
+              <section class="performance-section" aria-labelledby="performanceRiskTitle">
+                <div class="performance-section-head">
+                  <div>
+                    <h3 id="performanceRiskTitle">위험과 회복</h3>
+                    <p>선택 기간의 하락 폭과 변동성을 확인합니다.</p>
+                  </div>
+                </div>
+                <div class="performance-risk-summary" id="performanceRiskSummary">
+                  <article>
+                    <span>관측점 기준 최대 낙폭</span>
+                    <strong id="performanceMaxDrawdown">계산 대기</strong>
+                  </article>
+                  <article>
+                    <span>저점 후 회복 기간</span>
+                    <strong id="performanceRecoveryPeriod">계산 대기</strong>
+                  </article>
+                  <article>
+                    <span>관측일 기준 연환산 변동성</span>
+                    <strong id="performanceVolatility">계산 대기</strong>
+                  </article>
+                </div>
+              </section>
+            </div>
+          </div>
         </section>
 
         <section class="panel portfolio-panel" data-app-section="PORTFOLIO">
@@ -913,6 +1043,120 @@
           </section>
         </section>
 
+        <section class="analysis-workspace" data-app-section="ANALYSIS">
+          <section class="panel analysis-intro-panel" aria-labelledby="analysisWorkspaceTitle">
+            <div class="panel-header">
+              <div>
+                <span class="decision-kicker">근거가 먼저인 분석</span>
+                <h2 id="analysisWorkspaceTitle">외부 데이터와 AI 보고서</h2>
+                <p>Butler에서 사용자가 직접 복사한 실적, ETF 구성 데이터와 AssetTrail 계산값을 출처·기준일·품질 상태와 함께 검토합니다.</p>
+              </div>
+            </div>
+            <div class="analysis-boundary-note" role="note">
+              <strong>자동 매매·숨은 API 호출 없음</strong>
+              <span>Butler 로그인 정보와 원문은 저장하지 않습니다. ChatGPT Pro 인증을 앱에서 재사용하거나 별도 API 요금을 발생시키지 않습니다.</span>
+            </div>
+          </section>
+
+          <div class="analysis-layout">
+            <section class="panel external-data-panel" aria-labelledby="externalDataTitle">
+              <div class="panel-header analysis-section-head">
+                <div>
+                  <span class="decision-kicker">사용자 주도 가져오기</span>
+                  <h2 id="externalDataTitle">Butler 실적 데이터</h2>
+                  <p>기업 페이지의 ‘재무정보 테이블 복사하기’ 결과를 붙여넣고 종목·통화·출처를 확인한 뒤 정규화합니다.</p>
+                </div>
+                <div class="panel-actions">
+                  <button class="ghost-button" id="downloadExternalDataBtn" type="button">외부 데이터 백업</button>
+                  <label class="ghost-button import-label" id="importExternalDataBtn">백업 가져오기<input id="externalDataBackupInput" type="file" accept="application/json,.json"></label>
+                  <button class="ghost-button" id="clearExternalDataBtn" type="button">외부 데이터 비우기</button>
+                  <a class="ghost-button" id="openButlerBtn" href="https://www.butler.works/ko/home" target="_blank" rel="noopener noreferrer">Butler 열기</a>
+                </div>
+              </div>
+              <form id="butlerImportForm" class="butler-import-form">
+                <label>
+                  연결할 보유·관심 종목
+                  <select id="butlerAssetSelect" required aria-describedby="butlerImportStatus">
+                    <option value="">종목 선택</option>
+                  </select>
+                </label>
+                <label>
+                  통화
+                  <select id="butlerCurrency" required aria-describedby="butlerImportStatus">
+                    <option value="KRW">KRW 원화</option>
+                    <option value="USD">USD 달러</option>
+                  </select>
+                </label>
+                <label class="butler-source-field">
+                  Butler 기업 페이지 주소
+                  <input id="butlerSourceUrl" type="url" inputmode="url" maxlength="500" placeholder="https://www.butler.works/ko/companies/..." required aria-describedby="butlerImportStatus">
+                </label>
+                <label class="butler-paste-field">
+                  복사한 재무정보 표
+                  <textarea id="butlerClipboardText" maxlength="204800" rows="9" placeholder="Butler에서 ‘테이블 복사하기’를 누른 뒤 여기에 붙여넣으세요." required aria-describedby="butlerImportStatus"></textarea>
+                </label>
+                <div class="analysis-form-actions">
+                  <button class="ghost-button" id="previewButlerImportBtn" type="submit">안전하게 미리보기</button>
+                  <button class="primary-button" id="saveButlerImportBtn" type="button" disabled>검증 결과 저장</button>
+                </div>
+              </form>
+              <p class="field-help" id="butlerImportStatus" role="status" aria-live="polite">국내 기업 표는 KRW, 미국 기업 표는 USD가 기본입니다. 표 자체에는 통화가 없으므로 반드시 확인하세요.</p>
+              <div class="external-preview" id="butlerImportPreview" aria-live="polite">
+                <p class="decision-empty">표를 붙여넣으면 기간·지표·누락값과 저장될 정규화 데이터만 미리 보여줍니다.</p>
+              </div>
+              <div class="external-company-list" id="externalCompanyList" aria-label="저장된 외부 기업 데이터"></div>
+            </section>
+
+            <section class="panel etf-lookthrough-panel" aria-labelledby="etfLookThroughTitle">
+              <div class="panel-header analysis-section-head">
+                <div>
+                  <span class="decision-kicker">직접 보유 + ETF 경유</span>
+                  <h2 id="etfLookThroughTitle">ETF 실질노출</h2>
+                  <p>재배포가 허용되거나 사용자가 직접 제공한 구성종목 파일만 계산합니다. ETF 내부 현금은 가용 현금과 분리합니다.</p>
+                </div>
+                <div class="panel-actions">
+                  <label class="ghost-button import-label">구성 파일 선택·전체 교체<input id="etfCatalogInput" type="file" accept="application/json,.json"></label>
+                  <button class="ghost-button" id="downloadEtfTemplateBtn" type="button">표준 양식</button>
+                  <button class="ghost-button" id="downloadEtfCatalogBtn" type="button">구성 백업</button>
+                  <button class="ghost-button" id="clearEtfCatalogBtn" type="button">구성 비우기</button>
+                </div>
+              </div>
+              <p class="field-help" id="etfCatalogStatus" role="status" aria-live="polite">ETF 구성 데이터가 없으면 ETF 금액을 불투명 노출로 남기며 추정하지 않습니다.</p>
+              <div class="etf-coverage-summary" id="etfCoverageSummary"></div>
+              <div class="etf-exposure-list" id="etfExposureList"></div>
+              <div class="etf-fund-quality" id="etfFundQuality"></div>
+            </section>
+          </div>
+
+          <section class="panel ai-report-panel" aria-labelledby="aiReportTitle">
+            <div class="panel-header analysis-section-head">
+              <div>
+                <span class="decision-kicker">결정론적 수치와 해석 분리</span>
+                <h2 id="aiReportTitle">보안형 AI 보고서</h2>
+                <p>계좌명·사용자 식별자·원거래·정확한 금액을 제외한 근거 패키지를 만들고, AI 없이도 핵심 경고를 표시합니다.</p>
+              </div>
+              <div class="panel-actions">
+                <button class="ghost-button" id="refreshEvidenceBtn" type="button">근거 새로 계산</button>
+                <button class="ghost-button" id="downloadEvidenceBtn" type="button">근거 JSON</button>
+                <button class="primary-button" id="copyAiHandoffBtn" type="button">ChatGPT 전달문 복사</button>
+              </div>
+            </div>
+            <div class="ai-privacy-summary" id="aiPrivacySummary" role="status" aria-live="polite"></div>
+            <div class="deterministic-report" id="deterministicReport"></div>
+            <details class="ai-result-import">
+              <summary>ChatGPT 결과 JSON 검증해서 보기</summary>
+              <p class="field-help">복사한 전달문을 ChatGPT에 보내고 JSON 응답만 붙여넣으세요. 정확한 사실·근거 연결과 제공된 안전 문구를 벗어난 값 변경·자유 주장·주문 지시는 거부합니다.</p>
+              <textarea id="aiReportJson" rows="8" maxlength="100000" placeholder="{ &quot;schemaVersion&quot;: &quot;ASSETTRAIL_AI_REPORT_V1&quot;, ... }"></textarea>
+              <div class="analysis-form-actions">
+                <button class="ghost-button" id="validateAiReportBtn" type="button">AI 결과 검증</button>
+                <button class="ghost-button" id="clearAiReportBtn" type="button">입력 지우기</button>
+              </div>
+              <p class="field-help" id="aiReportValidationStatus" role="status" aria-live="polite">AI 결과는 자동 저장하거나 클라우드로 전송하지 않습니다.</p>
+              <div class="validated-ai-report" id="validatedAiReport"></div>
+            </details>
+          </section>
+        </section>
+
         <nav class="goal-mobile-tabs" data-app-section="GOALS" aria-label="목표 화면 모바일 보기">
           <button class="ghost-button goal-mobile-tab" type="button" data-goal-mobile-panel="HISTORY" aria-pressed="true" aria-controls="historyPanel">자산 이력</button>
           <button class="ghost-button goal-mobile-tab" type="button" data-goal-mobile-panel="RETIREMENT" aria-pressed="false" aria-controls="retirementPanel">은퇴 계획</button>
@@ -942,6 +1186,10 @@
             </label>
           </div>
           <div class="history-summary" id="historySummary"></div>
+          <p class="field-help history-performance-note">
+            이 화면은 입출금을 분리하지 않은 단순 총자산 변화입니다. 투자 수익률은
+            <button class="text-link-button" id="openPerformanceFromHistoryBtn" type="button">기간 성과에서 보기</button>
+          </p>
           <p class="sr-only" id="historyChartDescription">조회 히스토리 차트 설명이 여기에 표시됩니다.</p>
           <canvas id="historyChart" width="1100" height="320" aria-label="자산 히스토리 차트" aria-describedby="historyChartDescription"></canvas>
           <div class="table-wrap history-table">
@@ -1084,14 +1332,18 @@
             <article class="settings-card">
               <span>데이터</span>
               <strong>백업과 복원</strong>
-              <p>민감한 자산 정보가 담기므로 내보낸 JSON 파일은 안전한 위치에 보관하세요.</p>
+              <p>주 JSON은 자산·원장·설정을 복원합니다. 분석 화면의 Butler·ETF 데이터는 포함되지 않으므로 각 분석 패널에서 별도로 백업하세요.</p>
               <div class="settings-actions">
                 <button class="ghost-button" id="exportBtn" type="button" title="데이터 내보내기">데이터 내보내기</button>
-                <label class="ghost-button import-label" title="데이터 가져오기">
-                  데이터 가져오기
-                  <input id="importInput" type="file" accept="application/json">
-                </label>
+                <button class="ghost-button" id="jsonImportBtn" type="button" aria-controls="importInput">주 데이터 JSON 복원</button>
+                <input class="visually-hidden-file-input" id="importInput" type="file" accept="application/json,.json" tabindex="-1" aria-hidden="true">
               </div>
+            </article>
+            <article class="settings-card">
+              <span>거래 가져오기</span>
+              <strong id="settingsCsvStatus">증권사 CSV</strong>
+              <p>원본 파일을 먼저 분석하고 중복·오류·예상 변경을 확인한 뒤 거래 원장에 반영합니다.</p>
+              <button class="ghost-button" id="settingsBrokerCsvImportBtn" type="button" aria-haspopup="dialog" aria-controls="brokerCsvImportDialog">CSV 미리보기</button>
             </article>
           </div>
         </section>
@@ -1121,6 +1373,113 @@
           <button class="ghost-button" type="button" data-cloud-conflict-choice="upload">이 기기 데이터 올리기</button>
           <button class="text-link-button" type="button" data-cloud-conflict-choice="later">나중에 결정</button>
         </div>
+      </div>
+    </dialog>
+
+    <dialog class="broker-csv-dialog" id="brokerCsvImportDialog" aria-labelledby="brokerCsvImportTitle" aria-describedby="brokerCsvImportDescription">
+      <div class="broker-csv-content">
+        <header class="broker-csv-header">
+          <div>
+            <span class="detail-kicker">거래 원장</span>
+            <h2 id="brokerCsvImportTitle" tabindex="-1">증권사 CSV 가져오기</h2>
+            <p id="brokerCsvImportDescription">원문은 미리보기 동안 메모리에만 둡니다. 어댑터·계좌 매핑·중복·오류와 예상 변경을 먼저 확인하세요.</p>
+          </div>
+        </header>
+
+        <section class="broker-csv-setup" aria-label="CSV 파일과 형식 선택">
+          <label class="broker-csv-file-field">
+            거래 파일
+            <input id="brokerCsvInput" type="file" accept=".csv,text/csv" aria-describedby="brokerCsvImportStatus">
+          </label>
+          <label>
+            증권사 형식
+            <select id="brokerCsvAdapter" aria-describedby="brokerCsvImportStatus">
+              <option value="AUTO">자동 감지</option>
+            </select>
+          </label>
+          <button class="ghost-button" id="downloadBrokerCsvTemplateBtn" type="button">표준 CSV 양식</button>
+        </section>
+
+        <div class="broker-csv-status" id="brokerCsvImportStatus" role="status" aria-live="polite" aria-atomic="true" aria-busy="false">
+          CSV 원문은 미리보기 동안 브라우저 메모리에만 두며 기기 저장소나 서버에 저장·전송하지 않습니다.
+        </div>
+
+        <section class="broker-csv-mode" aria-labelledby="brokerCsvModeTitle">
+          <div>
+            <span id="brokerCsvModeTitle">반영 방식</span>
+            <strong id="brokerCsvImportMode">파일 분석 대기</strong>
+          </div>
+          <p>원장 기준일 이전 거래는 이번 증분 가져오기에서 제외하고 건수를 별도로 안내합니다.</p>
+        </section>
+
+        <div class="broker-csv-mapping-grid">
+          <section class="broker-csv-mapping" id="brokerCsvAccountMappings" aria-labelledby="brokerCsvAccountMappingsTitle">
+            <h3 id="brokerCsvAccountMappingsTitle">계좌 매핑</h3>
+            <p>파일을 분석하면 원본 계좌와 AssetTrail 계좌 연결이 표시됩니다.</p>
+          </section>
+          <section class="broker-csv-mapping" id="brokerCsvCashMappings" aria-labelledby="brokerCsvCashMappingsTitle">
+            <h3 id="brokerCsvCashMappingsTitle">결제 CASH 매핑</h3>
+            <p>매수·매도와 현금흐름을 반영할 CASH 자산을 확인합니다.</p>
+          </section>
+        </div>
+
+        <section class="broker-csv-preview" aria-labelledby="brokerCsvPreviewTitle">
+          <div class="broker-csv-preview-head">
+            <div>
+              <h3 id="brokerCsvPreviewTitle">예상 변경 미리보기</h3>
+              <p>유효 행만 후보 원장에 투영하며 이 단계에서는 저장하지 않습니다.</p>
+            </div>
+            <label>
+              행 보기
+              <select id="brokerCsvRowFilter">
+                <option value="ALL">전체</option>
+                <option value="READY">반영 예정</option>
+                <option value="DUPLICATE">중복 제외</option>
+                <option value="ERROR">오류</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="broker-csv-preview-summary" id="brokerCsvPreviewSummary" aria-label="CSV 미리보기 요약">
+            <article><span>거래</span><strong>0건</strong><small>분석 대기</small></article>
+            <article><span>기간</span><strong>—</strong><small>분석 대기</small></article>
+            <article><span>중복 제외</span><strong>0건</strong><small>원본 ID 기준</small></article>
+            <article><span>오류</span><strong>0건</strong><small>적용 전 확인</small></article>
+          </div>
+
+          <div class="broker-csv-error-summary" id="brokerCsvErrorSummary" role="status" aria-live="polite" aria-atomic="true">
+            파일을 선택하면 오류 행과 처리 가능 여부를 표시합니다.
+          </div>
+
+          <p class="broker-csv-scroll-hint">표를 좌우로 움직여 계좌·금액·처리 결과를 확인할 수 있습니다.</p>
+          <div class="table-wrap broker-csv-preview-table" tabindex="0" role="region" aria-label="CSV 거래 행 미리보기 표, 가로로 스크롤 가능">
+            <table>
+              <caption class="sr-only">증권사 CSV의 행별 거래일, 유형, 자산, 계좌, 금액과 처리 결과</caption>
+              <thead>
+                <tr>
+                  <th scope="col">상태</th>
+                  <th class="number" scope="col">행</th>
+                  <th scope="col">거래일</th>
+                  <th scope="col">유형</th>
+                  <th scope="col">자산</th>
+                  <th scope="col">계좌</th>
+                  <th class="number" scope="col">금액 · 결과</th>
+                </tr>
+              </thead>
+              <tbody id="brokerCsvPreviewRows">
+                <tr><td colspan="7" class="empty">CSV 파일을 선택하면 행별 미리보기가 표시됩니다.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <footer class="broker-csv-actions">
+          <p>적용 전 현재 데이터는 보존되며, 오류나 저장 실패가 발생하면 기존 원장으로 되돌립니다.</p>
+          <div>
+            <button class="ghost-button" id="cancelBrokerCsvImportBtn" type="button">취소</button>
+            <button class="primary-button" id="applyBrokerCsvImportBtn" type="button" disabled>검증된 거래 적용</button>
+          </div>
+        </footer>
       </div>
     </dialog>
 
@@ -1157,6 +1516,12 @@
     <script src="decision-engine.js?v=20260805-stage2"></script>
     <script src="action-engine.js?v=20260805-stage2"></script>
     <script src="ledger-engine.js?v=20260805-stage3"></script>
-    <script type="module" src="app.js?v=20260805-stage3"></script>
+    <script src="performance-engine.js?v=20260806-stage4"></script>
+    <script src="broker-csv-engine.js?v=20260806-stage4"></script>
+    <script src="broker-csv-adapter-standard.js?v=20260806-stage4"></script>
+    <script src="external-data-engine.js?v=20260807-stage5"></script>
+    <script src="etf-exposure-engine.js?v=20260807-stage5"></script>
+    <script src="ai-report-engine.js?v=20260807-stage5"></script>
+    <script type="module" src="app.js?v=20260807-stage5"></script>
   </body>
 </html>
