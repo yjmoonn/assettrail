@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-store">
     <meta http-equiv="Pragma" content="no-cache">
     <title>자산 히스토리 & 은퇴 플래너</title>
-    <link rel="stylesheet" href="styles.css?v=20260807-ux-stage1">
+    <link rel="stylesheet" href="styles.css?v=20260807-analysis-stage2">
   </head>
   <body>
     <div class="app">
@@ -1056,8 +1056,29 @@
             </div>
           </section>
 
-          <div class="analysis-layout">
-            <section class="panel external-data-panel" aria-labelledby="externalDataTitle">
+          <nav class="analysis-task-switcher" aria-label="분석 작업 선택">
+            <button class="analysis-task-card" type="button" data-analysis-task="EXTERNAL" aria-pressed="true" aria-controls="analysisExternalPanel">
+              <span class="analysis-task-kicker">기업 실적</span>
+              <strong id="analysisExternalStatus">데이터 없음</strong>
+              <small id="analysisExternalStatusDetail">Butler 표 붙여넣기와 검증</small>
+              <span class="analysis-task-action">붙여넣기 시작</span>
+            </button>
+            <button class="analysis-task-card" type="button" data-analysis-task="ETF" aria-pressed="false" aria-controls="analysisEtfPanel">
+              <span class="analysis-task-kicker">ETF 실질노출</span>
+              <strong id="analysisEtfStatus">구성 없음</strong>
+              <small id="analysisEtfStatusDetail">구성종목 파일 가져오기</small>
+              <span class="analysis-task-action">노출 확인하기</span>
+            </button>
+            <button class="analysis-task-card" type="button" data-analysis-task="AI" aria-pressed="false" aria-controls="analysisAiPanel">
+              <span class="analysis-task-kicker">AI 보고서</span>
+              <strong id="analysisAiStatus">준비 확인</strong>
+              <small id="analysisAiStatusDetail">익명 근거와 결정론 보고서</small>
+              <span class="analysis-task-action">보고서 확인하기</span>
+            </button>
+          </nav>
+
+          <div class="analysis-task-panels">
+            <section class="panel external-data-panel" id="analysisExternalPanel" data-analysis-task-panel="EXTERNAL" aria-labelledby="externalDataTitle">
               <div class="panel-header analysis-section-head">
                 <div>
                   <span class="decision-kicker">사용자 주도 가져오기</span>
@@ -1065,9 +1086,6 @@
                   <p>기업 페이지의 ‘재무정보 테이블 복사하기’ 결과를 붙여넣고 종목·통화·출처를 확인한 뒤 정규화합니다.</p>
                 </div>
                 <div class="panel-actions">
-                  <button class="ghost-button" id="downloadExternalDataBtn" type="button">외부 데이터 백업</button>
-                  <label class="ghost-button import-label" id="importExternalDataBtn">백업 가져오기<input id="externalDataBackupInput" type="file" accept="application/json,.json"></label>
-                  <button class="ghost-button" id="clearExternalDataBtn" type="button">외부 데이터 비우기</button>
                   <a class="ghost-button" id="openButlerBtn" href="https://www.butler.works/ko/home" target="_blank" rel="noopener noreferrer">Butler 열기</a>
                 </div>
               </div>
@@ -1103,9 +1121,20 @@
                 <p class="decision-empty">표를 붙여넣으면 기간·지표·누락값과 저장될 정규화 데이터만 미리 보여줍니다.</p>
               </div>
               <div class="external-company-list" id="externalCompanyList" aria-label="저장된 외부 기업 데이터"></div>
+              <details class="analysis-data-management">
+                <summary><span>데이터 관리</span><small>별도 로컬 백업 · 복원 · 비우기</small></summary>
+                <div class="analysis-data-management-body">
+                  <p class="field-help">정규화한 Butler 실적은 이 기기의 현재 사용자 영역에만 저장되며 주 데이터 백업과 클라우드 동기화에 포함되지 않습니다.</p>
+                  <div class="panel-actions">
+                    <button class="ghost-button" id="downloadExternalDataBtn" type="button">외부 데이터 백업</button>
+                    <label class="ghost-button import-label" id="importExternalDataBtn">백업 가져오기<input id="externalDataBackupInput" type="file" accept="application/json,.json"></label>
+                    <button class="ghost-button danger-quiet" id="clearExternalDataBtn" type="button">외부 데이터 비우기</button>
+                  </div>
+                </div>
+              </details>
             </section>
 
-            <section class="panel etf-lookthrough-panel" aria-labelledby="etfLookThroughTitle">
+            <section class="panel etf-lookthrough-panel" id="analysisEtfPanel" data-analysis-task-panel="ETF" aria-labelledby="etfLookThroughTitle" hidden>
               <div class="panel-header analysis-section-head">
                 <div>
                   <span class="decision-kicker">직접 보유 + ETF 경유</span>
@@ -1113,46 +1142,62 @@
                   <p>재배포가 허용되거나 사용자가 직접 제공한 구성종목 파일만 계산합니다. ETF 내부 현금은 가용 현금과 분리합니다.</p>
                 </div>
                 <div class="panel-actions">
-                  <label class="ghost-button import-label">구성 파일 선택·전체 교체<input id="etfCatalogInput" type="file" accept="application/json,.json"></label>
-                  <button class="ghost-button" id="downloadEtfTemplateBtn" type="button">표준 양식</button>
-                  <button class="ghost-button" id="downloadEtfCatalogBtn" type="button">구성 백업</button>
-                  <button class="ghost-button" id="clearEtfCatalogBtn" type="button">구성 비우기</button>
+                  <label class="primary-button import-label">구성 파일 가져오기<input id="etfCatalogInput" type="file" accept="application/json,.json"></label>
                 </div>
               </div>
               <p class="field-help" id="etfCatalogStatus" role="status" aria-live="polite">ETF 구성 데이터가 없으면 ETF 금액을 불투명 노출로 남기며 추정하지 않습니다.</p>
               <div class="etf-coverage-summary" id="etfCoverageSummary"></div>
               <div class="etf-exposure-list" id="etfExposureList"></div>
               <div class="etf-fund-quality" id="etfFundQuality"></div>
+              <details class="analysis-data-management">
+                <summary><span>데이터 관리</span><small>표준 양식 · 별도 로컬 백업 · 비우기</small></summary>
+                <div class="analysis-data-management-body">
+                  <p class="field-help">ETF 구성 데이터는 이 기기의 현재 사용자 영역에만 저장되며 파일 전체를 검증한 뒤 교체합니다.</p>
+                  <div class="panel-actions">
+                    <button class="ghost-button" id="downloadEtfTemplateBtn" type="button">표준 양식</button>
+                    <button class="ghost-button" id="downloadEtfCatalogBtn" type="button">구성 백업</button>
+                    <button class="ghost-button danger-quiet" id="clearEtfCatalogBtn" type="button">구성 비우기</button>
+                  </div>
+                </div>
+              </details>
+            </section>
+
+            <section class="panel ai-report-panel" id="analysisAiPanel" data-analysis-task-panel="AI" aria-labelledby="aiReportTitle" hidden>
+              <div class="panel-header analysis-section-head">
+                <div>
+                  <span class="decision-kicker">결정론적 수치와 해석 분리</span>
+                  <h2 id="aiReportTitle">보안형 AI 보고서</h2>
+                  <p>계좌명·사용자 식별자·원거래·정확한 금액을 제외한 근거 패키지를 만들고, AI 없이도 핵심 경고를 표시합니다.</p>
+                </div>
+                <div class="panel-actions">
+                  <button class="primary-button" id="copyAiHandoffBtn" type="button">ChatGPT 전달문 복사</button>
+                </div>
+              </div>
+              <div class="ai-privacy-summary" id="aiPrivacySummary" role="status" aria-live="polite"></div>
+              <div class="deterministic-report" id="deterministicReport"></div>
+              <details class="analysis-data-management">
+                <summary><span>근거 데이터 관리</span><small>다시 계산 · 익명 근거 JSON</small></summary>
+                <div class="analysis-data-management-body">
+                  <p class="field-help">근거 패키지는 상대 지표와 불투명 근거 ID만 포함하며 자동으로 외부 서비스에 전송하지 않습니다.</p>
+                  <div class="panel-actions">
+                    <button class="ghost-button" id="refreshEvidenceBtn" type="button">근거 새로 계산</button>
+                    <button class="ghost-button" id="downloadEvidenceBtn" type="button">근거 JSON</button>
+                  </div>
+                </div>
+              </details>
+              <details class="ai-result-import">
+                <summary>ChatGPT 결과 JSON 검증해서 보기</summary>
+                <p class="field-help">복사한 전달문을 ChatGPT에 보내고 JSON 응답만 붙여넣으세요. 정확한 사실·근거 연결과 제공된 안전 문구를 벗어난 값 변경·자유 주장·주문 지시는 거부합니다.</p>
+                <textarea id="aiReportJson" rows="8" maxlength="100000" placeholder="{ &quot;schemaVersion&quot;: &quot;ASSETTRAIL_AI_REPORT_V1&quot;, ... }"></textarea>
+                <div class="analysis-form-actions">
+                  <button class="ghost-button" id="validateAiReportBtn" type="button">AI 결과 검증</button>
+                  <button class="ghost-button" id="clearAiReportBtn" type="button">입력 지우기</button>
+                </div>
+                <p class="field-help" id="aiReportValidationStatus" role="status" aria-live="polite">AI 결과는 자동 저장하거나 클라우드로 전송하지 않습니다.</p>
+                <div class="validated-ai-report" id="validatedAiReport"></div>
+              </details>
             </section>
           </div>
-
-          <section class="panel ai-report-panel" aria-labelledby="aiReportTitle">
-            <div class="panel-header analysis-section-head">
-              <div>
-                <span class="decision-kicker">결정론적 수치와 해석 분리</span>
-                <h2 id="aiReportTitle">보안형 AI 보고서</h2>
-                <p>계좌명·사용자 식별자·원거래·정확한 금액을 제외한 근거 패키지를 만들고, AI 없이도 핵심 경고를 표시합니다.</p>
-              </div>
-              <div class="panel-actions">
-                <button class="ghost-button" id="refreshEvidenceBtn" type="button">근거 새로 계산</button>
-                <button class="ghost-button" id="downloadEvidenceBtn" type="button">근거 JSON</button>
-                <button class="primary-button" id="copyAiHandoffBtn" type="button">ChatGPT 전달문 복사</button>
-              </div>
-            </div>
-            <div class="ai-privacy-summary" id="aiPrivacySummary" role="status" aria-live="polite"></div>
-            <div class="deterministic-report" id="deterministicReport"></div>
-            <details class="ai-result-import">
-              <summary>ChatGPT 결과 JSON 검증해서 보기</summary>
-              <p class="field-help">복사한 전달문을 ChatGPT에 보내고 JSON 응답만 붙여넣으세요. 정확한 사실·근거 연결과 제공된 안전 문구를 벗어난 값 변경·자유 주장·주문 지시는 거부합니다.</p>
-              <textarea id="aiReportJson" rows="8" maxlength="100000" placeholder="{ &quot;schemaVersion&quot;: &quot;ASSETTRAIL_AI_REPORT_V1&quot;, ... }"></textarea>
-              <div class="analysis-form-actions">
-                <button class="ghost-button" id="validateAiReportBtn" type="button">AI 결과 검증</button>
-                <button class="ghost-button" id="clearAiReportBtn" type="button">입력 지우기</button>
-              </div>
-              <p class="field-help" id="aiReportValidationStatus" role="status" aria-live="polite">AI 결과는 자동 저장하거나 클라우드로 전송하지 않습니다.</p>
-              <div class="validated-ai-report" id="validatedAiReport"></div>
-            </details>
-          </section>
         </section>
 
         <nav class="goal-mobile-tabs" data-app-section="GOALS" aria-label="목표 화면 모바일 보기">
@@ -1540,6 +1585,6 @@
     <script src="external-data-engine.js?v=20260807-stage5"></script>
     <script src="etf-exposure-engine.js?v=20260807-stage5"></script>
     <script src="ai-report-engine.js?v=20260807-stage5"></script>
-    <script type="module" src="app.js?v=20260807-ux-stage1"></script>
+    <script type="module" src="app.js?v=20260807-analysis-stage2"></script>
   </body>
 </html>
