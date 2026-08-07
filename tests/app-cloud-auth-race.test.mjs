@@ -250,7 +250,7 @@ assert.equal(JSON.stringify(finalSnapshot.state).includes("alice-remote-secret")
 assert.equal(JSON.stringify(storedBob).includes("alice-remote-secret"), false);
 assert.equal(downloads.length, 0, "취소된 Alice 충돌 결과가 백업 다운로드까지 진행하면 안 됩니다.");
 assert.equal(writes.length, 0, "사용자 전환 중 이전 사용자 데이터가 클라우드에 기록되면 안 됩니다.");
-assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드: bob@example.com");
+assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드와 동기화됨");
 
 // A save request queued behind an older write must retain Bob's request-time
 // context and stop after Carol signs in. It must never recapture Carol's state.
@@ -285,7 +285,7 @@ assert.equal(afterQueuedPushRace.uid, "carol");
 assert.equal(afterQueuedPushRace.activeStorageKey, carolKey);
 assert.deepEqual(afterQueuedPushRace.state.assets.map((asset) => asset.id), ["carol-local-cash"]);
 assert.equal(writes.length, 0, "Bob의 대기 저장이 Carol 문맥으로 다시 실행되면 안 됩니다.");
-assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드: carol@example.com");
+assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드와 동기화됨");
 
 dom.window.close();
 console.log("cloud auth race tests passed");

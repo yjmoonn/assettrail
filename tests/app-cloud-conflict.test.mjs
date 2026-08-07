@@ -254,14 +254,14 @@ function createScenario(choice = null, {
     () => dialog.open || dialog.hasAttribute("open"),
     "커스텀 충돌 선택창이 열리지 않았습니다."
   );
-  assert.equal(window.document.querySelector("#syncStatus").textContent, "동기화 선택 필요");
+  assert.equal(window.document.querySelector("#syncStatus").textContent, "충돌 확인 필요");
   assert.match(window.document.querySelector("#cloudConflictCloudMeta").textContent, /자산 1개 · 기록 1개/);
   assert.match(window.document.querySelector("#cloudConflictLocalMeta").textContent, /자산 1개 · 기록 1개/);
   assert.equal(window.document.querySelector(".app").hasAttribute("inert"), true);
   dialog.querySelector('[data-cloud-conflict-choice="later"]').click();
   await waitUntil(
     window,
-    () => window.document.querySelector("#syncStatus").textContent === "동기화 충돌",
+    () => window.document.querySelector("#syncStatus").textContent === "충돌 확인 필요",
     "커스텀 선택창의 나중에 결정 동작이 완료되지 않았습니다."
   );
   assert.equal(dialog.open || dialog.hasAttribute("open"), false);
@@ -301,7 +301,7 @@ function createScenario(choice = null, {
     scenario.writes.some((write) => write.path.includes("/backups/schema-v2-revision-7")),
     true
   );
-  assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드: alice@example.com");
+  assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드와 동기화됨");
   scenario.dom.window.close();
 }
 
@@ -321,7 +321,7 @@ function createScenario(choice = null, {
   assert.equal(scenario.resolverCalls.length, 0);
   assert.equal(scenario.downloads.length, 0);
   assert.equal(scenario.eventDocs.size, 1);
-  assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드: alice@example.com");
+  assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드와 동기화됨");
   scenario.dom.window.close();
 }
 
@@ -333,7 +333,7 @@ function createScenario(choice = null, {
   const { window } = scenario;
   await waitUntil(
     window,
-    () => window.document.querySelector("#syncStatus").textContent === "동기화 충돌",
+    () => window.document.querySelector("#syncStatus").textContent === "충돌 확인 필요",
     "실제 값이 다른 legacy 데이터의 충돌 선택을 유지하지 못했습니다."
   );
 
@@ -359,7 +359,7 @@ function createScenario(choice = null, {
   const { window } = scenario;
   await waitUntil(
     window,
-    () => window.document.querySelector("#syncStatus").textContent === "데이터 버전 보호",
+    () => window.document.querySelector("#syncStatus").textContent === "동기화 중단",
     "미지원 로컬 스키마의 동기화 차단 상태가 표시되지 않았습니다."
   );
 
@@ -390,7 +390,7 @@ function createScenario(choice = null, {
   const { window } = scenario;
   await waitUntil(
     window,
-    () => window.document.querySelector("#syncStatus").textContent === "데이터 버전 보호",
+    () => window.document.querySelector("#syncStatus").textContent === "동기화 중단",
     "미지원 클라우드 스키마의 동기화 차단 상태가 표시되지 않았습니다."
   );
 
@@ -401,7 +401,7 @@ function createScenario(choice = null, {
   monthlySpend.dispatchEvent(new window.Event("change", { bubbles: true }));
   await new Promise((resolve) => window.setTimeout(resolve, 20));
   assert.equal(scenario.writes.length, 0);
-  assert.equal(window.document.querySelector("#syncStatus").textContent, "데이터 버전 보호");
+  assert.equal(window.document.querySelector("#syncStatus").textContent, "동기화 중단");
   scenario.dom.window.close();
 }
 
@@ -425,7 +425,7 @@ function createScenario(choice = null, {
   monthlySpend.dispatchEvent(new window.Event("change", { bubbles: true }));
   await waitUntil(
     window,
-    () => window.document.querySelector("#syncStatus").textContent === "데이터 버전 보호",
+    () => window.document.querySelector("#syncStatus").textContent === "동기화 중단",
     "쓰기 직전 변경된 원격 스키마를 차단하지 못했습니다."
   );
 
@@ -455,7 +455,7 @@ function createScenario(choice = null, {
   assert.equal(scenario.downloads.length, 1);
   assert.match(scenario.downloads[0], /^assettrail-before-cloud-sync-/);
   assert.deepEqual(scenario.revokedUrls, scenario.objectUrls);
-  assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드: alice@example.com");
+  assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드와 동기화됨");
   window.document.querySelector("#cloudSyncBtn").click();
   await new Promise((resolve) => window.setTimeout(resolve, 30));
   assert.equal(scenario.resolverCalls.length, 1, "the next pull after legacy promotion must not reopen a conflict");
@@ -511,7 +511,7 @@ function createScenario(choice = null, {
   const { window } = scenario;
   await waitUntil(
     window,
-    () => window.document.querySelector("#syncStatus").textContent === "동기화 충돌",
+    () => window.document.querySelector("#syncStatus").textContent === "충돌 확인 필요",
     "나중에 결정하기 상태가 표시되지 않았습니다."
   );
 
@@ -533,6 +533,6 @@ function createScenario(choice = null, {
     scenario.writes.filter((write) => write.path === "users/alice/financeData/primary").length,
     0
   );
-  assert.equal(window.document.querySelector("#syncStatus").textContent, "동기화 충돌");
+  assert.equal(window.document.querySelector("#syncStatus").textContent, "충돌 확인 필요");
   scenario.dom.window.close();
 }

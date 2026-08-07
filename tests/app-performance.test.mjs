@@ -278,6 +278,7 @@ await new Promise((resolve) => window.setTimeout(resolve, 30));
 window.__performanceTestApi.setup();
 
 assert.equal(window.document.querySelector("#performanceTabPanel").hidden, false);
+assert.equal(window.document.querySelector("#performanceSummary").hidden, false);
 assert.match(window.document.querySelector("#performanceTwr").textContent, /21/);
 assert.match(window.document.querySelector("#performanceXirr").textContent, /20[.,]9|21/);
 assert.equal(window.document.querySelector("#performanceNetFlow").textContent, "₩50");
@@ -348,7 +349,12 @@ assert.equal(window.document.querySelector("#performanceVolatility").textContent
 
 window.__performanceTestApi.useLegacySnapshotOnly();
 assert.equal(window.document.querySelector("#performanceTwr").textContent, "계산 불가");
-assert.match(window.document.querySelector("#performanceCoverage").textContent, /평가점이 없/);
+assert.match(window.document.querySelector("#performanceCoverage").textContent, /검증 평가점이 아직 없/);
+assert.equal(window.document.querySelector("#performanceSummary").hidden, true);
+assert.equal(window.document.querySelector("#performanceChartSection").hidden, true);
+assert.equal(window.document.querySelector("#performanceDetailGrid").hidden, true);
+assert.equal(window.document.querySelectorAll("#performanceCoverage .performance-prep-list li").length, 4);
+assert.equal(window.document.querySelector("#performanceCoverage .primary-button").textContent, "대시보드에서 오늘 기록");
 
 assert.equal(window.__performanceTestApi.unsettled([{
   type: "BUY",

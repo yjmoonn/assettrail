@@ -983,7 +983,7 @@ function evalAppWithLedgerCloudTestApi(window) {
   addCash("충돌 중 로컬 현금", 3000000);
   await waitForApp(window, 50);
   assert.equal(primaryTransactionWrites().length, 2);
-  assert.equal(window.document.querySelector("#syncStatus").textContent, "동기화 충돌");
+  assert.equal(window.document.querySelector("#syncStatus").textContent, "충돌 확인 필요");
   let localState = JSON.parse(window.localStorage.getItem(`${STORAGE_KEY}:user:alice`));
   assert.equal(localState.meta.cloudRevision, 6);
   assert.equal(localState.meta.syncErrorCode, "assettrail/cloud-conflict");

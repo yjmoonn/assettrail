@@ -204,7 +204,8 @@ function submitAsset() {
     .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
 }
 
-assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드: alice@example.com");
+assert.equal(window.document.querySelector("#syncStatus").textContent, "클라우드와 동기화됨");
+assert.match(window.document.querySelector("#syncDetail").textContent, /alice@example.com/);
 const initialUserWrite = writes.filter((write) => write.path === "users/alice/financeData/primary");
 assert.equal(initialUserWrite.length, 1);
 assert.equal(initialUserWrite[0].data.revision, 1);

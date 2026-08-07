@@ -260,6 +260,7 @@ const els = {
   appNavItems: [...document.querySelectorAll(".app-nav .app-nav-item")],
   appSections: [...document.querySelectorAll("[data-app-section]")],
   dashboardSnapshotBtn: document.querySelector("#dashboardSnapshotBtn"),
+  dashboardAssetBtn: document.querySelector("#dashboardAssetBtn"),
   dashboardReviewCount: document.querySelector("#dashboardReviewCount"),
   dashboardChecklist: document.querySelector("#dashboardChecklist"),
   dashboardTopAsset: document.querySelector("#dashboardTopAsset"),
@@ -374,6 +375,9 @@ const els = {
   performanceEndDate: document.querySelector("#performanceEndDate"),
   performanceRangeValidation: document.querySelector("#performanceRangeValidation"),
   performanceCoverage: document.querySelector("#performanceCoverage"),
+  performanceSummary: document.querySelector("#performanceSummary"),
+  performanceChartSection: document.querySelector("#performanceChartSection"),
+  performanceDetailGrid: document.querySelector("#performanceDetailGrid"),
   performanceTwr: document.querySelector("#performanceTwr"),
   performanceXirr: document.querySelector("#performanceXirr"),
   performanceNetFlow: document.querySelector("#performanceNetFlow"),
@@ -391,6 +395,7 @@ const els = {
   performanceRecoveryPeriod: document.querySelector("#performanceRecoveryPeriod"),
   performanceVolatility: document.querySelector("#performanceVolatility"),
   historyChart: document.querySelector("#historyChart"),
+  historyChartEmpty: document.querySelector("#historyChartEmpty"),
   historyRows: document.querySelector("#historyRows"),
   historySummary: document.querySelector("#historySummary"),
   openPerformanceFromHistoryBtn: document.querySelector("#openPerformanceFromHistoryBtn"),
@@ -416,6 +421,7 @@ const els = {
   priceStatus: document.querySelector("#priceStatus"),
   priceRefreshBtn: document.querySelector("#priceRefreshBtn"),
   syncStatus: document.querySelector("#syncStatus"),
+  syncDetail: document.querySelector("#syncDetail"),
   toggleAssetFormBtn: document.querySelector("#toggleAssetFormBtn"),
   loginBtn: document.querySelector("#loginBtn"),
   logoutBtn: document.querySelector("#logoutBtn"),
@@ -424,6 +430,9 @@ const els = {
   jsonImportBtn: document.querySelector("#jsonImportBtn"),
   importInput: document.querySelector("#importInput"),
   settingsCsvStatus: document.querySelector("#settingsCsvStatus"),
+  settingsCloudDescription: document.querySelector("#settingsCloudDescription"),
+  settingsPrimaryStorage: document.querySelector("#settingsPrimaryStorage"),
+  settingsLastSync: document.querySelector("#settingsLastSync"),
   openBrokerCsvImportBtn: document.querySelector("#openBrokerCsvImportBtn"),
   settingsBrokerCsvImportBtn: document.querySelector("#settingsBrokerCsvImportBtn"),
   butlerImportForm: document.querySelector("#butlerImportForm"),
@@ -473,7 +482,6 @@ const els = {
   applyBrokerCsvImportBtn: document.querySelector("#applyBrokerCsvImportBtn"),
   cancelBrokerCsvImportBtn: document.querySelector("#cancelBrokerCsvImportBtn"),
   appNotice: document.querySelector("#appNotice"),
-  syncDetail: document.querySelector("#syncDetail"),
   cloudConflictDialog: document.querySelector("#cloudConflictDialog"),
   cloudConflictCloudMeta: document.querySelector("#cloudConflictCloudMeta"),
   cloudConflictLocalMeta: document.querySelector("#cloudConflictLocalMeta"),
@@ -1467,6 +1475,7 @@ function setSyncStatus(text, online = false) {
   if (!els.syncStatus) return;
   els.syncStatus.textContent = text;
   els.syncStatus.classList.toggle("online", online);
+  if (els.settingsCloudStatus) els.settingsCloudStatus.textContent = text;
 }
 
 function setSyncDetail(text, online = false) {
@@ -1480,6 +1489,7 @@ function setPriceStatus(text, online = false) {
   if (!els.priceStatus) return;
   els.priceStatus.textContent = text;
   els.priceStatus.classList.toggle("online", online);
+  if (els.settingsPriceStatus) els.settingsPriceStatus.textContent = text;
 }
 
 function showUndoNotice(message, undo) {
@@ -1638,7 +1648,7 @@ function isSameOriginUrl(url) {
 
 async function initFirebase() {
   if (!hasFirebaseConfig()) {
-    setSyncStatus("로컬 저장");
+    setSyncStatus("이 기기에 저장됨");
     return;
   }
 
@@ -1724,7 +1734,7 @@ async function completeCloudSignIn(user) {
   render(false);
   updateAuthUi();
   if (!user) {
-    setSyncStatus(cloud.enabled ? "클라우드 준비" : "로컬 저장", false);
+    setSyncStatus(cloud.enabled ? "로그인 필요" : "이 기기에 저장됨", false);
     return;
   }
 
@@ -1908,25 +1918,30 @@ function updateAuthUi() {
   els.cloudSyncBtn.hidden = !signedIn;
 
   if (!cloud.enabled) {
-    setSyncStatus("로컬 저장");
+    setSyncStatus("이 기기에 저장됨");
+    setSyncDetail("");
   } else if (signedIn) {
     if (cloud.schemaBlocked) {
-      setSyncStatus("데이터 버전 보호");
+      setSyncStatus("동기화 중단");
       const versionText = cloud.schemaBlockVersion ? ` v${cloud.schemaBlockVersion}` : "";
       setSyncDetail(cloud.schemaBlockSource === "remote"
         ? `현재 앱이 지원하지 않는 클라우드 데이터${versionText}를 감지해 읽기·쓰기를 중단했습니다.`
         : "이 기기의 저장 데이터를 안전하게 읽을 수 없어 클라우드 동기화를 중단했습니다.");
     } else if (cloud.conflictPending) {
-      setSyncStatus("동기화 충돌");
+      setSyncStatus("충돌 확인 필요");
       setSyncDetail("클라우드와 이 기기 중 사용할 데이터를 선택해야 합니다.");
+    } else if (cloudPushPending) {
+      setSyncStatus("동기화 대기", true);
+      setSyncDetail("이 기기의 변경사항을 곧 클라우드에 저장합니다.", true);
     } else {
-      setSyncStatus(`클라우드: ${cloud.user.email || "로그인됨"}`, true);
-      setSyncDetail(syncDetailText(), true);
+      setSyncStatus("클라우드와 동기화됨", true);
+      setSyncDetail(`${cloud.user.email || "로그인됨"} · ${syncDetailText()}`, true);
     }
   } else {
-    setSyncStatus("클라우드 준비");
-    setSyncDetail("");
+    setSyncStatus("로그인 필요");
+    setSyncDetail("로그인하면 주 데이터를 사용자별 클라우드와 동기화합니다.");
   }
+  renderSettingsSummary();
 }
 
 function cloudConflictRecordCount(data) {
@@ -2014,7 +2029,7 @@ async function pullCloudData(options = {}) {
     setCloudSchemaBlock("local");
     return false;
   }
-  setSyncStatus("클라우드 확인중", true);
+  setSyncStatus("클라우드 확인 중", true);
   let cloudRead;
   try {
     cloudRead = await readCloudStateConsistently(context);
@@ -2042,7 +2057,7 @@ async function pullCloudData(options = {}) {
     }
     clearCloudSchemaBlock("remote");
     if (shouldWarnCloudConflict(cloudData)) {
-      setSyncStatus("동기화 선택 필요");
+      setSyncStatus("충돌 확인 필요");
       setSyncDetail("클라우드와 이 기기 중 사용할 데이터를 선택하세요.");
       const choice = await chooseCloudConflict(cloudData);
       if (!cloudContextIsCurrent(context)) return false;
@@ -2140,7 +2155,7 @@ async function pushCloudDataForContext(direction = "save", options = {}) {
     updateAuthUi();
     return;
   }
-  setSyncStatus("클라우드 저장중", true);
+  setSyncStatus("클라우드에 저장 중", true);
   try {
     const payload = await writeCloudState(options);
     if (!cloudContextIsCurrent(context)) return false;
@@ -2308,7 +2323,7 @@ function exposeCloudSyncError(error) {
   state.meta.syncErrorCode = code;
   persist();
   if (code === "assettrail/cloud-conflict") {
-    setSyncStatus("동기화 충돌");
+    setSyncStatus("충돌 확인 필요");
     setSyncDetail(error.message);
     return;
   }
@@ -2345,6 +2360,7 @@ function cloudPushDelayMs() {
 function scheduleCloudPush() {
   if (!cloud.docRef || cloud.conflictPending || cloud.schemaBlocked || storageWritesBlocked) return;
   cloudPushPending = true;
+  updateAuthUi();
   if (cloudPushTimer !== null) window.clearTimeout(cloudPushTimer);
   cloudPushTimer = window.setTimeout(() => {
     cloudPushTimer = null;
@@ -5039,6 +5055,13 @@ function drawHeroSparkline() {
 
 function renderDashboard() {
   if (!els.dashboardChecklist) return;
+  const needsFirstAsset = state.assets.length === 0;
+  if (els.dashboardSnapshotBtn) els.dashboardSnapshotBtn.hidden = needsFirstAsset;
+  if (els.dashboardAssetBtn) {
+    els.dashboardAssetBtn.textContent = needsFirstAsset ? "첫 자산 등록" : "새 자산 등록";
+    els.dashboardAssetBtn.classList.toggle("primary-button", needsFirstAsset);
+    els.dashboardAssetBtn.classList.toggle("ghost-button", !needsFirstAsset);
+  }
   const tasks = dashboardTasks();
   els.dashboardReviewCount.textContent = `${tasks.length}건`;
   els.dashboardChecklist.innerHTML = tasks.length
@@ -5168,6 +5191,13 @@ function renderDashboardRecentList() {
 }
 
 function dashboardTasks() {
+  if (!state.assets.length) {
+    return [{
+      kind: "snapshot",
+      title: "첫 자산을 등록하세요",
+      detail: "자산을 추가하면 오늘 기록과 성과 측정 순서가 이어집니다."
+    }];
+  }
   const tasks = [];
   const reviewSubjects = new Map();
   state.assets.forEach((asset) => {
@@ -5244,7 +5274,20 @@ function largestTargetGap() {
 
 function renderSettingsSummary() {
   if (els.settingsCloudStatus) {
-    els.settingsCloudStatus.textContent = cloud.user?.email ? `클라우드: ${cloud.user.email}` : "로컬 저장";
+    els.settingsCloudStatus.textContent = els.syncStatus?.textContent || (cloud.user ? "클라우드와 동기화됨" : "이 기기에 저장됨");
+  }
+  if (els.settingsCloudDescription) {
+    els.settingsCloudDescription.textContent = cloud.user
+      ? "주 데이터는 이 기기에 즉시 저장되고 사용자별 클라우드와 동기화됩니다. Butler·ETF 데이터는 이 기기에만 남습니다."
+      : "주 데이터는 이 브라우저의 기기 저장소에 보관됩니다. 로그인하면 사용자별 클라우드 동기화를 사용할 수 있습니다.";
+  }
+  if (els.settingsPrimaryStorage) {
+    els.settingsPrimaryStorage.textContent = cloud.user ? "이 브라우저 + 사용자별 클라우드" : "이 브라우저";
+  }
+  if (els.settingsLastSync) {
+    els.settingsLastSync.textContent = cloud.user
+      ? `${cloud.user.email || "로그인됨"} · ${syncDetailText()}`
+      : cloud.enabled ? "로그인 전" : "클라우드 연결 없음";
   }
   if (els.settingsPriceStatus) {
     els.settingsPriceStatus.textContent = els.priceStatus?.textContent || "가격 대기";
@@ -6752,37 +6795,89 @@ function metricPercent(value, fallback = "계산 불가") {
   return Number.isFinite(value) ? percent(value) : fallback;
 }
 
+function performancePreparationMarkup(dataset) {
+  const readiness = snapshotReadiness();
+  const exactCount = dataset.observations.filter((row) => row.completeness === true).length;
+  const steps = [
+    {
+      complete: state.assets.length > 0,
+      title: "자산 등록",
+      detail: state.assets.length ? `${state.assets.length}개 자산이 등록되어 있습니다.` : "먼저 추적할 자산을 등록하세요."
+    },
+    {
+      complete: readiness.ok,
+      title: "가격과 원장 준비",
+      detail: readiness.ok ? "현재 자산을 정확하게 평가할 준비가 됐습니다." : readiness.message
+    },
+    {
+      complete: exactCount >= 1,
+      title: "첫 날짜 평가점",
+      detail: exactCount >= 1 ? "첫 검증 평가점을 확보했습니다." : "오늘 자산 기록을 저장하면 첫 평가점이 만들어집니다."
+    },
+    {
+      complete: exactCount >= 2,
+      title: "다른 날짜 평가점",
+      detail: exactCount >= 2 ? "기간 성과를 계산할 평가점이 준비됐습니다." : "서로 다른 날짜의 평가점이 하나 더 필요합니다."
+    }
+  ];
+  const action = !state.assets.length
+    ? { label: "첫 자산 등록", view: "ASSETS", openAssetForm: true }
+    : !readiness.ok
+      ? { label: "가격 상태 확인", view: "SETTINGS", openAssetForm: false }
+      : { label: "대시보드에서 오늘 기록", view: "DASHBOARD", openAssetForm: false };
+  const technicalReason = !dataset.marks.length
+    ? "검증 평가점이 아직 없습니다. 평가점은 가격·원장·평가 방법이 모두 확인된 날짜별 총자산 기록입니다."
+    : `${dataset.marks.length}개 평가점 중 ${exactCount}개가 현재 선택 기간에서 검증을 통과했습니다.`;
+
+  return `
+    <div class="performance-prep-head">
+      <strong>성과 측정 준비</strong>
+      <span class="performance-prep-count">검증 평가점 ${exactCount}/2개</span>
+    </div>
+    <ol class="performance-prep-list">
+      ${steps.map((step, index) => `
+        <li data-complete="${step.complete}">
+          <span class="performance-prep-step" aria-hidden="true">${index + 1}</span>
+          <span class="performance-prep-copy"><strong>${escapeHtml(step.title)}</strong><span>${escapeHtml(step.detail)}</span></span>
+        </li>
+      `).join("")}
+    </ol>
+    <div class="performance-prep-actions">
+      <button class="primary-button" type="button" data-go-view="${action.view}"${action.openAssetForm ? ' data-open-asset-form="true"' : ""}>${escapeHtml(action.label)}</button>
+    </div>
+    <details class="performance-prep-detail">
+      <summary>평가점과 계산 기준 알아보기</summary>
+      <p>${escapeHtml(technicalReason)} 기존 조회 히스토리는 입출금과 평가 기준을 검증할 수 없어 수익률 평가점으로 소급 사용하지 않습니다.</p>
+    </details>
+  `;
+}
+
 function renderPerformanceCoverage(bounds, dataset, analysis) {
   if (!els.performanceCoverage) return;
   if (bounds.error) {
+    els.performanceCoverage.dataset.status = "error";
     els.performanceCoverage.innerHTML = `<strong>기간을 확인하세요</strong><span>${escapeHtml(bounds.error)}</span>`;
     return;
   }
-  if (!dataset.marks.length) {
-    const live = currentPerformanceObservation();
-    const reason = live?.issueCodes?.length
-      ? `현재 평가점 미생성: ${live.issueCodes.join(", ")}`
-      : "가격표와 원장을 확인한 뒤 앱을 열거나 조회 기록을 저장하면 첫 평가점이 생성됩니다.";
-    els.performanceCoverage.innerHTML = `<strong>아직 계산 가능한 평가점이 없어요</strong><span>${escapeHtml(reason)}</span>`;
-    return;
-  }
-  if (dataset.marks.length < 2) {
-    const exact = dataset.observations[0]?.completeness === true;
-    els.performanceCoverage.innerHTML = exact
-      ? `<strong>${escapeHtml(dataset.marks[0].date)}부터 정확한 측정을 시작했어요</strong><span>서로 다른 날짜의 완전한 평가점이 하나 더 쌓이면 기간 수익률을 계산합니다.</span>`
-      : `<strong>${escapeHtml(dataset.marks[0].date)} 평가점의 무결성을 확인할 수 없어요</strong><span>원장·방법론·가격 evidence digest와 내부 항등식을 모두 충족하는 새 평가점이 필요합니다.</span>`;
+  const exactCount = dataset.observations.filter((row) => row.completeness === true).length;
+  if (dataset.marks.length < 2 || exactCount < 2) {
+    els.performanceCoverage.dataset.status = "preparing";
+    els.performanceCoverage.innerHTML = performancePreparationMarkup(dataset);
     return;
   }
   if (dataset.missingFlowDates.length) {
+    els.performanceCoverage.dataset.status = "partial";
     els.performanceCoverage.innerHTML = `<strong>현금흐름 경계 평가점이 부족해 TWR을 계산하지 않았어요</strong><span>${escapeHtml(dataset.missingFlowDates.join(", "))} 입출금일의 완전한 평가점이 필요합니다. XIRR은 실제 입출금 날짜로 별도 계산합니다.</span>`;
     return;
   }
   if (!analysis?.twr?.ok || dataset.observations.some((row) => row.completeness !== true)) {
+    els.performanceCoverage.dataset.status = "partial";
     els.performanceCoverage.innerHTML = `<strong>평가점 검증이 완료되지 않아 TWR을 계산하지 않았어요</strong><span>원장 prefix, 평가 방법론, 가격 evidence digest, NAV·입출금 항등식과 평가점 무결성을 확인하세요.</span>`;
     return;
   }
   const effective = `${dataset.marks[0].date} ~ ${dataset.marks.at(-1).date}`;
   const availability = analysis?.availability === "VERIFIED" ? "검증 완료" : "제한적 계산";
+  els.performanceCoverage.dataset.status = "ready";
   els.performanceCoverage.innerHTML = `<strong>${availability} · ${dataset.marks.length}개 평가점</strong><span>${effective} · 장 종료 후 현금흐름 정책 · 원장 재검증 · 가격 evidence digest 기록 · 평가점 무결성 확인</span>`;
 }
 
@@ -6891,6 +6986,11 @@ function renderPerformance() {
   }
   const emptyDataset = { marks: [], observations: [], flows: [], missingFlowDates: [], boundaryExact: false };
   const dataset = !bounds.error ? performanceInputForRange(bounds) : emptyDataset;
+  const exactObservationCount = dataset.observations.filter((row) => row.completeness === true).length;
+  const resultsReady = !bounds.error && dataset.marks.length >= 2 && exactObservationCount >= 2;
+  [els.performanceSummary, els.performanceChartSection, els.performanceDetailGrid].forEach((section) => {
+    if (section) section.hidden = !resultsReady;
+  });
   const analysis = engine && dataset.observations.length
     ? engine.analyzePerformance({ observations: dataset.observations })
     : null;
@@ -7394,13 +7494,18 @@ function renderLedger() {
     return;
   }
   const reconciliation = ledgerReconciliation(projection);
-  els.ledgerReconciliation.className = `ledger-reconciliation ${reconciliation.ok ? "is-balanced" : "is-error"}`;
-  els.ledgerReconciliation.innerHTML = reconciliation.ok
-    ? `<strong>원장 정합성 정상</strong><span>보유수량·평단·CASH 잔액이 활성 이벤트 합계와 일치합니다.${reconciliation.warnings.length ? ` 확인사항 ${reconciliation.warnings.length}건` : ""}</span>`
-    : `<strong>원장 정합성 확인 필요</strong><span>${escapeHtml([
-        ...reconciliation.mismatches,
-        ...reconciliation.errors.map((error) => error.message)
-      ].join(" · ") || "원장과 자산 상태가 일치하지 않습니다.")}</span>`;
+  if (!state.events.length) {
+    els.ledgerReconciliation.className = "ledger-reconciliation is-empty";
+    els.ledgerReconciliation.innerHTML = "<strong>검사할 거래 없음</strong><span>거래를 직접 기록하거나 표준 거래 CSV를 가져오면 원장 정합성을 확인합니다.</span>";
+  } else {
+    els.ledgerReconciliation.className = `ledger-reconciliation ${reconciliation.ok ? "is-balanced" : "is-error"}`;
+    els.ledgerReconciliation.innerHTML = reconciliation.ok
+      ? `<strong>원장 정합성 정상</strong><span>보유수량·평단·CASH 잔액이 활성 이벤트 합계와 일치합니다.${reconciliation.warnings.length ? ` 확인사항 ${reconciliation.warnings.length}건` : ""}</span>`
+      : `<strong>원장 정합성 확인 필요</strong><span>${escapeHtml([
+          ...reconciliation.mismatches,
+          ...reconciliation.errors.map((error) => error.message)
+        ].join(" · ") || "원장과 자산 상태가 일치하지 않습니다.")}</span>`;
+  }
 
   const summary = projection.summary;
   const income = Number(summary.dividendsKRW || 0) + Number(summary.interestKRW || 0);
@@ -7950,6 +8055,9 @@ function tradeMonth(trade) {
 function renderHistory() {
   els.historyRows.textContent = "";
   const snapshots = filteredHistorySnapshots();
+  const hasSnapshots = snapshots.length > 0;
+  if (els.historyChart) els.historyChart.hidden = !hasSnapshots;
+  if (els.historyChartEmpty) els.historyChartEmpty.hidden = hasSnapshots;
   renderHistorySummary(snapshots);
   if (!snapshots.length) {
     els.historyRows.append(els.emptyHistoryTemplate.content.cloneNode(true));
@@ -7971,7 +8079,13 @@ function renderHistory() {
       els.historyRows.append(row);
     });
   }
-  drawChart(snapshots);
+  if (hasSnapshots) {
+    drawChart(snapshots);
+  } else if (els.historyChartDescription) {
+    els.historyChartDescription.textContent = state.snapshots.length
+      ? "선택한 기간에 저장된 조회 기록이 없습니다."
+      : "아직 저장된 조회 기록이 없습니다.";
+  }
 }
 
 function historyDateParts(value) {

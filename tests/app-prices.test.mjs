@@ -96,6 +96,17 @@ window.eval(appCode);
 await new Promise((resolve) => window.setTimeout(resolve, 30));
 const today = window.eval("localDateInputValue()");
 
+assert.equal(window.document.querySelector("#dashboardSnapshotBtn").hidden, true);
+assert.equal(window.document.querySelector("#dashboardAssetBtn").textContent, "첫 자산 등록");
+assert.equal(window.document.querySelector("#dashboardAssetBtn").classList.contains("primary-button"), true);
+assert.match(window.document.querySelector("#dashboardChecklist").textContent, /첫 자산을 등록/);
+assert.equal(window.document.querySelector("#historyChart").hidden, true);
+assert.equal(window.document.querySelector("#historyChartEmpty").hidden, false);
+assert.match(window.document.querySelector("#ledgerReconciliation").textContent, /검사할 거래 없음/);
+assert.equal(window.document.querySelectorAll(".backup-scope-list li").length, 4);
+assert.equal(window.document.querySelector("#loginBtn").closest(".settings-card") !== null, true);
+assert.equal(window.document.querySelector("#syncStatus").textContent, "이 기기에 저장됨");
+
 const appNavItems = [...window.document.querySelectorAll(".app-nav .app-nav-item")];
 assert.equal(appNavItems[0].tabIndex, 0);
 assert.equal(appNavItems.slice(1).every((button) => button.tabIndex === -1), true);
@@ -171,6 +182,12 @@ setValue("#assetAveragePrice", "0");
 expectAlert(submitAsset, /평단가는 0보다 커야/);
 setValue("#assetAveragePrice", "70000");
 submitAsset();
+
+window.document.querySelector('[data-nav-view="DASHBOARD"]').click();
+assert.equal(window.document.querySelector("#dashboardSnapshotBtn").hidden, false);
+assert.equal(window.document.querySelector("#dashboardAssetBtn").textContent, "새 자산 등록");
+assert.equal(window.document.querySelector("#dashboardAssetBtn").classList.contains("ghost-button"), true);
+window.document.querySelector('[data-nav-view="ASSETS"]').click();
 
 setValue("#assetCategory", "KRX");
 setValue("#assetAccount", "미래에셋");
