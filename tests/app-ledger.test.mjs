@@ -498,6 +498,47 @@ assert.equal(stored().assets.find((asset) => asset.id === "cash-1").amount, 8907
 assert.equal(stored().assets.find((asset) => asset.id === "stock-1").quantity, 11);
 assert.equal(stored().events.filter((event) => event.type === "CANCEL" && autoEvents.some((target) => target.eventId === event.targetEventId)).length, 2);
 
+window.eval("showAssetForm('create')");
+setValue("#assetCategory", "CASH");
+setValue("#assetName", "당일 정정 예수금");
+setValue("#assetAccount", "키움ISA계좌");
+setValue("#assetAmount", "1000000");
+submit("#assetForm");
+const sameDayCash = stored().assets.find((asset) => asset.name === "당일 정정 예수금");
+assert.ok(sameDayCash);
+const sameDayOpening = stored().events.find((event) => (
+  event.type === "OPENING_BALANCE" && event.cashAssetId === sameDayCash.id
+));
+assert.ok(sameDayOpening);
+const originalDateNow = window.Date.now;
+window.Date.now = () => 1786682695496;
+window.eval(`showCashBalanceForm(storageSafeState().assets.find((asset) => asset.id === ${JSON.stringify(sameDayCash.id)}))`);
+setValue("#cashBalanceActualAmount", "1100000");
+setValue("#cashBalanceReason", "DEPOSIT");
+setValue("#cashBalanceDate", today);
+submit("#cashBalanceForm");
+const sameDayDeposit = stored().events.find((event) => (
+  event.type === "DEPOSIT" && event.cashAssetId === sameDayCash.id
+));
+assert.ok(sameDayDeposit);
+window.Date.now = () => 1786688614892;
+const alertsBeforeSameDayCorrection = alerts.length;
+window.eval(`showCashBalanceForm(storageSafeState().assets.find((asset) => asset.id === ${JSON.stringify(sameDayCash.id)}))`);
+setValue("#cashBalanceActualAmount", "1200000");
+setValue("#cashBalanceReason", "OPENING_BALANCE");
+setValue("#cashBalanceDate", today);
+setValue("#cashBalanceMemo", "당일 거래 전 최초 등록금액 정정");
+submit("#cashBalanceForm");
+window.Date.now = originalDateNow;
+const sameDayCorrection = stored().events.find((event) => event.correctsEventId === sameDayOpening.eventId);
+assert.ok(sameDayCorrection, "same-day cash activity must not block an opening balance correction");
+assert.equal(alerts.length, alertsBeforeSameDayCorrection);
+assert.equal(sameDayCorrection.sequence, sameDayOpening.sequence);
+assert.equal(sameDayCorrection.tradeDate, sameDayOpening.tradeDate);
+assert.equal(sameDayCorrection.amount, 1100000);
+assert.equal(stored().assets.find((asset) => asset.id === sameDayCash.id).amount, 1200000);
+assert.equal(window.eval("ledgerProjection().ok"), true);
+
 const knownFxAsset = {
   id: "us-known-fx",
   name: "Known FX",
