@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-store">
     <meta http-equiv="Pragma" content="no-cache">
     <title>자산 히스토리 & 은퇴 플래너</title>
-    <link rel="stylesheet" href="styles.css?v=20260807-analysis-stage2">
+    <link rel="stylesheet" href="styles.css?v=20260814-cash-balance">
   </head>
   <body>
     <div class="app">
@@ -174,8 +174,13 @@
                 </label>
                 <label id="assetAmountField">
                   평가금액
-                  <input id="assetAmount" type="text" inputmode="numeric" placeholder="금액 입력">
+                  <input id="assetAmount" type="text" inputmode="numeric" placeholder="금액 입력" aria-describedby="assetAmountHelp">
+                  <small class="field-help" id="assetAmountHelp"></small>
                 </label>
+                <div class="cash-amount-lock-help wide-field" id="cashAmountLockHelp" hidden>
+                  <span>예수금 잔액은 입출금과 매매 내역으로 계산됩니다.</span>
+                  <button class="text-link-button" id="manageCashBalanceBtn" type="button">입금·출금 또는 잔액 맞추기</button>
+                </div>
                 <label>
                   보유수량
                   <input id="assetQuantity" type="text" inputmode="decimal" placeholder="0">
@@ -299,10 +304,56 @@
                   <input id="buyJournalEnabled" type="checkbox" checked>
                   매매일지도 함께 작성
                 </label>
+                <label class="checkbox-field wide-field buy-cash-shortfall" id="buyCashShortfallField" hidden>
+                  <input id="buyAutoDeposit" type="checkbox">
+                  <span id="buyCashShortfallText">부족금액을 같은 예수금에 입금한 뒤 매수합니다.</span>
+                </label>
                 <div class="buy-preview" id="buyPreview" aria-live="polite"></div>
                 <div class="form-actions">
                   <button class="primary-button" type="submit">추가매수 저장</button>
                   <button class="ghost-button" id="cancelBuyBtn" type="button">취소</button>
+                </div>
+              </form>
+            </div>
+
+            <div class="cash-balance-form-panel" id="cashBalanceFormPanel" hidden>
+              <div class="form-panel-header">
+                <div>
+                  <h3 id="cashBalanceFormTitle">예수금 잔액 맞추기</h3>
+                  <p id="cashBalanceAssetSummary">실제 예수금을 입력하면 차액과 기록 방법을 확인합니다.</p>
+                </div>
+              </div>
+              <form id="cashBalanceForm" class="cash-balance-form">
+                <input type="hidden" id="cashBalanceAssetId">
+                <label>
+                  실제 예수금
+                  <input id="cashBalanceActualAmount" type="text" inputmode="numeric" required placeholder="0">
+                </label>
+                <label>
+                  차이가 생긴 이유
+                  <select id="cashBalanceReason" required>
+                    <option value="">실제 잔액을 먼저 입력하세요</option>
+                  </select>
+                </label>
+                <label>
+                  발생일
+                  <input id="cashBalanceDate" type="date" required>
+                </label>
+                <label id="cashBalanceSourceAssetField" hidden>
+                  배당 원천 자산
+                  <select id="cashBalanceSourceAssetId"><option value="">선택하세요</option></select>
+                </label>
+                <label class="wide-field">
+                  사유·메모
+                  <input id="cashBalanceMemo" type="text" maxlength="10000" placeholder="예: 최초 등록금액 오입력, 계좌 잔액 대사">
+                </label>
+                <div class="cash-balance-equation wide-field" id="cashBalancePreview" aria-live="polite">
+                  <span>현재 잔액</span><strong>—</strong><i>→</i><span>반영 후 잔액</span><strong>—</strong>
+                </div>
+                <p class="cash-balance-guidance wide-field" id="cashBalanceGuidance" role="status" aria-live="polite">실제 예수금을 입력하세요.</p>
+                <div class="form-actions">
+                  <button class="primary-button" id="saveCashBalanceBtn" type="submit">잔액 맞추기 저장</button>
+                  <button class="ghost-button" id="cancelCashBalanceBtn" type="button">취소</button>
                 </div>
               </form>
             </div>
@@ -686,6 +737,7 @@
                   <option value="INTEREST">이자</option>
                   <option value="FEE">수수료</option>
                   <option value="TAX">세금</option>
+                  <option value="CASH_ADJUSTMENT">원인 미확인 잔액조정</option>
                   <option value="SPLIT">주식분할</option>
                   <option value="VALUATION">평가조정</option>
                   <option value="FX">환율조정</option>
@@ -1578,13 +1630,13 @@
     <script src="firebase-config.js?v=20260519-auth-result"></script>
     <script src="decision-engine.js?v=20260805-stage2"></script>
     <script src="action-engine.js?v=20260805-stage2"></script>
-    <script src="ledger-engine.js?v=20260805-stage3"></script>
+    <script src="ledger-engine.js?v=20260814-cash-balance"></script>
     <script src="performance-engine.js?v=20260806-stage4"></script>
     <script src="broker-csv-engine.js?v=20260806-stage4"></script>
     <script src="broker-csv-adapter-standard.js?v=20260806-stage4"></script>
     <script src="external-data-engine.js?v=20260807-stage5"></script>
     <script src="etf-exposure-engine.js?v=20260807-stage5"></script>
     <script src="ai-report-engine.js?v=20260807-stage5"></script>
-    <script type="module" src="app.js?v=20260807-analysis-stage2"></script>
+    <script type="module" src="app.js?v=20260814-cash-balance"></script>
   </body>
 </html>

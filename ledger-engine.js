@@ -14,6 +14,7 @@
     "INTEREST",
     "FEE",
     "TAX",
+    "CASH_ADJUSTMENT",
     "SPLIT",
     "VALUATION",
     "FX"
@@ -29,6 +30,7 @@
     "INTEREST",
     "FEE",
     "TAX",
+    "CASH_ADJUSTMENT",
     "FX"
   ]);
   const AMOUNT_EVENT_TYPES = new Set([
@@ -330,6 +332,36 @@
             { field: "amountKRW" }
           ));
         }
+      }
+    } else if (type === "CASH_ADJUSTMENT") {
+      copyAssetIdentity(false);
+      if (!reason && !note) {
+        errors.push(issue(
+          "CASH_ADJUSTMENT_REASON_REQUIRED",
+          "원인 미확인 잔액조정에는 확인 가능한 사유나 메모가 필요합니다.",
+          { field: "reason" }
+        ));
+      }
+      event.cashAssetId = readRequiredText(row, "cashAssetId", errors, "CASH 자산 ID");
+      event.cashAccountId = readRequiredText(row, "cashAccountId", errors, "CASH 계좌 ID");
+      event.amount = readNumber(row, "amount", errors);
+      if (Math.abs(event.amount) <= EPSILON) {
+        errors.push(issue(
+          "ZERO_CASH_ADJUSTMENT",
+          "원인 미확인 잔액조정 금액은 0이 아니어야 합니다.",
+          { field: "amount" }
+        ));
+      }
+      const currency = readCurrencyAndRate(row, errors, { rateAlias: "exchangeRate" });
+      event.currency = currency.currency;
+      event.fxRate = currency.fxRate;
+      event.amountKRW = round(event.amount * event.fxRate, 4);
+      if (event.currency !== "KRW" || event.fxRate !== 1) {
+        errors.push(issue(
+          "NON_KRW_CASH_ADJUSTMENT",
+          "현재 원인 미확인 잔액조정은 원화 CASH에서만 사용할 수 있습니다.",
+          { field: event.currency !== "KRW" ? "currency" : "fxRate" }
+        ));
       }
     } else if (type === "SPLIT") {
       copyAssetIdentity(true);
@@ -1105,6 +1137,13 @@
       } else if (event.type === "TAX") {
         postCash(event, event.cashAssetId, event.cashAccountId, -event.amountKRW);
         summary.taxesKRW = round(summary.taxesKRW + event.amountKRW, 4);
+      } else if (event.type === "CASH_ADJUSTMENT") {
+        postCash(event, event.cashAssetId, event.cashAccountId, event.amountKRW);
+        diagnostics.push(warning(
+          "UNCLASSIFIED_CASH_ADJUSTMENT",
+          `CASH 자산 ${event.cashAssetId}에 원인 미확인 잔액조정이 있어 성과 계산 전 분류가 필요합니다.`,
+          { eventId: event.eventId, cashAssetId: event.cashAssetId, amountKRW: event.amountKRW }
+        ));
       } else if (event.type === "FX") {
         postCash(event, event.cashAssetId, event.cashAccountId, -(event.amountKRW + event.feeKRW));
         postCash(event, event.counterCashAssetId, event.counterCashAccountId, event.counterAmountKRW);

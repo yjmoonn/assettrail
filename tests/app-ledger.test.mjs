@@ -216,6 +216,81 @@ assert.ok(correctedWithdrawal, "outgoing correction must restore the original de
 assert.equal(stored().assets.find((asset) => asset.id === "cash-1").amount, 890750);
 
 window.document.querySelector('[data-nav-view="ASSETS"]').click();
+let cashRow = [...window.document.querySelectorAll("#assetRows tr")]
+  .find((row) => row.textContent.includes("증권 예수금"));
+assert.ok(cashRow.querySelector('[data-action="cash-deposit"]'));
+assert.ok(cashRow.querySelector('[data-action="cash-withdrawal"]'));
+assert.ok(cashRow.querySelector('[data-action="cash-reconcile"]'));
+cashRow.querySelector('[data-action="cash-deposit"]').click();
+assert.equal(window.document.querySelector("#cashFlowCashAssetId").value, "cash-1");
+assert.equal(window.document.querySelector("#cashFlowType").value, "DEPOSIT");
+window.eval("resetCashFlowForm(); setActiveView('ASSETS')");
+
+cashRow = [...window.document.querySelectorAll("#assetRows tr")]
+  .find((row) => row.textContent.includes("증권 예수금"));
+cashRow.querySelector('[data-action="detail"]').click();
+window.document.querySelector("#assetDetailDrawer [data-action='edit']").click();
+assert.equal(window.document.querySelector("#assetAmount").disabled, true);
+assert.equal(window.document.querySelector("#cashAmountLockHelp").hidden, false);
+window.document.querySelector("#manageCashBalanceBtn").click();
+assert.equal(window.document.querySelector("#cashBalanceFormPanel").hidden, false);
+setValue("#cashBalanceActualAmount", "900750");
+setValue("#cashBalanceReason", "DEPOSIT");
+setValue("#cashBalanceDate", today);
+submit("#cashBalanceForm");
+let afterBalanceDeposit = stored();
+const balanceDeposit = afterBalanceDeposit.events.find((event) => (
+  event.type === "DEPOSIT" && event.note?.startsWith("[잔액 맞추기]")
+));
+assert.ok(balanceDeposit);
+assert.equal(afterBalanceDeposit.assets.find((asset) => asset.id === "cash-1").amount, 900750);
+assert.equal(window.eval(`cancelLedgerEvent(${JSON.stringify(balanceDeposit.eventId)}, "잔액 맞추기 입금 테스트 복원")`), true);
+assert.equal(stored().assets.find((asset) => asset.id === "cash-1").amount, 890750);
+
+window.eval(`showCashBalanceForm(storageSafeState().assets.find((asset) => asset.id === "cash-1"))`);
+setValue("#cashBalanceActualAmount", "900750");
+setValue("#cashBalanceReason", "OPENING_BALANCE");
+setValue("#cashBalanceDate", "2026-08-05");
+setValue("#cashBalanceMemo", "최초 등록금액 1만원 누락");
+submit("#cashBalanceForm");
+const firstOpeningCorrection = stored().events.find((event) => (
+  event.type === "OPENING_BALANCE" && event.correctsEventId && event.cashAssetId === "cash-1"
+));
+assert.ok(firstOpeningCorrection);
+assert.equal(firstOpeningCorrection.amount, 1010000);
+assert.equal(stored().assets.find((asset) => asset.id === "cash-1").amount, 900750);
+
+window.eval(`showCashBalanceForm(storageSafeState().assets.find((asset) => asset.id === "cash-1"))`);
+setValue("#cashBalanceActualAmount", "890750");
+setValue("#cashBalanceReason", "OPENING_BALANCE");
+setValue("#cashBalanceDate", "2026-08-05");
+setValue("#cashBalanceMemo", "테스트 기초잔액 복원");
+submit("#cashBalanceForm");
+const restoredOpening = stored().events.find((event) => event.correctsEventId === firstOpeningCorrection.eventId);
+assert.ok(restoredOpening);
+assert.equal(restoredOpening.amount, 1000000);
+assert.equal(stored().assets.find((asset) => asset.id === "cash-1").amount, 890750);
+
+window.eval(`showCashBalanceForm(storageSafeState().assets.find((asset) => asset.id === "cash-1"))`);
+setValue("#cashBalanceActualAmount", "890873");
+setValue("#cashBalanceReason", "CASH_ADJUSTMENT");
+setValue("#cashBalanceDate", "2026-08-05");
+setValue("#cashBalanceMemo", "증권사 잔액과 123원 차이");
+submit("#cashBalanceForm");
+const unresolvedAdjustment = stored().events.find((event) => event.type === "CASH_ADJUSTMENT");
+assert.ok(unresolvedAdjustment);
+assert.equal(unresolvedAdjustment.amount, 123);
+assert.equal(stored().assets.find((asset) => asset.id === "cash-1").amount, 890873);
+assert.equal(window.eval("ledgerProjection().warnings.some((warning) => warning.code === 'UNCLASSIFIED_CASH_ADJUSTMENT')"), true);
+assert.equal(window.eval("currentPerformanceObservation().issueCodes.includes('UNRESOLVED_CASH_ADJUSTMENT')"), true);
+assert.equal(window.eval(`cancelLedgerEvent(${JSON.stringify(unresolvedAdjustment.eventId)}, "원인 미확인 조정 테스트 복원")`), true);
+assert.equal(stored().assets.find((asset) => asset.id === "cash-1").amount, 890750);
+assert.equal(
+  window.eval("currentPerformanceObservation().issueCodes.includes('UNRESOLVED_CASH_ADJUSTMENT')"),
+  true,
+  "평가일 뒤에 취소한 조정은 과거 평가일 투영에서 여전히 미분류 상태여야 합니다."
+);
+
 [...window.document.querySelectorAll("#assetRows tr")]
   .find((row) => row.textContent.includes("테스트 주식"))
   .querySelector('[data-action="detail"]').click();
@@ -388,6 +463,40 @@ performanceTab.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowLe
 assert.equal(window.document.activeElement, ledgerTab);
 ledgerTab.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }));
 assert.equal(window.document.activeElement, realizedTab);
+
+window.eval("setActiveView('ASSETS')");
+const beforeAutoDeposit = stored();
+[...window.document.querySelectorAll("#assetRows tr")]
+  .find((row) => row.textContent.includes("테스트 주식"))
+  .querySelector('[data-action="buy"]').click();
+setValue("#buyDate", today);
+setValue("#buySettlementDate", today);
+setValue("#buyQuantity", "100");
+setValue("#buyPrice", "12000");
+setValue("#buyFees", "0");
+assert.equal(window.document.querySelector("#buyCashShortfallField").hidden, false);
+assert.match(window.document.querySelector("#buyCashShortfallText").textContent, /부족한/);
+window.document.querySelector("#buyAutoDeposit").checked = true;
+window.document.querySelector("#buyAutoDeposit").dispatchEvent(new window.Event("change", { bubbles: true }));
+assert.match(window.document.querySelector("#buyPreview").textContent, /입금/);
+submit("#buyForm");
+const afterAutoDeposit = stored();
+const beforeAutoIds = new Set(beforeAutoDeposit.events.map((event) => event.eventId));
+const autoEvents = afterAutoDeposit.events.filter((event) => !beforeAutoIds.has(event.eventId));
+const autoDepositEvent = autoEvents.find((event) => event.type === "DEPOSIT");
+const autoBuyEvent = autoEvents.find((event) => event.type === "BUY");
+assert.ok(autoDepositEvent);
+assert.ok(autoBuyEvent);
+assert.equal(autoDepositEvent.amount, 309250);
+assert.equal(autoDepositEvent.cashAssetId, autoBuyEvent.cashAssetId);
+assert.equal(autoDepositEvent.settlementDate, autoBuyEvent.settlementDate);
+assert.ok(autoDepositEvent.sequence < autoBuyEvent.sequence);
+assert.equal(afterAutoDeposit.assets.find((asset) => asset.id === "cash-1").amount, 0);
+assert.equal(afterAutoDeposit.assets.find((asset) => asset.id === "stock-1").quantity, 111);
+assert.equal(window.eval(`cancelLedgerEvents(${JSON.stringify(autoEvents.map((event) => event.eventId))}, "부족금 자동입금 테스트 복원")`), true);
+assert.equal(stored().assets.find((asset) => asset.id === "cash-1").amount, 890750);
+assert.equal(stored().assets.find((asset) => asset.id === "stock-1").quantity, 11);
+assert.equal(stored().events.filter((event) => event.type === "CANCEL" && autoEvents.some((target) => target.eventId === event.targetEventId)).length, 2);
 
 const knownFxAsset = {
   id: "us-known-fx",
