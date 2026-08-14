@@ -9060,7 +9060,8 @@ function createCashBalanceEvent(draft) {
     return normalizeLedgerEvent({
       ...draft.opening,
       eventId: common.eventId,
-      sequence: common.sequence,
+      // Keep the corrected opening at its original effective position; audit fields record when it changed.
+      sequence: draft.opening.sequence,
       amount: draft.correctedOpeningAmount,
       correctsEventId: draft.opening.eventId,
       reason: draft.memo || "예수금 최초 등록금액 정정",
