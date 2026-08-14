@@ -789,6 +789,7 @@ h3 {
 .asset-form-panel,
 .buy-form-panel,
 .sell-form-panel,
+.cash-balance-form-panel,
 .journal-form-panel {
   background: var(--surface-2);
   border-bottom: 1px solid var(--line);
@@ -800,6 +801,7 @@ h3 {
 .asset-form-panel[hidden],
 .buy-form-panel[hidden],
 .sell-form-panel[hidden],
+.cash-balance-form-panel[hidden],
 .journal-form-panel[hidden] {
   display: none;
 }
@@ -821,6 +823,7 @@ h3 {
 .asset-form,
 .buy-form,
 .sell-form,
+.cash-balance-form,
 .journal-form,
 .retirement-grid {
   display: grid;
@@ -830,6 +833,7 @@ h3 {
 .asset-form,
 .buy-form,
 .sell-form,
+.cash-balance-form,
 .journal-form {
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
 }
@@ -878,6 +882,94 @@ h3 {
   accent-color: var(--blue);
   min-height: auto;
   width: auto;
+}
+
+.cash-amount-lock-help {
+  align-items: center;
+  background: var(--blue-2);
+  border: 1px solid color-mix(in srgb, var(--blue) 22%, var(--line));
+  border-radius: 14px;
+  color: var(--slate);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: var(--fs-caption);
+  font-weight: 650;
+  gap: 4px 12px;
+  line-height: 1.45;
+  padding: 10px 12px;
+}
+
+.buy-cash-shortfall {
+  background: var(--amber-2);
+  border-color: color-mix(in srgb, var(--amber) 30%, var(--line));
+}
+
+.cash-balance-equation {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  display: grid;
+  gap: 8px 12px;
+  grid-template-columns: auto minmax(100px, 1fr) auto auto minmax(100px, 1fr);
+  min-height: 64px;
+  padding: 12px 14px;
+}
+
+.cash-balance-equation,
+.cash-balance-guidance,
+.cash-balance-form .form-actions {
+  grid-column: 1 / -1;
+}
+
+.cash-balance-form .form-actions {
+  justify-content: flex-end;
+}
+
+.cash-balance-form-panel {
+  scroll-margin-top: 78px;
+}
+
+.cash-balance-equation span {
+  color: var(--muted);
+  font-size: var(--fs-caption-sm);
+  font-weight: 700;
+}
+
+.cash-balance-equation strong {
+  color: var(--ink);
+  font-size: var(--fs-body);
+  text-align: right;
+}
+
+.cash-balance-equation i {
+  background: var(--blue-2);
+  border-radius: 999px;
+  color: var(--blue);
+  font-size: var(--fs-caption);
+  font-style: normal;
+  font-weight: 800;
+  justify-self: center;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+
+.cash-balance-equation.positive i {
+  background: var(--green-2);
+  color: var(--green);
+}
+
+.cash-balance-equation.negative i {
+  background: var(--red-2);
+  color: var(--red);
+}
+
+.cash-balance-guidance {
+  color: var(--muted);
+  font-size: var(--fs-caption);
+  font-weight: 650;
+  line-height: 1.5;
+  min-height: 24px;
 }
 
 label {
@@ -2140,6 +2232,7 @@ tbody tr:last-child td {
   .asset-form,
   .buy-form,
   .sell-form,
+  .cash-balance-form,
   .journal-form,
   .breakdown,
   .retirement-grid,
@@ -2314,6 +2407,7 @@ tbody tr:last-child td {
   .asset-form,
   .buy-form,
   .sell-form,
+  .cash-balance-form,
   .journal-form,
   .breakdown,
   .history-summary,
@@ -2427,6 +2521,7 @@ tbody tr:last-child td {
   .asset-form-panel,
   .buy-form-panel,
   .sell-form-panel,
+  .cash-balance-form-panel,
   .journal-form-panel {
     margin-left: -15px;
     margin-right: -15px;
@@ -5258,8 +5353,8 @@ h3 { font-weight: 700; }
   color: var(--red);
 }
 
-.ledger-event-table :is([data-event-type="REVERSAL"], [data-type="REVERSAL"]):is(.ledger-event-type, .ledger-event-badge, .ledger-type-badge, .event-type-badge),
-.ledger-event-table tr:is([data-event-type="REVERSAL"], [data-type="REVERSAL"]) :is(.ledger-event-type, .ledger-event-badge, .ledger-type-badge, .event-type-badge) {
+.ledger-event-table :is([data-event-type="REVERSAL"], [data-type="REVERSAL"], [data-event-type="CASH_ADJUSTMENT"], [data-type="CASH_ADJUSTMENT"]):is(.ledger-event-type, .ledger-event-badge, .ledger-type-badge, .event-type-badge),
+.ledger-event-table tr:is([data-event-type="REVERSAL"], [data-type="REVERSAL"], [data-event-type="CASH_ADJUSTMENT"], [data-type="CASH_ADJUSTMENT"]) :is(.ledger-event-type, .ledger-event-badge, .ledger-type-badge, .event-type-badge) {
   background: var(--amber-2);
   border-color: var(--warn-200);
   color: var(--warn-800);
@@ -5325,6 +5420,7 @@ h3 { font-weight: 700; }
   }
 
   .cash-flow-form :is(input, select, button),
+  .cash-balance-form :is(input, select, button),
   .buy-form :is(input, select, button),
   .sell-form :is(input, select, button),
   .ledger-event-table button {
@@ -5333,6 +5429,25 @@ h3 { font-weight: 700; }
 
   .cash-flow-preview {
     min-height: 44px;
+  }
+
+  .cash-balance-equation {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .cash-balance-equation span:nth-of-type(1),
+  .cash-balance-equation strong:nth-of-type(1) {
+    grid-row: 1;
+  }
+
+  .cash-balance-equation i {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .cash-balance-equation span:nth-of-type(2),
+  .cash-balance-equation strong:nth-of-type(2) {
+    grid-row: 3;
   }
 
   .ledger-event-summary {

@@ -23,6 +23,7 @@ assert.deepEqual(engine.TRANSACTION_EVENT_TYPES, [
   "INTEREST",
   "FEE",
   "TAX",
+  "CASH_ADJUSTMENT",
   "SPLIT",
   "VALUATION",
   "FX"
@@ -110,6 +111,23 @@ function cashFlow(type, eventId, amount, overrides = {}) {
   };
 }
 
+function cashAdjustment(eventId, amount, overrides = {}) {
+  return {
+    eventId,
+    type: "CASH_ADJUSTMENT",
+    accountId: "account-cash",
+    cashAccountId: "account-cash",
+    cashAssetId: "cash-krw",
+    tradeDate: "2026-01-02",
+    settlementDate: "2026-01-02",
+    amount,
+    currency: "KRW",
+    fxRate: 1,
+    reason: "실제 잔액 대사",
+    ...overrides
+  };
+}
+
 {
   const source = buyEvent({
     eventId: " normalize-buy ",
@@ -152,6 +170,9 @@ function cashFlow(type, eventId, amount, overrides = {}) {
     [{ ...buyEvent(), grossAmount: 123 }, "GROSS_AMOUNT_MISMATCH"],
     [{ ...cashFlow("DEPOSIT", "bad-source", 1), sourceSystem: "ONLY" }, "INCOMPLETE_SOURCE_ID"],
     [{ ...cashFlow("DEPOSIT", "long-note", 1), note: "가".repeat(10_001) }, "TEXT_TOO_LONG"],
+    [cashAdjustment("zero-adjustment", 0), "ZERO_CASH_ADJUSTMENT"],
+    [cashAdjustment("usd-adjustment", 10, { currency: "USD", fxRate: 1_400 }), "NON_KRW_CASH_ADJUSTMENT"],
+    [cashAdjustment("missing-adjustment-reason", 10, { reason: "" }), "CASH_ADJUSTMENT_REASON_REQUIRED"],
     [{
       eventId: "bad-split",
       type: "SPLIT",
@@ -177,6 +198,22 @@ function cashFlow(type, eventId, amount, overrides = {}) {
     assert.equal(result.ok, false, row.eventId);
     assert.ok(result.errors.some((error) => error.code === code), `${row.eventId}: ${code}`);
   });
+}
+
+{
+  const projected = engine.projectLedger([
+    openingCash(),
+    cashAdjustment("positive-adjustment", 25_000),
+    cashAdjustment("negative-adjustment", -5_000, {
+      tradeDate: "2026-01-03",
+      settlementDate: "2026-01-03"
+    })
+  ]);
+  assert.equal(projected.ok, true, JSON.stringify(projected.errors));
+  assert.equal(projected.cashBalances[0].amountKRW, 1_020_000);
+  assert.equal(projected.summary.externalCashFlowKRW, 0, "원인 미확인 조정을 입출금 성과로 추정하면 안 됩니다.");
+  assert.equal(projected.reconciliation.cashMovementTotalKRW, 20_000);
+  assert.ok(projected.warnings.some((item) => item.code === "UNCLASSIFIED_CASH_ADJUSTMENT"));
 }
 
 {

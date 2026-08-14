@@ -93,6 +93,7 @@ const LEDGER_EVENT_LABELS = {
   INTEREST: "이자",
   FEE: "수수료",
   TAX: "세금",
+  CASH_ADJUSTMENT: "원인 미확인 잔액조정",
   SPLIT: "주식분할",
   VALUATION: "평가조정",
   FX: "환율조정",
@@ -287,6 +288,9 @@ const els = {
   assetAccount: document.querySelector("#assetAccount"),
   assetAmount: document.querySelector("#assetAmount"),
   assetAmountField: document.querySelector("#assetAmountField"),
+  assetAmountHelp: document.querySelector("#assetAmountHelp"),
+  cashAmountLockHelp: document.querySelector("#cashAmountLockHelp"),
+  manageCashBalanceBtn: document.querySelector("#manageCashBalanceBtn"),
   assetQuantity: document.querySelector("#assetQuantity"),
   assetAveragePrice: document.querySelector("#assetAveragePrice"),
   assetNote: document.querySelector("#assetNote"),
@@ -323,8 +327,26 @@ const els = {
   buyFees: document.querySelector("#buyFees"),
   buyMemo: document.querySelector("#buyMemo"),
   buyJournalEnabled: document.querySelector("#buyJournalEnabled"),
+  buyCashShortfallField: document.querySelector("#buyCashShortfallField"),
+  buyAutoDeposit: document.querySelector("#buyAutoDeposit"),
+  buyCashShortfallText: document.querySelector("#buyCashShortfallText"),
   buyPreview: document.querySelector("#buyPreview"),
   cancelBuyBtn: document.querySelector("#cancelBuyBtn"),
+  cashBalanceFormPanel: document.querySelector("#cashBalanceFormPanel"),
+  cashBalanceForm: document.querySelector("#cashBalanceForm"),
+  cashBalanceFormTitle: document.querySelector("#cashBalanceFormTitle"),
+  cashBalanceAssetSummary: document.querySelector("#cashBalanceAssetSummary"),
+  cashBalanceAssetId: document.querySelector("#cashBalanceAssetId"),
+  cashBalanceActualAmount: document.querySelector("#cashBalanceActualAmount"),
+  cashBalanceReason: document.querySelector("#cashBalanceReason"),
+  cashBalanceDate: document.querySelector("#cashBalanceDate"),
+  cashBalanceSourceAssetField: document.querySelector("#cashBalanceSourceAssetField"),
+  cashBalanceSourceAssetId: document.querySelector("#cashBalanceSourceAssetId"),
+  cashBalanceMemo: document.querySelector("#cashBalanceMemo"),
+  cashBalancePreview: document.querySelector("#cashBalancePreview"),
+  cashBalanceGuidance: document.querySelector("#cashBalanceGuidance"),
+  saveCashBalanceBtn: document.querySelector("#saveCashBalanceBtn"),
+  cancelCashBalanceBtn: document.querySelector("#cancelCashBalanceBtn"),
   saveAssetBtn: document.querySelector("#saveAssetBtn"),
   cancelEditBtn: document.querySelector("#cancelEditBtn"),
   snapshotBtn: document.querySelector("#snapshotBtn"),
@@ -5541,6 +5563,7 @@ function renderAssets() {
   }
 
   filtered.forEach((asset) => {
+    const type = assetType(asset);
     const decisionProfile = decisionProfileForAsset(asset);
     const gain = assetGain(asset);
     const gainRate = gain === null ? null : gain / assetCost(asset);
@@ -5552,6 +5575,16 @@ function renderAssets() {
       ? `<button class="text-icon-button" type="button" title="매도 기록" aria-label="${escapeHtml(asset.name)} 매도 기록" data-action="sell" data-id="${escapeHtml(asset.id)}">매도</button>`
       : "";
     const journalButton = `<button class="table-action quiet-action" type="button" title="일지 작성" aria-label="${escapeHtml(asset.name)} 일지 작성" data-action="journal" data-id="${escapeHtml(asset.id)}">일지</button>`;
+    const cashActionButtons = type === "CASH"
+      ? [
+          ["cash-deposit", "입금"],
+          ["cash-withdrawal", "출금"],
+          ["cash-reconcile", "잔액 맞추기"]
+        ].map(([action, label]) => `<button class="table-action quiet-action cash-quick-action" type="button" aria-label="${escapeHtml(asset.name)} ${label}" data-action="${action}" data-id="${escapeHtml(asset.id)}">${label}</button>`).join("")
+      : "";
+    const primaryActionButtons = type === "CASH"
+      ? cashActionButtons
+      : `${buyButton}${sellButton}${journalButton}`;
     const row = document.createElement("tr");
     row.dataset.id = asset.id;
     const gainArrow = gain > 0 ? "▲ " : gain < 0 ? "▼ " : "";
@@ -5571,19 +5604,17 @@ function renderAssets() {
       <td class="number ${gain > 0 ? "positive" : gain < 0 ? "negative" : ""}">${gain === null ? "-" : `${gainArrow}${gain > 0 ? "+" : ""}${money(gain)}${gainRate ? ` (${gainRate > 0 ? "+" : ""}${percent(gainRate)})` : ""}`}</td>
       <td>
         <div class="row-actions">
-          ${buyButton}
-          ${sellButton}
-          ${journalButton}
+          ${primaryActionButtons}
           <button class="table-action quiet-action" type="button" title="상세 · 수정 · 삭제" aria-label="${escapeHtml(asset.name)} 상세" data-action="detail" data-id="${escapeHtml(asset.id)}">상세</button>
         </div>
       </td>
     `;
     els.assetRows.append(row);
-    renderAssetCard(asset, decisionProfile, gain, gainRate, valueDetail, buyButton, sellButton, journalButton);
+    renderAssetCard(asset, decisionProfile, gain, gainRate, valueDetail, buyButton, sellButton, journalButton, cashActionButtons);
   });
 }
 
-function renderAssetCard(asset, decisionProfile, gain, gainRate, valueDetail, buyButton, sellButton, journalButton) {
+function renderAssetCard(asset, decisionProfile, gain, gainRate, valueDetail, buyButton, sellButton, journalButton, cashActionButtons) {
   if (!els.assetCards) return;
   const type = assetType(asset);
   const gainTone = gain > 0 ? "positive" : gain < 0 ? "negative" : "";
@@ -5614,8 +5645,7 @@ function renderAssetCard(asset, decisionProfile, gain, gainRate, valueDetail, bu
     ${decisionProfile.investmentRole !== "UNASSIGNED" || metaParts.length ? `<div class="asset-card-meta">${decisionRoleBadge(decisionProfile)}${metaParts.join("")}</div>` : ""}
     ${asset.note ? `<p class="asset-card-note">${escapeHtml(asset.note)}</p>` : ""}
     <div class="asset-card-actions">
-      ${isMarketType(type) ? `${buyButton}${sellButton}` : ""}
-      ${journalButton}
+      ${type === "CASH" ? cashActionButtons : `${isMarketType(type) ? `${buyButton}${sellButton}` : ""}${journalButton}`}
       <button class="table-action quiet-action" type="button" data-action="detail" data-id="${escapeHtml(asset.id)}">상세</button>
     </div>
   `;
@@ -5899,7 +5929,7 @@ function sealPerformanceObservation(observation, index = 0) {
 }
 
 function performanceEventDate(event) {
-  if (["DEPOSIT", "WITHDRAWAL", "DIVIDEND", "INTEREST", "FEE", "TAX", "FX"].includes(event?.type)) {
+  if (["DEPOSIT", "WITHDRAWAL", "DIVIDEND", "INTEREST", "FEE", "TAX", "CASH_ADJUSTMENT", "FX"].includes(event?.type)) {
     return event.settlementDate || event.tradeDate || "";
   }
   if (event?.type === "OPENING_BALANCE" && event.balanceKind === "CASH") {
@@ -6036,6 +6066,9 @@ function currentPerformanceObservation({ source = "AUTOMATIC_PRICE_CLOSE", snaps
   });
   if (!projection.ok) fatalIssues.push("LEDGER_PROJECTION_FAILED");
   const activeEvents = activePerformanceLedgerEvents();
+  if ((projection.warnings || []).some((warning) => warning.code === "UNCLASSIFIED_CASH_ADJUSTMENT")) {
+    fatalIssues.push("UNRESOLVED_CASH_ADJUSTMENT");
+  }
   const assetsById = new Map(state.assets.map((asset) => [asset.id, asset]));
   const usdRate = Number(priceBook.fx?.USDKRW?.rate || 0);
   let krxValueKRW = 0;
@@ -7255,7 +7288,7 @@ function ledgerReferenceErrors(events, assets, realizedTrades = [], tradeJournal
   const cancelledEventIds = new Set((auditTrail.cancellations || []).map((item) => item.targetEventId));
   const supersededEventIds = new Set(auditTrail.supersededEventIds || []);
   const assetEventTypes = new Set(["BUY", "SELL", "DIVIDEND", "SPLIT", "VALUATION"]);
-  const cashEventTypes = new Set(["BUY", "SELL", "DEPOSIT", "WITHDRAWAL", "DIVIDEND", "INTEREST", "FEE", "TAX", "FX"]);
+  const cashEventTypes = new Set(["BUY", "SELL", "DEPOSIT", "WITHDRAWAL", "DIVIDEND", "INTEREST", "FEE", "TAX", "CASH_ADJUSTMENT", "FX"]);
 
   function requireAsset(event, assetId, expectedType, field = "assetId") {
     const asset = assetsById.get(assetId);
@@ -7446,7 +7479,7 @@ function ledgerSequence() {
   return Date.now();
 }
 
-function createBuyLedgerEvent(result) {
+function createBuyLedgerEvent(result, { sequence = ledgerSequence() } = {}) {
   const type = assetType(result.asset);
   return normalizeLedgerEvent({
     eventId: `event-${uid()}`,
@@ -7458,7 +7491,7 @@ function createBuyLedgerEvent(result) {
     instrumentKey: decisionSubjectKeyForAsset(result.asset),
     tradeDate: result.boughtAt,
     settlementDate: result.settlementDate,
-    sequence: ledgerSequence(),
+    sequence,
     quantity: result.quantity,
     price: result.buyPrice,
     currency: type === "US" ? "USD" : "KRW",
@@ -7466,6 +7499,24 @@ function createBuyLedgerEvent(result) {
     feeKRW: result.fees,
     taxKRW: 0,
     note: result.memo,
+    createdAt: new Date().toISOString()
+  });
+}
+
+function createBuyShortfallDepositEvent(result, { sequence = ledgerSequence() } = {}) {
+  return normalizeLedgerEvent({
+    eventId: `event-${uid()}`,
+    type: "DEPOSIT",
+    accountId: accountIdForAsset(result.cashAsset),
+    cashAssetId: result.cashAsset.id,
+    cashAccountId: accountIdForAsset(result.cashAsset),
+    tradeDate: result.boughtAt,
+    settlementDate: result.settlementDate,
+    sequence,
+    amount: result.cashShortfallKRW,
+    currency: "KRW",
+    fxRate: 1,
+    note: `[매수 부족금 자동입금] ${result.asset.name}`,
     createdAt: new Date().toISOString()
   });
 }
@@ -7520,11 +7571,15 @@ function commitLedgerMutation(mutator, { safeError = false } = {}) {
   }
 }
 
-function cancelLedgerEvent(eventId, reason = "사용자 요청으로 취소") {
-  const target = state.events.find((event) => event.eventId === eventId);
-  if (!target || ["CANCEL", "OPENING_BALANCE"].includes(target.type)) return false;
+function cancelLedgerEvents(eventIds, reason = "사용자 요청으로 취소") {
+  const uniqueIds = [...new Set(eventIds.filter(Boolean))];
+  const targets = uniqueIds.map((eventId) => state.events.find((event) => event.eventId === eventId));
+  if (!targets.length || targets.some((target) => !target || ["CANCEL", "OPENING_BALANCE"].includes(target.type))) return false;
   const auditDate = localDateInputValue();
-  const cancellation = normalizeLedgerEvent({
+  const targetIds = new Set(targets.map((target) => target.eventId));
+  const baseSequence = ledgerSequence();
+  const createdAt = new Date().toISOString();
+  const cancellations = targets.map((target, index) => normalizeLedgerEvent({
     eventId: `event-${uid()}`,
     type: "CANCEL",
     accountId: target.accountId,
@@ -7532,21 +7587,25 @@ function cancelLedgerEvent(eventId, reason = "사용자 요청으로 취소") {
     tradeDate: auditDate,
     settlementDate: auditDate,
     auditDate,
-    sequence: ledgerSequence(),
+    sequence: baseSequence + index,
     reason,
-    createdAt: new Date().toISOString()
-  });
+    createdAt
+  }));
   const result = commitLedgerMutation(() => {
-    state.realizedTrades = state.realizedTrades.map((trade) => trade.ledgerEventId === target.eventId
+    state.realizedTrades = state.realizedTrades.map((trade) => targetIds.has(trade.ledgerEventId)
       ? normalizeRealizedTrade({ ...trade, cancelledAt: new Date().toISOString() })
       : trade);
-    state.tradeJournalEntries = state.tradeJournalEntries.map((entry) => entry.ledgerEventId === target.eventId
+    state.tradeJournalEntries = state.tradeJournalEntries.map((entry) => targetIds.has(entry.ledgerEventId)
       ? normalizeTradeJournalEntry({ ...entry, status: "REVIEW", review: `${entry.review}${entry.review ? "\n" : ""}연결 거래가 취소되었습니다.` })
       : entry);
-    appendLedgerEvents([cancellation]);
-    return cancellation;
+    appendLedgerEvents(cancellations);
+    return cancellations;
   });
   return result.ok;
+}
+
+function cancelLedgerEvent(eventId, reason = "사용자 요청으로 취소") {
+  return cancelLedgerEvents([eventId], reason);
 }
 
 function ledgerReconciliationForAssets(projection, assets) {
@@ -7604,6 +7663,7 @@ function ledgerCashChange(event) {
   if (event.type === "SELL") return event.grossAmountKRW - event.feeKRW - event.taxKRW;
   if (["DEPOSIT", "DIVIDEND", "INTEREST"].includes(event.type)) return event.amountKRW;
   if (["WITHDRAWAL", "FEE", "TAX"].includes(event.type)) return -event.amountKRW;
+  if (event.type === "CASH_ADJUSTMENT") return event.amountKRW;
   if (event.type === "FX") return event.counterAmountKRW - event.amountKRW - event.feeKRW;
   if (event.type === "OPENING_BALANCE" && event.balanceKind === "CASH") return event.amount;
   return 0;
@@ -7631,9 +7691,13 @@ function renderLedger() {
     els.ledgerReconciliation.className = "ledger-reconciliation is-empty";
     els.ledgerReconciliation.innerHTML = "<strong>검사할 거래 없음</strong><span>거래를 직접 기록하거나 표준 거래 CSV를 가져오면 원장 정합성을 확인합니다.</span>";
   } else {
-    els.ledgerReconciliation.className = `ledger-reconciliation ${reconciliation.ok ? "is-balanced" : "is-error"}`;
+    els.ledgerReconciliation.className = `ledger-reconciliation ${reconciliation.ok
+      ? reconciliation.warnings.length ? "is-warning" : "is-balanced"
+      : "is-error"}`;
     els.ledgerReconciliation.innerHTML = reconciliation.ok
-      ? `<strong>원장 정합성 정상</strong><span>보유수량·평단·CASH 잔액이 활성 이벤트 합계와 일치합니다.${reconciliation.warnings.length ? ` 확인사항 ${reconciliation.warnings.length}건` : ""}</span>`
+      ? `<strong>${reconciliation.warnings.length ? "원장 금액 일치 · 확인 필요" : "원장 정합성 정상"}</strong><span>${escapeHtml(reconciliation.warnings.length
+          ? reconciliation.warnings.map((warning) => warning.message).join(" · ")
+          : "보유수량·평단·CASH 잔액이 활성 이벤트 합계와 일치합니다.")}</span>`
       : `<strong>원장 정합성 확인 필요</strong><span>${escapeHtml([
           ...reconciliation.mismatches,
           ...reconciliation.errors.map((error) => error.message)
@@ -8745,6 +8809,7 @@ function resetAssetForm() {
 }
 
 function showAssetForm(mode = "create") {
+  resetCashBalanceForm();
   if (els.assetForm) els.assetForm.dataset.mode = mode;
   if (els.assetFormPanel) els.assetFormPanel.hidden = false;
   if (els.assetFormTitle) els.assetFormTitle.textContent = mode === "edit" ? "자산 수정" : "자산 추가";
@@ -8781,6 +8846,9 @@ function hideSellForm() {
 
 function resetBuyForm() {
   resetTradeForm({ form: els.buyForm, idInput: els.buyAssetId, preview: els.buyPreview, panel: els.buyFormPanel });
+  if (els.buyAutoDeposit) els.buyAutoDeposit.checked = false;
+  if (els.buyCashShortfallField) els.buyCashShortfallField.hidden = true;
+  if (els.buyCashShortfallText) els.buyCashShortfallText.textContent = "";
 }
 
 function hideBuyForm() {
@@ -8816,6 +8884,231 @@ function openingOnlyLedgerEventForAsset(asset) {
 
 function cashAssets() {
   return state.assets.filter((asset) => assetType(asset) === "CASH");
+}
+
+function activeCashOpeningEvent(asset) {
+  if (!asset?.id || assetType(asset) !== "CASH") return null;
+  const validation = ledgerEngine().validateLedger(state.events, {
+    baselineDate: state.ledgerMeta?.baselineDate || undefined
+  });
+  if (!validation.ok) return null;
+  return validation.activeEvents.find((event) => (
+    event.type === "OPENING_BALANCE"
+      && event.balanceKind === "CASH"
+      && event.cashAssetId === asset.id
+  )) || null;
+}
+
+function resetCashBalanceForm() {
+  if (!els.cashBalanceForm) return;
+  els.cashBalanceForm.reset();
+  els.cashBalanceAssetId.value = "";
+  els.cashBalanceDate.value = localDateInputValue();
+  els.cashBalanceReason.innerHTML = '<option value="">실제 잔액을 먼저 입력하세요</option>';
+  els.cashBalanceSourceAssetField.hidden = true;
+  els.cashBalanceSourceAssetId.innerHTML = '<option value="">선택하세요</option>';
+  els.cashBalancePreview.innerHTML = "<span>현재 잔액</span><strong>—</strong><i>→</i><span>반영 후 잔액</span><strong>—</strong>";
+  els.cashBalanceGuidance.textContent = "실제 예수금을 입력하세요.";
+  els.saveCashBalanceBtn.disabled = true;
+  els.cashBalanceFormPanel.hidden = true;
+}
+
+function cashBalanceReasonOptions(delta, asset, openingEvent = undefined) {
+  const directionOptions = delta > 0
+    ? [["DEPOSIT", "추가 납입"], ["DIVIDEND", "누락된 배당"], ["INTEREST", "누락된 이자"]]
+    : [["WITHDRAWAL", "실제 출금"], ["FEE", "누락된 수수료"], ["TAX", "누락된 세금"]];
+  const opening = openingEvent === undefined ? activeCashOpeningEvent(asset) : openingEvent;
+  const openingOption = opening
+    ? [["OPENING_BALANCE", "최초 등록금액 오입력"]]
+    : [];
+  return [...directionOptions, ...openingOption, ["CASH_ADJUSTMENT", "원인 미확인 · 성과 계산 제한"]];
+}
+
+function renderCashBalanceSourceOptions() {
+  const previous = els.cashBalanceSourceAssetId?.value || "";
+  const marketAssets = state.assets.filter((asset) => isMarketType(assetType(asset)));
+  els.cashBalanceSourceAssetId.innerHTML = `<option value="">선택하세요</option>${marketAssets.map((asset) => (
+    `<option value="${escapeHtml(asset.id)}">${escapeHtml(asset.name)}${asset.ticker ? ` · ${escapeHtml(asset.ticker)}` : ""}</option>`
+  )).join("")}`;
+  if (marketAssets.some((asset) => asset.id === previous)) els.cashBalanceSourceAssetId.value = previous;
+}
+
+function cashBalanceDraft(strict = false, { openingEvent = undefined } = {}) {
+  const asset = state.assets.find((item) => item.id === els.cashBalanceAssetId?.value && assetType(item) === "CASH") || null;
+  const rawActual = String(els.cashBalanceActualAmount?.value || "").trim();
+  const actualAmount = parseAmount(rawActual || 0);
+  const currentAmount = Number(asset?.amount || 0);
+  const delta = actualAmount - currentAmount;
+  const reason = String(els.cashBalanceReason?.value || "");
+  const date = els.cashBalanceDate?.value || localDateInputValue();
+  const memo = els.cashBalanceMemo?.value.trim() || "";
+  const sourceAsset = state.assets.find((item) => item.id === els.cashBalanceSourceAssetId?.value) || null;
+  if (!asset) return { ok: false, message: "잔액을 맞출 예수금을 찾을 수 없습니다." };
+  if (!rawActual || !Number.isFinite(actualAmount) || actualAmount < 0) {
+    return { ok: false, message: strict ? "실제 예수금을 0원 이상으로 입력하세요." : "실제 예수금을 입력하세요." };
+  }
+  if (Math.abs(delta) <= 0.01) return { ok: false, sameBalance: true, message: "현재 잔액과 실제 잔액이 같습니다." };
+  const activeOpening = openingEvent === undefined ? activeCashOpeningEvent(asset) : openingEvent;
+  const allowedReasons = new Set(cashBalanceReasonOptions(delta, asset, activeOpening).map(([value]) => value));
+  if (!allowedReasons.has(reason)) return { ok: false, message: strict ? "차이가 생긴 이유를 선택하세요." : "차액에 맞는 이유를 선택하세요." };
+  if (reason === "DIVIDEND" && (!sourceAsset || !isMarketType(assetType(sourceAsset)))) {
+    return { ok: false, message: strict ? "배당의 원천 자산을 선택하세요." : "배당 원천 자산을 선택하세요." };
+  }
+  if (reason === "CASH_ADJUSTMENT" && !memo) {
+    return { ok: false, message: strict ? "나중에 다시 분류할 수 있도록 원인 미확인 사유를 입력하세요." : "원인 미확인 사유를 입력해야 저장할 수 있습니다." };
+  }
+  if (memo.length > IMPORT_STRING_LIMITS.note) return { ok: false, message: "사유·메모는 10,000자 이하로 입력하세요." };
+  const opening = reason === "OPENING_BALANCE" ? activeOpening : null;
+  const correctedOpeningAmount = opening ? Number(opening.amount || 0) + delta : null;
+  if (opening && correctedOpeningAmount < -0.01) {
+    return { ok: false, message: "차액을 기초잔액에서 빼면 최초 예수금이 음수가 됩니다. 출금·비용 또는 다른 원인을 선택하세요." };
+  }
+  return {
+    ok: true,
+    asset,
+    actualAmount,
+    currentAmount,
+    delta,
+    reason,
+    date,
+    memo,
+    sourceAsset,
+    opening,
+    correctedOpeningAmount: opening ? Math.max(0, correctedOpeningAmount) : null
+  };
+}
+
+function renderCashBalancePreview() {
+  if (!els.cashBalancePreview) return;
+  const asset = state.assets.find((item) => item.id === els.cashBalanceAssetId?.value && assetType(item) === "CASH") || null;
+  const rawActual = String(els.cashBalanceActualAmount?.value || "").trim();
+  const actualAmount = parseAmount(rawActual || 0);
+  const currentAmount = Number(asset?.amount || 0);
+  const delta = actualAmount - currentAmount;
+  const openingEvent = asset ? activeCashOpeningEvent(asset) : null;
+  const previousReason = els.cashBalanceReason.value;
+  if (!rawActual || !Number.isFinite(actualAmount) || actualAmount < 0) {
+    els.cashBalanceReason.innerHTML = '<option value="">실제 잔액을 먼저 입력하세요</option>';
+  } else if (Math.abs(delta) <= 0.01) {
+    els.cashBalanceReason.innerHTML = '<option value="">변경할 차액이 없습니다</option>';
+  } else {
+    const options = cashBalanceReasonOptions(delta, asset, openingEvent);
+    els.cashBalanceReason.innerHTML = `<option value="">이유 선택</option>${options.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}`;
+    if (options.some(([value]) => value === previousReason)) els.cashBalanceReason.value = previousReason;
+  }
+  const reason = els.cashBalanceReason.value;
+  els.cashBalanceSourceAssetField.hidden = reason !== "DIVIDEND";
+  if (reason === "DIVIDEND") renderCashBalanceSourceOptions();
+  const deltaText = rawActual && Number.isFinite(actualAmount) && actualAmount >= 0
+    ? `${delta > 0 ? "+" : ""}${money(delta)}`
+    : "—";
+  els.cashBalancePreview.className = `cash-balance-equation wide-field ${delta > 0 ? "positive" : delta < 0 ? "negative" : ""}`;
+  els.cashBalancePreview.innerHTML = `
+    <span>현재 잔액</span><strong>${asset ? escapeHtml(money(currentAmount)) : "—"}</strong>
+    <i aria-label="변동 ${escapeHtml(deltaText)}">${escapeHtml(deltaText)}</i>
+    <span>반영 후 잔액</span><strong>${rawActual && actualAmount >= 0 ? escapeHtml(money(actualAmount)) : "—"}</strong>
+  `;
+  const draft = cashBalanceDraft(false, { openingEvent });
+  els.saveCashBalanceBtn.disabled = !draft.ok;
+  if (draft.ok && draft.reason === "OPENING_BALANCE") {
+    els.cashBalanceGuidance.textContent = `기존 거래를 유지하고 최초 기초잔액을 ${money(draft.correctedOpeningAmount)}으로 정정합니다. 원본은 삭제하지 않습니다.`;
+  } else if (draft.ok && draft.reason === "CASH_ADJUSTMENT") {
+    els.cashBalanceGuidance.textContent = "잔액은 맞추지만 원인이 분류되지 않아 검증 성과 계산이 제한됩니다. 원인을 확인하면 이 조정을 취소하고 올바른 유형으로 다시 기록하세요.";
+  } else if (draft.ok) {
+    els.cashBalanceGuidance.textContent = `${LEDGER_EVENT_LABELS[draft.reason]} ${money(Math.abs(draft.delta))}을 기존 예수금에 기록합니다.`;
+  } else {
+    els.cashBalanceGuidance.textContent = draft.message;
+  }
+}
+
+function showCashBalanceForm(asset) {
+  if (!asset || assetType(asset) !== "CASH" || !els.cashBalanceFormPanel) return;
+  if (els.assetDetailOverlay && !els.assetDetailOverlay.hidden && closeAssetDetail({ restoreFocus: false }) === false) return;
+  resetAssetForm();
+  resetBuyForm();
+  resetSellForm();
+  resetCashBalanceForm();
+  els.cashBalanceAssetId.value = asset.id;
+  els.cashBalanceDate.value = localDateInputValue();
+  els.cashBalanceFormTitle.textContent = `${asset.name} 잔액 맞추기`;
+  els.cashBalanceAssetSummary.textContent = `${asset.account || "계좌 미지정"} · 현재 ${money(asset.amount || 0)}`;
+  els.cashBalanceFormPanel.hidden = false;
+  renderCashBalancePreview();
+  els.cashBalanceFormPanel.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  els.cashBalanceActualAmount.focus();
+}
+
+function createCashBalanceEvent(draft) {
+  const common = {
+    eventId: `event-${uid()}`,
+    accountId: accountIdForAsset(draft.reason === "DIVIDEND" ? draft.sourceAsset : draft.asset),
+    cashAssetId: draft.asset.id,
+    cashAccountId: accountIdForAsset(draft.asset),
+    tradeDate: draft.date,
+    settlementDate: draft.date,
+    sequence: ledgerSequence(),
+    currency: "KRW",
+    fxRate: 1,
+    note: `[잔액 맞추기] ${draft.memo || LEDGER_EVENT_LABELS[draft.reason]}`,
+    createdAt: new Date().toISOString()
+  };
+  if (draft.reason === "OPENING_BALANCE") {
+    const auditDate = [localDateInputValue(), draft.opening.auditDate, draft.opening.tradeDate]
+      .filter(Boolean)
+      .sort()
+      .at(-1);
+    return normalizeLedgerEvent({
+      ...draft.opening,
+      eventId: common.eventId,
+      sequence: common.sequence,
+      amount: draft.correctedOpeningAmount,
+      correctsEventId: draft.opening.eventId,
+      reason: draft.memo || "예수금 최초 등록금액 정정",
+      auditDate,
+      note: common.note,
+      createdAt: common.createdAt
+    });
+  }
+  if (draft.reason === "CASH_ADJUSTMENT") {
+    return normalizeLedgerEvent({
+      ...common,
+      type: "CASH_ADJUSTMENT",
+      amount: draft.delta,
+      reason: draft.memo
+    });
+  }
+  return normalizeLedgerEvent({
+    ...common,
+    type: draft.reason,
+    amount: Math.abs(draft.delta),
+    ...(draft.reason === "DIVIDEND" ? {
+      assetId: draft.sourceAsset.id,
+      instrumentKey: decisionSubjectKeyForAsset(draft.sourceAsset)
+    } : {})
+  });
+}
+
+function openCashFlowForAsset(asset, type) {
+  if (!asset || assetType(asset) !== "CASH" || !["DEPOSIT", "WITHDRAWAL"].includes(type)) return;
+  if (els.assetDetailOverlay && !els.assetDetailOverlay.hidden && closeAssetDetail({ restoreFocus: false }) === false) return;
+  setActiveView("JOURNAL", { scroll: true, updateHash: true, focus: true });
+  setInvestmentRecordTab("LEDGER", { scroll: true });
+  resetCashFlowForm();
+  showCashFlowForm();
+  els.cashFlowType.value = type;
+  els.cashFlowCashAssetId.value = asset.id;
+  renderCashFlowPreview();
+  els.cashFlowAmount.focus();
+}
+
+function openCashLedgerHistory(asset) {
+  if (!asset || assetType(asset) !== "CASH") return;
+  if (els.assetDetailOverlay && !els.assetDetailOverlay.hidden && closeAssetDetail({ restoreFocus: false }) === false) return;
+  uiState.ledgerType = "ALL";
+  if (els.ledgerTypeFilter) els.ledgerTypeFilter.value = "ALL";
+  setActiveView("JOURNAL", { scroll: true, updateHash: true, focus: true });
+  setInvestmentRecordTab("LEDGER", { scroll: true });
+  showStatusNotice(`${asset.name}의 입출금·매매 연결을 거래 원장에서 확인하세요.`);
 }
 
 function renderCashAssetOptions(select, { preferredAccount = "", preserve = true } = {}) {
@@ -9000,6 +9293,7 @@ function renderCashFlowPreview() {
 
 function showSellForm(asset) {
   if (!els.sellFormPanel || !els.sellForm) return;
+  resetCashBalanceForm();
   resetAssetForm();
   resetBuyForm();
   els.sellFormPanel.hidden = false;
@@ -9023,6 +9317,7 @@ function showSellForm(asset) {
 
 function showBuyForm(asset) {
   if (!els.buyFormPanel || !els.buyForm) return;
+  resetCashBalanceForm();
   resetAssetForm();
   resetSellForm();
   resetJournalForm();
@@ -9036,6 +9331,8 @@ function showBuyForm(asset) {
   els.buyFees.value = "";
   els.buyMemo.value = "";
   if (els.buyJournalEnabled) els.buyJournalEnabled.checked = true;
+  if (els.buyAutoDeposit) els.buyAutoDeposit.checked = false;
+  if (els.buyCashShortfallField) els.buyCashShortfallField.hidden = true;
   const type = assetType(asset);
   if (els.buyFxRateField) els.buyFxRateField.hidden = type !== "US";
   els.buyFxRate.value = type === "US" ? formatPlainNumber(usdKrwRate()) : "1";
@@ -9069,17 +9366,35 @@ function renderBuyPreview() {
   if (!els.buyPreview) return;
   const preview = parseBuyForm(false);
   if (!preview.ok) {
+    const hasShortfall = preview.code === "CASH_SHORTFALL";
+    if (els.buyCashShortfallField) els.buyCashShortfallField.hidden = !hasShortfall;
+    if (els.buyCashShortfallText) {
+      els.buyCashShortfallText.textContent = hasShortfall
+        ? `부족한 ${money(preview.cashShortfallKRW)}을 같은 예수금에 입금한 뒤 매수를 함께 기록합니다.`
+        : "";
+    }
+    if (!hasShortfall && els.buyAutoDeposit) els.buyAutoDeposit.checked = false;
     els.buyPreview.textContent = preview.message || "추가매수 정보를 입력하면 새 보유수량과 평단이 표시됩니다.";
     els.buyPreview.className = "buy-preview";
     return;
   }
+  if (els.buyCashShortfallField) els.buyCashShortfallField.hidden = !(preview.cashShortfallKRW > 0);
+  if (els.buyCashShortfallText) {
+    els.buyCashShortfallText.textContent = preview.cashShortfallKRW > 0
+      ? `부족한 ${money(preview.cashShortfallKRW)}을 같은 예수금에 입금한 뒤 매수를 함께 기록합니다.`
+      : "";
+  }
   const type = assetType(preview.asset);
   const averageText = type === "US" ? usd(preview.nextAveragePrice) : formatPlainNumber(preview.nextAveragePrice);
   const previousAverageText = type === "US" ? usd(Number(preview.asset.averagePrice || 0)) : formatPlainNumber(preview.asset.averagePrice || 0);
+  const cashStart = Number(preview.cashAsset.amount || 0);
+  const cashPath = preview.cashShortfallKRW > 0
+    ? `${preview.cashAsset.name} ${money(cashStart)} + 입금 ${money(preview.cashShortfallKRW)} → ${money(cashStart + preview.cashShortfallKRW - preview.netCashAmountKRW)}`
+    : `${preview.cashAsset.name} ${money(cashStart)} → ${money(cashStart - preview.netCashAmountKRW)}`;
   els.buyPreview.className = "buy-preview positive";
   els.buyPreview.textContent = [
     `매수금액 ${money(preview.grossAmount + preview.fees)}`,
-    `${preview.cashAsset.name} ${money(preview.cashAsset.amount || 0)} → ${money(Number(preview.cashAsset.amount || 0) - preview.netCashAmountKRW)}`,
+    cashPath,
     `보유 ${formatPlainNumber(preview.previousQuantity)}주 → ${formatPlainNumber(preview.nextQuantity)}주`,
     `평단 ${previousAverageText} → ${averageText}`
   ].join(" · ");
@@ -9180,11 +9495,21 @@ function parseBuyForm(strict = true) {
   const addedCost = quantity * buyPrice;
   const nextAveragePrice = nextQuantity > 0 ? (previousCost + addedCost) / nextQuantity : buyPrice;
   const grossAmount = quantity * buyPrice * effectiveFx;
-  const netCashAmountKRW = grossAmount + fees;
-  if (netCashAmountKRW > Number(cashAsset.amount || 0) + 0.0001) {
+  const roundedGrossAmountKRW = Math.round((grossAmount + Number.EPSILON) * 10_000) / 10_000;
+  const netCashAmountKRW = Math.round((roundedGrossAmountKRW + fees + Number.EPSILON) * 10_000) / 10_000;
+  const rawCashShortfallKRW = netCashAmountKRW - Number(cashAsset.amount || 0);
+  const cashShortfallKRW = rawCashShortfallKRW > 0
+    ? Math.round((rawCashShortfallKRW + Number.EPSILON) * 10_000) / 10_000
+    : 0;
+  const autoDeposit = cashShortfallKRW > 0 && Boolean(els.buyAutoDeposit?.checked);
+  if (cashShortfallKRW > 0 && !autoDeposit) {
     return {
       ok: false,
-      message: `선택한 CASH 잔액(${money(cashAsset.amount || 0)})보다 결제금액(${money(netCashAmountKRW)})이 큽니다.`
+      code: "CASH_SHORTFALL",
+      message: `선택한 CASH 잔액(${money(cashAsset.amount || 0)})보다 결제금액(${money(netCashAmountKRW)})이 ${money(cashShortfallKRW)} 부족합니다.`,
+      asset,
+      cashAsset,
+      cashShortfallKRW
     };
   }
 
@@ -9200,6 +9525,8 @@ function parseBuyForm(strict = true) {
     fees,
     grossAmount,
     netCashAmountKRW,
+    cashShortfallKRW,
+    autoDeposit,
     previousQuantity,
     previousAveragePrice,
     nextQuantity,
@@ -9230,6 +9557,16 @@ function updateAssetFormForType() {
   els.assetAmount.required = manualValued;
   els.assetAmount.placeholder = "금액 입력";
   if (els.assetAmountField) els.assetAmountField.hidden = !manualValued;
+  if (els.assetAmountHelp) {
+    els.assetAmountHelp.textContent = type === "CASH"
+      ? lockedForLedger
+        ? "현재 잔액은 원장 합계로 계산되어 이 화면에서 직접 덮어쓰지 않습니다."
+        : "등록 시점의 최초 예수금을 입력하세요. 이후 변동은 입출금으로 기록합니다."
+      : type === "MANUAL"
+        ? lockedForLedger ? "변경 금액은 평가조정 이력으로 남습니다." : "현재 평가금액을 입력하세요."
+        : "";
+  }
+  if (els.cashAmountLockHelp) els.cashAmountLockHelp.hidden = !(lockedForLedger && type === "CASH");
   if (els.manualSubtypeField) els.manualSubtypeField.hidden = type !== "MANUAL";
   if (!manualValued) els.assetAmount.value = "";
   els.assetQuantity.disabled = !marketValued || lockedForLedger;
@@ -9874,10 +10211,15 @@ els.buyForm?.addEventListener("submit", (event) => {
     return;
   }
 
-  const ledgerEvent = createBuyLedgerEvent(result);
+  const baseSequence = ledgerSequence();
+  const depositEvent = result.cashShortfallKRW > 0
+    ? createBuyShortfallDepositEvent(result, { sequence: baseSequence })
+    : null;
+  const ledgerEvent = createBuyLedgerEvent(result, { sequence: baseSequence + (depositEvent ? 1 : 0) });
+  const ledgerEvents = depositEvent ? [depositEvent, ledgerEvent] : [ledgerEvent];
   const journalCreated = Boolean(els.buyJournalEnabled?.checked);
   const saved = commitLedgerMutation(() => {
-    appendLedgerEvents([ledgerEvent]);
+    appendLedgerEvents(ledgerEvents);
     const updatedAsset = state.assets.find((asset) => asset.id === result.asset.id);
     if (journalCreated) state.tradeJournalEntries.push(createJournalEntryFromBuy(updatedAsset, result, ledgerEvent.eventId));
     return ledgerEvent;
@@ -9885,8 +10227,15 @@ els.buyForm?.addEventListener("submit", (event) => {
   if (!saved.ok) return;
   resetBuyForm();
   uiState.investmentRecordTab = "LEDGER";
-  showUndoNotice(journalCreated ? "추가매수와 매매일지를 함께 저장했습니다." : "추가매수를 저장했습니다.", () => {
-    cancelLedgerEvent(ledgerEvent.eventId, "추가매수 저장 직후 되돌리기");
+  const message = depositEvent
+    ? journalCreated
+      ? "부족금 입금·추가매수·매매일지를 함께 저장했습니다."
+      : "부족금 입금과 추가매수를 함께 저장했습니다."
+    : journalCreated
+      ? "추가매수와 매매일지를 함께 저장했습니다."
+      : "추가매수를 저장했습니다.";
+  showUndoNotice(message, () => {
+    cancelLedgerEvents(ledgerEvents.map((item) => item.eventId), "추가매수 저장 직후 되돌리기");
   });
 });
 
@@ -9919,6 +10268,22 @@ els.sellForm?.addEventListener("submit", (event) => {
 function handleAssetAction(button) {
   const asset = state.assets.find((item) => item.id === button.dataset.id);
   if (!asset) return;
+
+  if (button.dataset.action === "cash-deposit") {
+    openCashFlowForAsset(asset, "DEPOSIT");
+  }
+
+  if (button.dataset.action === "cash-withdrawal") {
+    openCashFlowForAsset(asset, "WITHDRAWAL");
+  }
+
+  if (button.dataset.action === "cash-reconcile") {
+    showCashBalanceForm(asset);
+  }
+
+  if (button.dataset.action === "cash-history") {
+    openCashLedgerHistory(asset);
+  }
 
   if (button.dataset.action === "detail") {
     openAssetDetail(asset.id, button);
@@ -10159,9 +10524,16 @@ function openAssetDetail(assetId, opener = document.activeElement, {
       </section>
     </div>
     <div class="detail-actions">
-      ${canBuyAsset(asset) ? `<button class="primary-button compact-button" type="button" data-action="buy" data-id="${escapeHtml(asset.id)}">추가매수</button>` : ""}
-      ${canSellAsset(asset) ? `<button class="ghost-button" type="button" data-action="sell" data-id="${escapeHtml(asset.id)}">매도</button>` : ""}
-      <button class="ghost-button" type="button" data-action="journal" data-id="${escapeHtml(asset.id)}">일지</button>
+      ${assetType(asset) === "CASH" ? `
+        <button class="primary-button compact-button" type="button" data-action="cash-deposit" data-id="${escapeHtml(asset.id)}">입금</button>
+        <button class="ghost-button" type="button" data-action="cash-withdrawal" data-id="${escapeHtml(asset.id)}">출금</button>
+        <button class="ghost-button" type="button" data-action="cash-reconcile" data-id="${escapeHtml(asset.id)}">잔액 맞추기</button>
+        <button class="ghost-button" type="button" data-action="cash-history" data-id="${escapeHtml(asset.id)}">내역</button>
+      ` : `
+        ${canBuyAsset(asset) ? `<button class="primary-button compact-button" type="button" data-action="buy" data-id="${escapeHtml(asset.id)}">추가매수</button>` : ""}
+        ${canSellAsset(asset) ? `<button class="ghost-button" type="button" data-action="sell" data-id="${escapeHtml(asset.id)}">매도</button>` : ""}
+        <button class="ghost-button" type="button" data-action="journal" data-id="${escapeHtml(asset.id)}">일지</button>
+      `}
       <button class="ghost-button" type="button" data-action="edit" data-id="${escapeHtml(asset.id)}">자산 정보 수정</button>
       <button class="ghost-button danger-action" type="button" data-action="delete" data-id="${escapeHtml(asset.id)}">삭제</button>
     </div>
@@ -10471,6 +10843,35 @@ els.cashFlowForm?.addEventListener("submit", (event) => {
   }
 });
 
+[els.cashBalanceActualAmount, els.cashBalanceReason, els.cashBalanceDate, els.cashBalanceSourceAssetId, els.cashBalanceMemo]
+  .filter(Boolean)
+  .forEach((input) => {
+    input.addEventListener("input", renderCashBalancePreview);
+    input.addEventListener("change", renderCashBalancePreview);
+  });
+
+els.cancelCashBalanceBtn?.addEventListener("click", resetCashBalanceForm);
+
+els.cashBalanceForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const draft = cashBalanceDraft(true);
+  if (!draft.ok) {
+    alert(draft.message);
+    return;
+  }
+  const ledgerEvent = createCashBalanceEvent(draft);
+  const saved = commitLedgerMutation(() => appendLedgerEvents([ledgerEvent]));
+  if (!saved.ok) return;
+  resetCashBalanceForm();
+  if (draft.reason === "OPENING_BALANCE") {
+    showStatusNotice(`${draft.asset.name} 최초 예수금을 ${money(draft.correctedOpeningAmount)}으로 정정했습니다. 기존 거래와 원본 기초잔액은 보존됩니다.`);
+  } else {
+    showUndoNotice(`${draft.asset.name} 잔액을 ${money(draft.actualAmount)}으로 맞췄습니다.`, () => {
+      cancelLedgerEvent(ledgerEvent.eventId, "예수금 잔액 맞추기 저장 직후 되돌리기");
+    });
+  }
+});
+
 els.ledgerEventRows?.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-ledger-action]");
   if (!button) return;
@@ -10607,9 +11008,11 @@ els.realizedRows?.addEventListener("click", (event) => {
   els.buyQuantity,
   els.buyPrice,
   els.buyFxRate,
-  els.buyFees
+  els.buyFees,
+  els.buyAutoDeposit
 ].forEach((input) => {
   input?.addEventListener("input", renderBuyPreview);
+  input?.addEventListener("change", renderBuyPreview);
 });
 
 els.cancelSellBtn?.addEventListener("click", resetSellForm);
@@ -10697,6 +11100,11 @@ document.addEventListener("click", (event) => {
 });
 
 els.cancelEditBtn.addEventListener("click", resetAssetForm);
+
+els.manageCashBalanceBtn?.addEventListener("click", () => {
+  const asset = state.assets.find((item) => item.id === els.assetId?.value && assetType(item) === "CASH");
+  if (asset) showCashBalanceForm(asset);
+});
 
 els.assetCategory.addEventListener("change", updateAssetFormForType);
 
