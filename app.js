@@ -3976,7 +3976,7 @@ function externalMetricCards(summary, limit = 6) {
 function renderButlerPreview() {
   if (!els.butlerImportPreview) return;
   if (!butlerDataPreview?.ok || !butlerDataPreview.snapshot) {
-    els.butlerImportPreview.innerHTML = `<p class="decision-empty">표를 붙여넣으면 기간·지표·누락값과 저장될 정규화 데이터만 미리 보여줍니다.</p>`;
+    els.butlerImportPreview.innerHTML = `<p class="decision-empty">표를 붙여넣으면 저장 전에 최신 핵심 실적과 저장될 데이터 범위를 확인할 수 있습니다.</p>`;
     if (els.saveButlerImportBtn) els.saveButlerImportBtn.disabled = true;
     return;
   }
@@ -3984,17 +3984,21 @@ function renderButlerPreview() {
   const summaryResult = window.AssetTrailExternalDataEngine?.summarizeCompanyFacts(snapshot);
   const summary = summaryResult?.ok ? summaryResult.summary : null;
   const warningMessages = analysisDiagnosticMessages(butlerDataPreview.diagnostics);
+  if (snapshot.quality.missingCellCount > 0) {
+    warningMessages.unshift(`저장 대상 핵심 지표의 빈 값 ${snapshot.quality.missingCellCount.toLocaleString("ko-KR")}개는 저장되지 않습니다.`);
+  }
+  const needsReview = warningMessages.length > 0;
+  const metricCount = new Set((snapshot.facts || []).map((fact) => fact.metric)).size;
   els.butlerImportPreview.innerHTML = `<article class="external-preview-card">
     <div class="external-preview-head">
       <div><strong>${escapeHtml(snapshot.entity.name)}</strong><p>${escapeHtml(snapshot.entity.market)} ${escapeHtml(snapshot.entity.ticker)} · ${escapeHtml(EXTERNAL_PERIOD_LABELS[snapshot.periodType] || snapshot.periodType)}</p></div>
-      <span class="analysis-status-chip status-${String(snapshot.quality.coverage || "partial").toLowerCase()}">${escapeHtml(snapshot.quality.coverage === "COMPLETE" ? "완전" : "부분")}</span>
+      <span class="analysis-status-chip status-${needsReview ? "partial" : "complete"}">${needsReview ? "확인 필요" : "저장 준비"}</span>
     </div>
     ${externalMetricCards(summary)}
     <ul class="external-data-meta">
-      <li>기간 ${snapshot.quality.periodCount.toLocaleString("ko-KR")}개 · 사실 ${snapshot.quality.factCount.toLocaleString("ko-KR")}개 · 통화 ${escapeHtml(snapshot.entity.currency)}</li>
-      <li>누락 셀 ${snapshot.quality.missingCellCount.toLocaleString("ko-KR")}개 · 미지원 지표 행 ${snapshot.quality.unknownMetricRowCount.toLocaleString("ko-KR")}개</li>
-      <li>Butler 사용자 복사본 · 2차 집계 출처 · 조회 ${escapeHtml(formatDate(snapshot.source.retrievedAt))}</li>
-      <li>내용 변경 감지 ${escapeHtml(snapshot.contentDigest)} · 출처 진위의 독립 감사 증명은 아님</li>
+      <li>저장 예정 · 기간 ${snapshot.quality.periodCount.toLocaleString("ko-KR")}개 · 핵심 지표 ${metricCount.toLocaleString("ko-KR")}개 · 수치 ${snapshot.quality.factCount.toLocaleString("ko-KR")}개 · 통화 ${escapeHtml(snapshot.entity.currency)}</li>
+      <li>최근 실적과 전년 동기 변화가 원본과 맞는지 확인한 뒤 저장하세요.</li>
+      <li>출처 · Butler 사용자 복사본 · 조회 ${escapeHtml(formatDate(snapshot.source.retrievedAt))}</li>
       ${warningMessages.map((message) => `<li>${escapeHtml(message)}</li>`).join("")}
     </ul>
   </article>`;
