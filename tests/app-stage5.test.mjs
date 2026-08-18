@@ -398,19 +398,30 @@ const butlerTable = [
 ].join("\n");
 
 const butlerPreviewDisplay = api.previewButler([
-  "연도\t2024\t2025",
-  "매출액\t100\t120",
-  "영업이익\t10\t-5",
-  "순이익\t-8\t-12",
-  "매출총이익\t30\t40",
-  "기타수익\t3\t4"
+  "연도\t2024\t2025\t2027",
+  "매출액\t100\t120\t",
+  "영업이익\t10\t-5\t",
+  "순이익\t-8\t-12\t",
+  "매출총이익\t30\t40\t",
+  "기타수익\t3\t4\t"
 ].join("\n"));
 assert.equal(butlerPreviewDisplay.preview.ok, true);
 assert.match(butlerPreviewDisplay.html, /전년 동기 대비 \+20\.00%/);
 assert.match(butlerPreviewDisplay.html, /전년 동기 대비 적자 전환/);
 assert.match(butlerPreviewDisplay.html, /전년 동기 대비 적자 확대/);
-assert.match(butlerPreviewDisplay.html, /지원하지 않는 지표 행 2개를 건너뛰었습니다/);
-assert.equal((butlerPreviewDisplay.html.match(/지원하지 않는 지표 행/g) || []).length, 1);
+assert.match(butlerPreviewDisplay.html, /저장 준비/);
+assert.match(butlerPreviewDisplay.html, /저장 예정 · 기간 2개 · 핵심 지표 3개 · 수치 6개/);
+assert.doesNotMatch(butlerPreviewDisplay.html, /누락 셀|미지원 지표|지원하지 않는 지표/);
+
+const unknownMetricPreview = api.previewButler([
+  "연도\t2024\t2025",
+  "매출액\t100\t120",
+  "ROE\t10\t12",
+  "EBITDA\t20\t25"
+].join("\n"));
+assert.match(unknownMetricPreview.html, /확인 필요/);
+assert.match(unknownMetricPreview.html, /지원하지 않는 지표 행 2개를 건너뛰었습니다/);
+assert.equal((unknownMetricPreview.html.match(/지원하지 않는 지표 행/g) || []).length, 1);
 
 const preview = api.saveButler(butlerTable);
 assert.equal(preview.ok, true);

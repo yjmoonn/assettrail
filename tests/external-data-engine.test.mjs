@@ -97,7 +97,12 @@ assert.equal(engine.validateExternalSnapshot(result.snapshot).valid, true);
     "4분기누적\t2025.12 25Q4 연결\t2026.06 26Q2 연결\t2026.09 26Q3 연결",
     "매출액\t302231400000000\t171499500000000\t",
     "영업이익\t43376600000000\t89492400000000\t",
-    "당기순이익\t55654100000000\t72030600000000\t"
+    "당기순이익\t55654100000000\t72030600000000\t",
+    ...[
+      "(-) 매출원가", "매출총이익", "(-) 판매관리비", "(+) 기타손익", "기타수익",
+      "기타비용", "(+) 금융손익", "금융수익", "금융비용", "법인세차감전 순이익",
+      "(-) 법인세", "지배주주순이익", "비지배주주순이익", "기본 주당이익", "희석 주당이익"
+    ].map((label) => `${label}\t1\t2\t`)
   ].join("\n");
   const parsed = engine.parseButlerClipboard(currentButlerTable, {
     ...context,
@@ -112,6 +117,10 @@ assert.equal(engine.validateExternalSnapshot(result.snapshot).valid, true);
   assert.equal(parsed.snapshot.facts.find((fact) => (
     fact.metric === "NET_INCOME" && fact.periodEnd === "2026-06-30"
   )).value, 72_030_600_000_000);
+  assert.equal(parsed.summary.missingCellCount, 0);
+  assert.equal(parsed.summary.unknownMetricRowCount, 0);
+  assert.equal(parsed.snapshot.quality.coverage, "COMPLETE");
+  assert.equal(parsed.diagnostics.some((item) => item.code === "UNKNOWN_METRIC"), false);
 
   const butlerClipboardHeader = engine.parseButlerClipboard(
     "4분기누적\t2017.03 17Q1 연결\t2017.06 17Q2 별도\n매출액\t100\t200",

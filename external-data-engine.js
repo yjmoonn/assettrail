@@ -56,7 +56,8 @@
     return normalizedText(value)
       .toLocaleLowerCase("ko-KR")
       .replace(/[\s_·•:：/\\-]+/g, "")
-      .replace(/[()（）]/g, "");
+      .replace(/[()（）]/g, "")
+      .replace(/^[+-]+/, "");
   }
 
   function addMetricAliases(metric, aliases) {
@@ -75,6 +76,26 @@
   ]);
   addMetricAliases("CAPEX", ["CAPEX", "설비투자", "자본적지출", "capital expenditures", "capital expenditure"]);
   addMetricAliases("FREE_CASH_FLOW", ["FCF", "잉여현금흐름", "free cash flow"]);
+
+  // Butler's copied financial tables include legitimate detail rows that AssetTrail does not
+  // persist. They are expected table context, not unknown or malformed input.
+  const IGNORED_METRIC_LABELS = new Set([
+    "매출원가",
+    "매출총이익",
+    "판매관리비",
+    "기타손익",
+    "기타수익",
+    "기타비용",
+    "금융손익",
+    "금융수익",
+    "금융비용",
+    "법인세차감전 순이익",
+    "법인세",
+    "지배주주순이익",
+    "비지배주주순이익",
+    "기본 주당이익",
+    "희석 주당이익"
+  ].map(normalizedMetricLabel));
 
   const ISSUE_MESSAGES = Object.freeze({
     INVALID_TEXT: "붙여넣은 표가 문자열이 아닙니다.",
@@ -473,11 +494,16 @@
     return `external-butler-${entity.market.toLowerCase()}-${entity.ticker.toLowerCase()}-${periodType.toLowerCase()}-${digest.slice(-16)}`;
   }
 
-  function hasCompleteCanonicalCoverage(periods, facts) {
+  function hasCompleteImportedCoverage(periods, facts) {
     if (!periods.length) return false;
+    const importedMetrics = new Set(facts.map((fact) => fact.metric));
+    if (!importedMetrics.size) return false;
     const metricsByPeriod = new Map(periods.map((period) => [period.key, new Set()]));
     facts.forEach((fact) => metricsByPeriod.get(fact.periodKey)?.add(fact.metric));
-    return [...metricsByPeriod.values()].every((metrics) => METRIC_ORDER.every((metric) => metrics.has(metric)));
+    return [...metricsByPeriod.values()].every((metrics) => (
+      metrics.size === importedMetrics.size
+      && [...importedMetrics].every((metric) => metrics.has(metric))
+    ));
   }
 
   function createSnapshot({ context, periodType, periods, facts, quality, revision = 1, revisionHistory = [] }) {
@@ -508,7 +534,7 @@
         metricCount: new Set(facts.map((fact) => fact.metric)).size,
         missingCellCount: Number(quality?.missingCellCount || 0),
         unknownMetricRowCount: Number(quality?.unknownMetricRowCount || 0),
-        coverage: quality?.coverage === "COMPLETE" && hasCompleteCanonicalCoverage(periods, facts)
+        coverage: quality?.coverage === "COMPLETE" && hasCompleteImportedCoverage(periods, facts)
           ? "COMPLETE"
           : "PARTIAL"
       },
@@ -577,9 +603,9 @@
     const factMap = new Map();
     const periodMap = new Map(headerPeriods.map((period) => [period.key, period]));
     let section = "UNCLASSIFIED";
-    let missingCellCount = 0;
+    const missingCells = [];
     let unknownMetricRowCount = 0;
-    let recognizedMetricRowCount = 0;
+    const recognizedMetrics = new Set();
     for (let lineIndex = 1; lineIndex < lines.length; lineIndex += 1) {
       if (!lines[lineIndex].trim()) continue;
       const rowNumber = lineIndex + 1;
@@ -596,17 +622,20 @@
         diagnostics.push(diagnostic("INVALID_ROW_WIDTH", "error", { rowNumber }));
         continue;
       }
-      const metric = METRIC_ALIASES.get(normalizedMetricLabel(cells[0]));
+      const metricLabel = normalizedMetricLabel(cells[0]);
+      const metric = METRIC_ALIASES.get(metricLabel);
       if (!metric) {
+        if (IGNORED_METRIC_LABELS.has(metricLabel)) continue;
         unknownMetricRowCount += 1;
         diagnostics.push(diagnostic("UNKNOWN_METRIC", "warning", { rowNumber }));
         continue;
       }
-      recognizedMetricRowCount += 1;
+      recognizedMetrics.add(metric);
       for (let periodIndex = 0; periodIndex < headerPeriods.length; periodIndex += 1) {
+        const sourcePeriod = headerPeriods[periodIndex];
         const parsedValue = parseFinancialNumber(cells[periodIndex + 1] || "");
         if (parsedValue.missing) {
-          missingCellCount += 1;
+          missingCells.push({ metric, periodKey: sourcePeriod.key });
           continue;
         }
         if (parsedValue.error) {
@@ -617,7 +646,6 @@
           }));
           continue;
         }
-        const sourcePeriod = headerPeriods[periodIndex];
         const valueType = parsedValue.consensus ? "CONSENSUS" : sourcePeriod.valueType;
         const factPeriod = valueType === sourcePeriod.valueType
           ? sourcePeriod
@@ -668,6 +696,7 @@
         periodMap.delete(key);
       }
     }
+    const missingCellCount = missingCells.filter((cell) => periodMap.has(cell.periodKey)).length;
     if (periodMap.size > MAX_PERIODS) diagnostics.push(diagnostic("TOO_MANY_PERIODS"));
     if (!factMap.size) diagnostics.push(diagnostic("NO_SUPPORTED_FACTS"));
     const summary = {
@@ -687,8 +716,9 @@
       quality: {
         missingCellCount,
         unknownMetricRowCount,
-        coverage: recognizedMetricRowCount === METRIC_ORDER.length
-          && factMap.size === METRIC_ORDER.length * headerPeriods.length
+        coverage: recognizedMetrics.size > 0
+          && factMap.size === recognizedMetrics.size * periodMap.size
+          && missingCellCount === 0
           && unknownMetricRowCount === 0
           ? "COMPLETE"
           : "PARTIAL"
