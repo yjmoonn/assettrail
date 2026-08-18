@@ -90,6 +90,47 @@ assert.equal(engine.validateExternalSnapshot(result.snapshot).valid, true);
   assert.deepEqual(quarter.snapshot.periods.map((period) => period.endDate), ["2025-03-31", "2025-06-30"]);
 }
 
+// Butler's current clipboard format adds the reporting scope after each period and may include
+// empty future columns. The official copy should parse without manual editing.
+{
+  const currentButlerTable = [
+    "4분기누적\t2025.12 25Q4 연결\t2026.06 26Q2 연결\t2026.09 26Q3 연결",
+    "매출액\t302231400000000\t171499500000000\t",
+    "영업이익\t43376600000000\t89492400000000\t",
+    "당기순이익\t55654100000000\t72030600000000\t"
+  ].join("\n");
+  const parsed = engine.parseButlerClipboard(currentButlerTable, {
+    ...context,
+    retrievedAt: "2026-08-18T01:02:03.000Z"
+  });
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.snapshot.periodType, "TTM");
+  assert.deepEqual(parsed.snapshot.periods.map((period) => period.endDate), ["2025-12-31", "2026-06-30"]);
+  assert.equal(parsed.snapshot.facts.find((fact) => (
+    fact.metric === "REVENUE" && fact.periodEnd === "2025-12-31"
+  )).value, 302_231_400_000_000);
+  assert.equal(parsed.snapshot.facts.find((fact) => (
+    fact.metric === "NET_INCOME" && fact.periodEnd === "2026-06-30"
+  )).value, 72_030_600_000_000);
+
+  const butlerClipboardHeader = engine.parseButlerClipboard(
+    "4분기누적\t2017.03 17Q1 연결\t2017.06 17Q2 별도\n매출액\t100\t200",
+    context
+  );
+  assert.equal(butlerClipboardHeader.ok, true);
+  assert.deepEqual(
+    butlerClipboardHeader.snapshot.periods.map((period) => period.endDate),
+    ["2017-03-31", "2017-06-30"]
+  );
+
+  const mismatchedButlerHeader = engine.parseButlerClipboard(
+    "4분기누적\t2017.03 17Q2 연결\n매출액\t100",
+    context
+  );
+  assert.equal(mismatchedButlerHeader.ok, false);
+  assert.equal(mismatchedButlerHeader.diagnostics.some((item) => item.code === "INVALID_PERIOD"), true);
+}
+
 // Confirmed facts cannot end after the UTC retrieval date; future consensus remains valid.
 {
   const futureActual = engine.parseButlerClipboard("연도\t2099\n손익계산서\n매출액\t100", context);
@@ -106,8 +147,9 @@ assert.equal(engine.validateExternalSnapshot(result.snapshot).valid, true);
     "연도\t2099\n손익계산서\n매출액\t100E",
     context
   );
-  assert.equal(futureActualHeaderWithConsensusCell.ok, false);
-  assert.equal(futureActualHeaderWithConsensusCell.diagnostics.some((item) => item.code === "FUTURE_ACTUAL_PERIOD"), true);
+  assert.equal(futureActualHeaderWithConsensusCell.ok, true);
+  assert.equal(futureActualHeaderWithConsensusCell.snapshot.facts[0].valueType, "CONSENSUS");
+  assert.deepEqual(futureActualHeaderWithConsensusCell.snapshot.periods.map((period) => period.valueType), ["CONSENSUS"]);
 
   const endedCurrentPeriod = engine.parseButlerClipboard(
     "분기\t26Q2\n손익계산서\n매출액\t100",
