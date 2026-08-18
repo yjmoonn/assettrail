@@ -3915,6 +3915,48 @@ function formatExternalValue(value, currency) {
   return `${new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 2 }).format(Number(value))} ${currency || ""}`.trim();
 }
 
+function externalMetricChangePresentation(metric) {
+  const current = Number(metric?.latestActual?.value);
+  const previous = Number(metric?.previousActual?.value);
+  if (!Number.isFinite(current) || !Number.isFinite(previous)) {
+    return { text: "비교 기간 없음", className: "" };
+  }
+  const currentDate = String(metric.latestActual?.periodEnd || "");
+  const previousDate = String(metric.previousActual?.periodEnd || "");
+  const currentYear = Number(currentDate.slice(0, 4));
+  const previousYear = Number(previousDate.slice(0, 4));
+  const comparisonLabel = currentYear - previousYear === 1 && currentDate.slice(4) === previousDate.slice(4)
+    ? "전년 동기 대비"
+    : "이전 기간 대비";
+  if (current < 0 && previous >= 0) return { text: `${comparisonLabel} 적자 전환`, className: "negative" };
+  if (current >= 0 && previous < 0) return { text: `${comparisonLabel} 흑자 전환`, className: "positive" };
+  if (current < 0 && previous < 0) {
+    return current > previous
+      ? { text: `${comparisonLabel} 적자 축소`, className: "positive" }
+      : { text: `${comparisonLabel} 적자 확대`, className: "negative" };
+  }
+  if (previous === 0) return { text: `${comparisonLabel} 비교 불가`, className: "" };
+  const change = (current - previous) / Math.abs(previous);
+  return {
+    text: `${comparisonLabel} ${change >= 0 ? "+" : ""}${percent(change)}`,
+    className: change > 0 ? "positive" : change < 0 ? "negative" : ""
+  };
+}
+
+function analysisDiagnosticMessages(diagnostics) {
+  const grouped = new Map();
+  (diagnostics || []).filter((item) => item.severity !== "info").forEach((item) => {
+    const key = `${item.code || "UNKNOWN"}|${item.message || ""}`;
+    const current = grouped.get(key) || { item, count: 0 };
+    current.count += 1;
+    grouped.set(key, current);
+  });
+  return [...grouped.values()].map(({ item, count }) => {
+    if (item.code === "UNKNOWN_METRIC") return `지원하지 않는 지표 행 ${count.toLocaleString("ko-KR")}개를 건너뛰었습니다.`;
+    return count > 1 ? `${item.message} (${count.toLocaleString("ko-KR")}건)` : item.message;
+  });
+}
+
 function externalMetricCards(summary, limit = 6) {
   const metrics = Object.entries(summary?.metrics || {})
     .filter(([, metric]) => metric?.latestActual)
@@ -3922,12 +3964,11 @@ function externalMetricCards(summary, limit = 6) {
   if (!metrics.length) return `<p class="decision-empty">표시할 확정 실적이 없습니다.</p>`;
   return `<div class="external-metric-grid">${metrics.map(([key, metric]) => {
     const fact = metric.latestActual;
-    const change = Number(metric.actualChangeRate);
-    const changeText = Number.isFinite(change) ? `${change >= 0 ? "+" : ""}${percent(change)}` : "비교 기간 없음";
+    const change = externalMetricChangePresentation(metric);
     return `<article class="external-metric">
       <span>${escapeHtml(EXTERNAL_METRIC_LABELS[key] || key)} · ${escapeHtml(fact.periodEnd)}</span>
       <strong>${escapeHtml(formatExternalValue(fact.value, fact.currency))}</strong>
-      <small class="${Number.isFinite(change) ? change > 0 ? "positive" : change < 0 ? "negative" : "" : ""}">${escapeHtml(changeText)}</small>
+      <small class="${change.className}">${escapeHtml(change.text)}</small>
     </article>`;
   }).join("")}</div>`;
 }
@@ -3942,7 +3983,7 @@ function renderButlerPreview() {
   const snapshot = butlerDataPreview.snapshot;
   const summaryResult = window.AssetTrailExternalDataEngine?.summarizeCompanyFacts(snapshot);
   const summary = summaryResult?.ok ? summaryResult.summary : null;
-  const warnings = (butlerDataPreview.diagnostics || []).filter((item) => item.severity !== "info");
+  const warningMessages = analysisDiagnosticMessages(butlerDataPreview.diagnostics);
   els.butlerImportPreview.innerHTML = `<article class="external-preview-card">
     <div class="external-preview-head">
       <div><strong>${escapeHtml(snapshot.entity.name)}</strong><p>${escapeHtml(snapshot.entity.market)} ${escapeHtml(snapshot.entity.ticker)} · ${escapeHtml(EXTERNAL_PERIOD_LABELS[snapshot.periodType] || snapshot.periodType)}</p></div>
@@ -3954,7 +3995,7 @@ function renderButlerPreview() {
       <li>누락 셀 ${snapshot.quality.missingCellCount.toLocaleString("ko-KR")}개 · 미지원 지표 행 ${snapshot.quality.unknownMetricRowCount.toLocaleString("ko-KR")}개</li>
       <li>Butler 사용자 복사본 · 2차 집계 출처 · 조회 ${escapeHtml(formatDate(snapshot.source.retrievedAt))}</li>
       <li>내용 변경 감지 ${escapeHtml(snapshot.contentDigest)} · 출처 진위의 독립 감사 증명은 아님</li>
-      ${warnings.map((item) => `<li>${escapeHtml(item.message)}</li>`).join("")}
+      ${warningMessages.map((message) => `<li>${escapeHtml(message)}</li>`).join("")}
     </ul>
   </article>`;
   if (els.saveButlerImportBtn) els.saveButlerImportBtn.disabled = false;
