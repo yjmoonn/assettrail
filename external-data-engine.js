@@ -264,12 +264,24 @@
     let year = 0;
     let month = 0;
     let quarter = 0;
-    let match = text.match(/^((?:20)?\d{2})[.\-/]([01]?\d)(?:\s*\(((?:20)?\d{2})?\s*Q([1-4])\))?$/i);
+    let match = text.match(
+      /^((?:20)?\d{2})[.\-/]([01]?\d)\s+((?:20)?\d{2})Q([1-4])(?:\s+(?:연결|별도))?$/i
+    );
     if (match) {
       year = fullYear(match[1]);
       month = Number(match[2]);
-      quarter = match[4] ? Number(match[4]) : 0;
-      if (match[3] && fullYear(match[3]) !== year) return null;
+      quarter = Number(match[4]);
+      if (fullYear(match[3]) !== year) return null;
+    } else {
+      match = text.match(/^((?:20)?\d{2})[.\-/]([01]?\d)(?:\s*\(((?:20)?\d{2})?\s*Q([1-4])\))?$/i);
+    }
+    if (match) {
+      if (!year) {
+        year = fullYear(match[1]);
+        month = Number(match[2]);
+        quarter = match[4] ? Number(match[4]) : 0;
+        if (match[3] && fullYear(match[3]) !== year) return null;
+      }
     } else {
       match = text.match(/^((?:20)?\d{2})\s*Q([1-4])$/i)
         || text.match(/^((?:20)?\d{2})년?\s*([1-4])분기$/);
@@ -554,10 +566,6 @@
           diagnostics.push(diagnostic("DUPLICATE_PERIOD", "error", { rowNumber: 1, columnNumber: index + 2 }));
           return;
         }
-        if (period.valueType === "ACTUAL" && period.endDate > normalizedContext.retrievedAt.slice(0, 10)) {
-          diagnostics.push(diagnostic("FUTURE_ACTUAL_PERIOD", "error", { rowNumber: 1, columnNumber: index + 2 }));
-          return;
-        }
         seenPeriods.add(period.key);
         headerPeriods.push(period);
       });
@@ -650,6 +658,14 @@
           factMap.set(key, fact);
         }
         if (factMap.size > MAX_FACTS) diagnostics.push(diagnostic("TOO_MANY_FACTS"));
+      }
+    }
+    const referencedPeriodKeys = new Set([...factMap.values()].map((fact) => fact.periodKey));
+    for (const [key, period] of periodMap) {
+      if (period.valueType === "ACTUAL"
+        && period.endDate > normalizedContext.retrievedAt.slice(0, 10)
+        && !referencedPeriodKeys.has(key)) {
+        periodMap.delete(key);
       }
     }
     if (periodMap.size > MAX_PERIODS) diagnostics.push(diagnostic("TOO_MANY_PERIODS"));
