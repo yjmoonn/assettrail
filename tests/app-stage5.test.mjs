@@ -54,6 +54,18 @@ window.eval(`${appCode}
       state.performanceObservations = [];
       renderAnalysisWorkspace();
     },
+    previewButler(table) {
+      renderButlerInstrumentOptions();
+      els.butlerAssetSelect.value = "INSTRUMENT:KRX:005930";
+      els.butlerCurrency.value = "KRW";
+      els.butlerSourceUrl.value = "https://www.butler.works/ko/companies/00126380";
+      els.butlerClipboardText.value = table;
+      const preview = previewButlerImport();
+      return {
+        preview: JSON.parse(JSON.stringify(preview)),
+        html: els.butlerImportPreview.innerHTML
+      };
+    },
     saveButler(table) {
       renderButlerInstrumentOptions();
       els.butlerAssetSelect.value = "INSTRUMENT:KRX:005930";
@@ -384,6 +396,21 @@ const butlerTable = [
   "CAPEX\t5\t6",
   "FCF\t15\t18"
 ].join("\n");
+
+const butlerPreviewDisplay = api.previewButler([
+  "연도\t2024\t2025",
+  "매출액\t100\t120",
+  "영업이익\t10\t-5",
+  "순이익\t-8\t-12",
+  "매출총이익\t30\t40",
+  "기타수익\t3\t4"
+].join("\n"));
+assert.equal(butlerPreviewDisplay.preview.ok, true);
+assert.match(butlerPreviewDisplay.html, /전년 동기 대비 \+20\.00%/);
+assert.match(butlerPreviewDisplay.html, /전년 동기 대비 적자 전환/);
+assert.match(butlerPreviewDisplay.html, /전년 동기 대비 적자 확대/);
+assert.match(butlerPreviewDisplay.html, /지원하지 않는 지표 행 2개를 건너뛰었습니다/);
+assert.equal((butlerPreviewDisplay.html.match(/지원하지 않는 지표 행/g) || []).length, 1);
 
 const preview = api.saveButler(butlerTable);
 assert.equal(preview.ok, true);
