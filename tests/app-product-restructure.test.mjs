@@ -205,6 +205,14 @@ usageDestinations.forEach((button) => assert.equal(button.type, "button"));
 assert.match(css, /\.usage-guide-flows\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,/);
 assert.match(css, /@media \(max-width:\s*900px\)[\s\S]*?\.usage-guide-flows\s*\{\s*grid-template-columns:\s*1fr/);
 assert.match(css, /@media \(max-width:\s*560px\)[\s\S]*?\.usage-guide-actions \.text-link-button\s*\{[\s\S]*?min-height:\s*44px/);
+const usageGuideCss = css.slice(css.indexOf(".usage-guide-panel"), css.indexOf(".dashboard-focus"));
+assert.match(usageGuideCss, /\.usage-guide-heading strong\s*\{[^}]*font-size:\s*var\(--fs-h3\)[^}]*font-weight:\s*var\(--fw-bold\)[^}]*line-height:\s*var\(--lh-h3\)/s);
+assert.match(usageGuideCss, /\.usage-guide-heading small\s*\{[^}]*font-size:\s*var\(--fs-body-sm\)[^}]*font-weight:\s*var\(--fw-semibold\)/s);
+assert.match(usageGuideCss, /\.usage-guide h3\s*\{[^}]*font-size:\s*16px[^}]*font-weight:\s*var\(--fw-bold\)/s);
+assert.match(usageGuideCss, /\.usage-guide ol\s*\{[^}]*font-size:\s*var\(--fs-body-sm\)[^}]*line-height:\s*1\.65/s);
+assert.match(usageGuideCss, /\.usage-guide-note p,[\s\S]*?\.usage-guide-more p\s*\{[^}]*font-size:\s*var\(--fs-caption\)[^}]*font-weight:\s*var\(--fw-medium\)[^}]*line-height:\s*1\.6/s);
+assert.doesNotMatch(usageGuideCss, /font-weight:\s*(?:650|750)/);
+assert.match(staticDocument.querySelector('link[rel="stylesheet"]')?.getAttribute("href") || "", /styles\.css\?v=20260819-usage-guide-type/);
 
 const historyEmpty = staticDocument.querySelector("#historyChartEmpty");
 assert.match(historyEmpty?.textContent || "", /자산 화면에서 현재 자산을 기록/);
