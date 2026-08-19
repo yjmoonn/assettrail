@@ -288,7 +288,7 @@ assert.match(window.document.querySelector("#performanceCoverage").textContent, 
 assert.match(window.document.querySelector("#performanceAttribution").textContent, /잔여 투자효과\(추정\)/);
 
 const persisted = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
-assert.equal(persisted.schemaVersion, 6);
+assert.equal(persisted.schemaVersion, 7);
 assert.equal(persisted.performanceObservations.length, 3);
 assert.equal(persisted.snapshots.length, 0, "legacy history and performance marks must remain separate");
 

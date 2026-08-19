@@ -3,7 +3,11 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 
 const html = readFileSync("index.html", "utf8");
-const appCode = [readFileSync("ledger-engine.js", "utf8"), readFileSync("app.js", "utf8")].join("\n");
+const appCode = [
+  readFileSync("ledger-engine.js", "utf8"),
+  readFileSync("history-repository.js", "utf8"),
+  readFileSync("app.js", "utf8")
+].join("\n");
 
 const dom = new JSDOM(html, {
   pretendToBeVisual: true,
@@ -13,6 +17,7 @@ const dom = new JSDOM(html, {
 
 const { window } = dom;
 const writes = [];
+const firestoreDocs = new Map();
 
 window.HTMLCanvasElement.prototype.getContext = () => ({
   arc() {},
@@ -94,17 +99,40 @@ window.assetTrailFirebaseModules = {
   },
   firestore: {
     doc: (_db, ...path) => ({ path: path.join("/") }),
+    collection: (_db, ...path) => ({ path: path.join("/") }),
     getDoc: async () => ({
       exists: () => false
     }),
+    getDocs: async (ref) => ({
+      forEach(callback) {
+        for (const [path, data] of firestoreDocs) {
+          if (!path.startsWith(`${ref.path}/`)) continue;
+          callback({ id: path.split("/").at(-1), data: () => window.JSON.parse(JSON.stringify(data)) });
+        }
+      }
+    }),
     getFirestore: () => ({ app: "test" }),
     arrayUnion: (...values) => ({ __arrayUnion: values }),
+    runTransaction: async (_db, update) => update({
+      get: async () => ({ exists: () => false }),
+      set: (ref, data, options) => {
+        const saved = JSON.parse(JSON.stringify(data));
+        writes.push({
+          data: saved,
+          options,
+          path: ref.path
+        });
+        firestoreDocs.set(ref.path, saved);
+      }
+    }),
     setDoc: async (ref, data, options) => {
+      const saved = JSON.parse(JSON.stringify(data));
       writes.push({
-        data: JSON.parse(JSON.stringify(data)),
+        data: saved,
         options,
         path: ref.path
       });
+      firestoreDocs.set(ref.path, saved);
     }
   }
 };
@@ -254,7 +282,7 @@ await new Promise((resolve) => window.setTimeout(resolve, 10));
 const lastWrite = writes.filter((write) => write.path === "users/alice/financeData/primary").at(-1);
 assert.equal(lastWrite.options.merge, false);
 assert.equal(lastWrite.path, "users/alice/financeData/primary");
-assert.equal(lastWrite.data.schemaVersion, 6);
+assert.equal(lastWrite.data.schemaVersion, 7);
 assert.equal(lastWrite.data.revision >= 1, true);
 assert.equal(lastWrite.data.meta.cloudRevision, lastWrite.data.revision);
 assert.equal(lastWrite.data.assets.length, 2);
@@ -266,17 +294,27 @@ assert.equal(lastWrite.data.assets[0].account, "삼성증권");
 assert.equal(lastWrite.data.assets[0].currentPrice, undefined);
 assert.equal(lastWrite.data.assets[1].ticker, "TSLA");
 assert.equal(lastWrite.data.assets[1].type, "US");
-assert.equal(lastWrite.data.snapshots.length, 1);
-assert.equal(lastWrite.data.snapshots[0].total, 872000);
-assert.equal(lastWrite.data.snapshots[0].assets, undefined);
+assert.equal(lastWrite.data.snapshots, undefined);
+assert.equal(lastWrite.data.performanceObservations, undefined);
+assert.equal(lastWrite.data.historyMeta.snapshotCount, 1);
+assert.equal(lastWrite.data.historyMeta.performanceCount, 0);
+const historyChunkWrites = writes.filter((write) => write.path.startsWith(
+  `users/alice/financeData/primary/histories/${lastWrite.data.historyMeta.activeHistoryId}/chunks/`
+));
+assert.equal(historyChunkWrites.length, lastWrite.data.historyMeta.chunkCount);
+const storedSnapshot = historyChunkWrites
+  .filter((write) => write.data.kind === "SNAPSHOT")
+  .flatMap((write) => write.data.items)[0];
+assert.equal(storedSnapshot.total, 872000);
+assert.equal(storedSnapshot.assets, undefined);
 assert.deepEqual(
-  Object.keys(lastWrite.data.snapshots[0]).sort(),
-  ["createdAt", "id", "note", "total", "typeTotals"]
+  Object.keys(storedSnapshot).sort(),
+  ["createdAt", "id", "nextReviewAt", "note", "qualityIssues", "source", "total", "typeTotals"]
 );
 assert.equal(lastWrite.data.retirement.monthlySpend, 4200000);
 assert.match(lastWrite.data.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
 const userLocalState = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1:user:alice"));
-assert.equal(userLocalState.schemaVersion, 6);
+assert.equal(userLocalState.schemaVersion, 7);
 assert.equal(userLocalState.assets.length, 2);
 assert.equal(userLocalState.assets[0].ticker, "005930");
 

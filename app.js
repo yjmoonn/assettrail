@@ -1,9 +1,9 @@
 const STORAGE_KEY = "finance-ledger-retirement-v1";
-const STATE_SCHEMA_VERSION = 6;
+const STATE_SCHEMA_VERSION = 7;
 const CLOUD_DOC_ID = "primary";
 const CLOUD_PAYLOAD_MAX_BYTES = 900 * 1024;
 const CLOUD_TRANSACTION_EVENT_LIMIT = 400;
-const IMPORT_FILE_MAX_BYTES = 15 * 1024 * 1024;
+const IMPORT_FILE_MAX_BYTES = 32 * 1024 * 1024;
 const IMPORT_LIMITS = {
   assets: 2000,
   decisionProfiles: 4000,
@@ -12,7 +12,7 @@ const IMPORT_LIMITS = {
   tradeJournalEntries: 10000,
   events: 50000,
   snapshots: 10000,
-  performanceObservations: 300,
+  performanceObservations: 10000,
   retirementScenarios: 200
 };
 const IMPORT_STRING_LIMITS = {
@@ -160,28 +160,24 @@ const RISK_TAG_LENGTH_LIMIT = 80;
 const CHECK_ICON_GLYPHS = {
   price: "₩",
   review: "↻",
-  target: "%",
+  goal: "%",
   snapshot: "✦"
 };
-const APP_VIEWS = new Set(["DASHBOARD", "ASSETS", "JOURNAL", "PORTFOLIO", "ANALYSIS", "GOALS", "SETTINGS"]);
+const APP_VIEWS = new Set(["DASHBOARD", "ASSETS", "JOURNAL", "GOALS", "SETTINGS"]);
 const VIEW_LABELS = {
-  DASHBOARD: "대시보드",
+  DASHBOARD: "홈",
   ASSETS: "자산",
-  JOURNAL: "투자 기록",
-  PORTFOLIO: "포트폴리오",
-  ANALYSIS: "분석",
+  JOURNAL: "기록",
   GOALS: "목표",
   SETTINGS: "설정",
 };
 // 상단바 제목/부제 — 뷰마다 갱신(고정 "대시보드" 표기 방지)
 const VIEW_HEADINGS = {
-  DASHBOARD: { title: "나의 자산 대시보드", subtitle: "가격, 포트폴리오, 매매일지, 은퇴 목표를 가볍게 훑어보세요." },
-  ASSETS: { title: "자산", subtitle: "보유 자산과 매수·매도를 한 곳에서 관리해요." },
-  JOURNAL: { title: "투자 기록", subtitle: "매매 판단과 매도 결과를 기록하고 복기해요." },
-  PORTFOLIO: { title: "포트폴리오", subtitle: "계좌·상품·국내외 배분과 목표 비중 차이를 봐요." },
-  ANALYSIS: { title: "외부 데이터와 AI", subtitle: "출처가 확인된 실적·ETF 노출과 근거 중심 보고서를 검토해요." },
-  GOALS: { title: "목표", subtitle: "자산 추이와 은퇴 계획을 함께 점검해요." },
-  SETTINGS: { title: "설정", subtitle: "동기화, 가격표, 데이터, 운영 작업을 관리해요." },
+  DASHBOARD: { title: "나의 자산", subtitle: "현재 상태, 지난 기록 이후 변화, 은퇴 목표까지의 거리를 확인해요." },
+  ASSETS: { title: "자산", subtitle: "여러 계좌의 보유 자산과 현재 평가를 정확하게 관리해요." },
+  JOURNAL: { title: "기록", subtitle: "자산 이력과 거래 원장을 보고 입출금과 투자 결과를 구분해요." },
+  GOALS: { title: "목표", subtitle: "하나의 은퇴 계획과 현재 진행률을 점검해요." },
+  SETTINGS: { title: "설정", subtitle: "동기화, 가격, 백업과 선택적 AI 점검 파일을 관리해요." },
 };
 
 function viewHash(view) {
@@ -209,7 +205,9 @@ let cloud = {
   runTransaction: null,
   collection: null,
   getDocs: null,
+  deleteDoc: null,
   knownEventIds: new Set(),
+  activeHistoryMeta: null,
   authGeneration: 0
 };
 let activeStorageKey = STORAGE_KEY;
@@ -262,6 +260,13 @@ const els = {
   appSections: [...document.querySelectorAll("[data-app-section]")],
   dashboardSnapshotBtn: document.querySelector("#dashboardSnapshotBtn"),
   dashboardAssetBtn: document.querySelector("#dashboardAssetBtn"),
+  dashboardMonthlyReviewLabel: document.querySelector("#dashboardMonthlyReviewLabel"),
+  dashboardMonthlyReviewProgress: document.querySelector("#dashboardMonthlyReviewProgress"),
+  dashboardMonthlyConclusion: document.querySelector("#dashboardMonthlyConclusion"),
+  dashboardNextReviewDate: document.querySelector("#dashboardNextReviewDate"),
+  dashboardTop1Weight: document.querySelector("#dashboardTop1Weight"),
+  dashboardTop1Name: document.querySelector("#dashboardTop1Name"),
+  dashboardTop5Weight: document.querySelector("#dashboardTop5Weight"),
   dashboardReviewCount: document.querySelector("#dashboardReviewCount"),
   dashboardChecklist: document.querySelector("#dashboardChecklist"),
   dashboardTopAsset: document.querySelector("#dashboardTopAsset"),
@@ -457,6 +462,8 @@ const els = {
   settingsLastSync: document.querySelector("#settingsLastSync"),
   openBrokerCsvImportBtn: document.querySelector("#openBrokerCsvImportBtn"),
   settingsBrokerCsvImportBtn: document.querySelector("#settingsBrokerCsvImportBtn"),
+  exportAiCheckPackageBtn: document.querySelector("#exportAiCheckPackageBtn"),
+  aiCheckPackageStatus: document.querySelector("#aiCheckPackageStatus"),
   analysisTaskButtons: [...document.querySelectorAll("[data-analysis-task]")],
   analysisTaskPanels: [...document.querySelectorAll("[data-analysis-task-panel]")],
   analysisExternalStatus: document.querySelector("#analysisExternalStatus"),
@@ -476,9 +483,12 @@ const els = {
   downloadExternalDataBtn: document.querySelector("#downloadExternalDataBtn"),
   importExternalDataBtn: document.querySelector("#importExternalDataBtn"),
   externalDataBackupInput: document.querySelector("#externalDataBackupInput"),
+  settingsExternalDataStatus: document.querySelector("#settingsExternalDataStatus"),
   clearExternalDataBtn: document.querySelector("#clearExternalDataBtn"),
   externalCompanyList: document.querySelector("#externalCompanyList"),
+  importEtfCatalogBtn: document.querySelector("#importEtfCatalogBtn"),
   etfCatalogInput: document.querySelector("#etfCatalogInput"),
+  settingsEtfCatalogStatus: document.querySelector("#settingsEtfCatalogStatus"),
   downloadEtfTemplateBtn: document.querySelector("#downloadEtfTemplateBtn"),
   downloadEtfCatalogBtn: document.querySelector("#downloadEtfCatalogBtn"),
   clearEtfCatalogBtn: document.querySelector("#clearEtfCatalogBtn"),
@@ -628,6 +638,18 @@ const initialStateLoad = loadState();
 const state = initialStateLoad.state;
 let storageWritesBlocked = !initialStateLoad.ok;
 let protectedStorageRaw = initialStateLoad.ok ? null : initialStateLoad.raw;
+let historyStorage = {
+  adapter: null,
+  blocked: false,
+  fallback: false,
+  manifest: null,
+  pending: Promise.resolve(),
+  queuedFingerprint: null,
+  ready: false,
+  savedHistory: { snapshots: [], performanceObservations: [] },
+  savedFingerprint: null,
+  scope: activeStorageKey
+};
 document.addEventListener("submit", (event) => {
   if (!storageWritesBlocked) return;
   event.preventDefault();
@@ -657,6 +679,7 @@ const uiState = {
   portfolioBreakdownExpanded: false,
   autofilledAssetName: ""
 };
+let monthlyReviewFormContextKey = null;
 let assetDetailOpener = null;
 let brokerCsvPreview = null;
 let brokerCsvDialogOpener = null;
@@ -805,7 +828,7 @@ function loadState(storageKey = activeStorageKey) {
 
   try {
     raw = localStorage.getItem(storageKey);
-    if (!raw) return { ok: true, state: fallback, error: null, raw: null };
+    if (!raw) return { ok: true, state: fallback, error: null, raw: null, historyMeta: null, migrationPending: false };
     const saved = JSON.parse(raw);
     if (!isPlainObject(saved)) throw new Error("저장 데이터가 객체가 아닙니다.");
     const sourceVersion = Number(saved.schemaVersion || 1);
@@ -815,35 +838,48 @@ function loadState(storageKey = activeStorageKey) {
       try {
         localStorage.setItem(backupKey, raw);
         if (localStorage.getItem(backupKey) !== raw) throw new Error("마이그레이션 백업 검증에 실패했습니다.");
-        const migratedRaw = JSON.stringify(storageSafeState(migrated));
-        localStorage.setItem(storageKey, migratedRaw);
-        if (localStorage.getItem(storageKey) !== migratedRaw) throw new Error(`v${STATE_SCHEMA_VERSION} 데이터 저장 검증에 실패했습니다.`);
       } catch (error) {
-        if (localStorage.getItem(storageKey) !== raw) {
-          try {
-            localStorage.setItem(storageKey, raw);
-          } catch (restoreError) {
-            console.error("AssetTrail migration rollback failed", restoreError);
-          }
-        }
         reportStorageFailure(`기존 데이터 백업 후 v${STATE_SCHEMA_VERSION} 전환 저장에 실패했습니다. 원본은 보존했으며 자동 저장을 중단했습니다.`);
-        return { ok: false, state: migrated, error, raw };
+        return { ok: false, state: migrated, error, raw, historyMeta: null, migrationPending: true };
       }
+      return {
+        ok: true,
+        state: migrated,
+        error: null,
+        raw,
+        historyMeta: null,
+        migrationPending: true,
+        sourceVersion
+      };
     }
-    return { ok: true, state: migrated, error: null, raw };
+    return {
+      ok: true,
+      state: migrated,
+      error: null,
+      raw,
+      historyMeta: normalizeHistoryMeta(saved.historyMeta),
+      migrationPending: false,
+      sourceVersion
+    };
   } catch (error) {
     reportStorageFailure("로컬 데이터를 읽지 못했습니다. 브라우저 저장 권한과 저장 공간을 확인하세요.");
-    return { ok: false, state: fallback, error, raw };
+    return { ok: false, state: fallback, error, raw, historyMeta: null, migrationPending: false };
   }
 }
 
 function persist() {
-  if (storageWritesBlocked) {
+  if (storageWritesBlocked || historyStorage.blocked) {
     reportStorageFailure("기존 로컬 데이터를 보호하기 위해 자동 저장을 중단했습니다. 올바른 백업 파일을 가져오거나 클라우드 데이터를 다시 불러오세요.");
     return false;
   }
   try {
-    localStorage.setItem(activeStorageKey, JSON.stringify(storageSafeState()));
+    localStorage.setItem(activeStorageKey, JSON.stringify(localPrimarySafeState()));
+    if (historyStorage.fallback) {
+      rememberSavedHistory();
+      historyStorage.savedFingerprint = historyProbeFingerprint();
+      historyStorage.queuedFingerprint = historyStorage.savedFingerprint;
+    }
+    queueHistoryPersistence();
     return true;
   } catch (error) {
     console.error(error);
@@ -1060,12 +1096,20 @@ function hasFirebaseConfig() {
   return ["apiKey", "authDomain", "projectId", "appId"].every((key) => Boolean(firebaseConfig[key]));
 }
 
-function cloudSafeState(revision, updatedAt = new Date().toISOString(), { activeLedgerId = null } = {}) {
-  const safeState = storageSafeState();
-  const { events, ...primaryState } = safeState;
+function cloudSafeState(revision, updatedAt = new Date().toISOString(), {
+  activeLedgerId = null,
+  historyManifest = historyStorage.manifest || cloud.activeHistoryMeta,
+  source = state
+} = {}) {
+  const safeState = storageSafeState(source);
+  const { events, snapshots, performanceObservations, ...primaryState } = safeState;
   const cloudRevision = normalizeRevision(revision);
+  const historyMeta = historyMetaFromManifest(historyManifest)
+    || normalizeHistoryMeta(historyManifest)
+    || null;
   return {
     ...primaryState,
+    ...(historyMeta ? { historyMeta } : { snapshots, performanceObservations }),
     ledgerMeta: {
       ...safeState.ledgerMeta,
       ...(activeLedgerId ? { activeLedgerId } : {}),
@@ -1137,6 +1181,322 @@ function storageSafeState(source = state) {
   };
 }
 
+function historyRepositoryEngine() {
+  return window.AssetTrailHistoryRepository || null;
+}
+
+function normalizeHistoryMeta(value) {
+  if (!isPlainObject(value)) return null;
+  const schemaVersion = String(value.schemaVersion || "");
+  const activeHistoryId = String(value.activeHistoryId || value.historyId || "").trim();
+  const snapshotCount = Number(value.snapshotCount);
+  const performanceCount = Number(value.performanceCount);
+  const chunkCount = Number(value.chunkCount);
+  const contentFingerprint = String(value.contentFingerprint || "");
+  const updatedAt = normalizeStoredDate(value.updatedAt);
+  if (schemaVersion !== "assettrail.history.v1"
+      || !activeHistoryId
+      || !Number.isSafeInteger(snapshotCount) || snapshotCount < 0
+      || snapshotCount > IMPORT_LIMITS.snapshots
+      || !Number.isSafeInteger(performanceCount) || performanceCount < 0
+      || performanceCount > IMPORT_LIMITS.performanceObservations
+      || !Number.isSafeInteger(chunkCount) || chunkCount < 0
+      || !/^history-v1:[a-f0-9]{64}$/.test(contentFingerprint)
+      || !updatedAt) return null;
+  return {
+    schemaVersion,
+    activeHistoryId,
+    snapshotCount,
+    performanceCount,
+    chunkCount,
+    contentFingerprint,
+    updatedAt
+  };
+}
+
+function historyMetaFromManifest(manifest) {
+  if (!manifest) return null;
+  return normalizeHistoryMeta({
+    ...manifest,
+    activeHistoryId: manifest.historyId
+  });
+}
+
+function localPrimarySafeState(source = state, manifest = historyStorage.manifest) {
+  const portable = storageSafeState(source);
+  if (historyStorage.fallback || !manifest) return portable;
+  const { snapshots, performanceObservations, ...core } = portable;
+  return {
+    ...core,
+    historyMeta: historyMetaFromManifest(manifest)
+  };
+}
+
+function historyFlatState(source = state) {
+  return {
+    snapshots: (source.snapshots || []).map(normalizeSnapshot),
+    performanceObservations: (source.performanceObservations || []).map(normalizePerformanceObservation)
+  };
+}
+
+function cloneHistoryFlat(flat = historyFlatState()) {
+  const repository = historyRepositoryEngine();
+  if (repository?.normalizeHistory) return repository.normalizeHistory(flat);
+  return {
+    snapshots: (flat.snapshots || []).map(normalizeSnapshot),
+    performanceObservations: (flat.performanceObservations || []).map(normalizePerformanceObservation)
+  };
+}
+
+function rememberSavedHistory(flat = historyFlatState()) {
+  historyStorage.savedHistory = cloneHistoryFlat(flat);
+  return historyStorage.savedHistory;
+}
+
+function restoreSavedHistoryState() {
+  const saved = cloneHistoryFlat(historyStorage.savedHistory || {});
+  state.snapshots = saved.snapshots;
+  state.performanceObservations = saved.performanceObservations;
+  return saved;
+}
+
+function historyProbeFingerprint(flat = historyFlatState()) {
+  const repository = historyRepositoryEngine();
+  if (!repository) return null;
+  return repository.createHistoryBundle(flat, {
+    historyId: "history-fingerprint",
+    updatedAt: new Date(0).toISOString()
+  }).manifest.contentFingerprint;
+}
+
+function resetHistoryStorageRuntime(scope = activeStorageKey) {
+  historyStorage = {
+    adapter: null,
+    blocked: false,
+    fallback: false,
+    manifest: null,
+    pending: Promise.resolve(),
+    queuedFingerprint: null,
+    ready: false,
+    savedHistory: { snapshots: [], performanceObservations: [] },
+    savedFingerprint: null,
+    scope
+  };
+}
+
+function historyGenerationId() {
+  return `history-${uid()}`;
+}
+
+async function stageAndActivateLocalHistory(flat, scope, options = {}) {
+  const repository = historyRepositoryEngine();
+  const adapter = options.adapter || historyStorage.adapter;
+  if (!repository || !adapter) throw new Error("히스토리 저장소를 사용할 수 없습니다.");
+  const bundle = repository.createHistoryBundle(flat, {
+    historyId: options.historyId || historyGenerationId(),
+    updatedAt: options.updatedAt || new Date().toISOString()
+  });
+  await adapter.writeBundle(scope, bundle);
+  const verified = await adapter.readBundle(scope, bundle.manifest.historyId);
+  if (!verified || !repository.validateHistoryBundle(verified).ok) {
+    throw new Error("히스토리 세대를 다시 읽어 검증하지 못했습니다.");
+  }
+  await adapter.setActiveHistoryId(scope, bundle.manifest.historyId);
+  const active = await adapter.readActiveBundle(scope);
+  if (!active || active.manifest.contentFingerprint !== bundle.manifest.contentFingerprint) {
+    throw new Error("검증된 히스토리 세대를 활성화하지 못했습니다.");
+  }
+  return active;
+}
+
+async function initializeLocalHistoryStorage(loadResult = initialStateLoad, scope = activeStorageKey) {
+  resetHistoryStorageRuntime(scope);
+  const runtime = historyStorage;
+  if (!loadResult?.ok) {
+    historyStorage.blocked = true;
+    historyStorage.ready = false;
+    storageWritesBlocked = true;
+    protectedStorageRaw = loadResult?.raw ?? null;
+    reportStorageFailure("로컬 원본을 안전하게 읽지 못해 장기 기록 저장소 전환과 자동 저장을 중단했습니다. 원본 데이터는 그대로 보호했습니다.");
+    return false;
+  }
+  const repository = historyRepositoryEngine();
+  const hasAdapterFactory = typeof window.assetTrailHistoryAdapterFactory === "function";
+  if (!repository || (!window.indexedDB && !hasAdapterFactory)) {
+    if (loadResult.historyMeta) {
+      historyStorage.blocked = true;
+      historyStorage.ready = false;
+      storageWritesBlocked = true;
+      protectedStorageRaw = loadResult.raw;
+      reportStorageFailure("분리 저장된 장기 기록을 읽을 수 없어 기존 데이터와 포인터를 그대로 보호했습니다. IndexedDB를 허용한 뒤 다시 열거나 JSON 백업을 가져오세요.");
+      return false;
+    }
+    historyStorage.fallback = true;
+    historyStorage.ready = true;
+    rememberSavedHistory();
+    historyStorage.savedFingerprint = repository ? historyProbeFingerprint() : null;
+    if (loadResult.migrationPending) {
+      try {
+        const raw = JSON.stringify(storageSafeState());
+        localStorage.setItem(scope, raw);
+        if (localStorage.getItem(scope) !== raw) throw new Error(`v${STATE_SCHEMA_VERSION} 호환 저장 검증에 실패했습니다.`);
+      } catch (error) {
+        try {
+          if (loadResult.raw) localStorage.setItem(scope, loadResult.raw);
+        } catch {}
+        historyStorage.fallback = false;
+        historyStorage.blocked = true;
+        historyStorage.ready = false;
+        storageWritesBlocked = true;
+        protectedStorageRaw = loadResult.raw;
+        reportStorageFailure(`v${STATE_SCHEMA_VERSION} 호환 저장에 실패해 기존 데이터를 그대로 보호했습니다. 저장 공간을 확인해 다시 열거나 이전 전체 JSON 백업을 사용하세요.`);
+        return false;
+      }
+    }
+    showStatusNotice("이 브라우저에서는 장기 기록 저장소를 사용할 수 없어 호환 저장 방식을 사용합니다. JSON 백업을 정기적으로 내려받으세요.");
+    return true;
+  }
+
+  let adapter = null;
+  const storageContextIsCurrent = () => historyStorage === runtime
+    && activeStorageKey === scope
+    && historyStorage.scope === scope
+    && historyStorage.adapter === adapter;
+  try {
+    adapter = typeof window.assetTrailHistoryAdapterFactory === "function"
+      ? window.assetTrailHistoryAdapterFactory(scope)
+      : repository.createIndexedDbHistoryAdapter({ indexedDB: window.indexedDB });
+    historyStorage.adapter = adapter;
+    let bundle = null;
+    const requestedHistoryId = loadResult.historyMeta?.activeHistoryId || null;
+    if (!loadResult.migrationPending && loadResult.raw && requestedHistoryId) {
+      bundle = await adapter.readBundle(scope, requestedHistoryId);
+      if (!storageContextIsCurrent()) return false;
+      if (!bundle) throw new Error("로컬 주 데이터가 가리키는 히스토리 세대를 찾지 못했습니다.");
+      if (bundle.manifest.contentFingerprint !== loadResult.historyMeta.contentFingerprint
+          || bundle.manifest.snapshotCount !== loadResult.historyMeta.snapshotCount
+          || bundle.manifest.performanceCount !== loadResult.historyMeta.performanceCount) {
+        throw new Error("로컬 주 데이터와 히스토리 세대의 무결성 정보가 다릅니다.");
+      }
+      await adapter.setActiveHistoryId(scope, requestedHistoryId);
+      if (!storageContextIsCurrent()) return false;
+    } else if (!loadResult.migrationPending && loadResult.raw && !loadResult.historyMeta) {
+      bundle = await stageAndActivateLocalHistory(historyFlatState(), scope, { adapter });
+      if (!storageContextIsCurrent()) return false;
+    } else if (!loadResult.raw || loadResult.migrationPending) {
+      bundle = await stageAndActivateLocalHistory(historyFlatState(), scope, { adapter });
+      if (!storageContextIsCurrent()) return false;
+    }
+    if (!bundle) {
+      bundle = await adapter.readActiveBundle(scope);
+      if (!storageContextIsCurrent()) return false;
+    }
+    if (!bundle) {
+      bundle = await stageAndActivateLocalHistory(historyFlatState(), scope, { adapter });
+      if (!storageContextIsCurrent()) return false;
+    }
+    const restored = repository.restoreHistory(bundle);
+    state.snapshots = restored.snapshots.map(normalizeSnapshot);
+    state.performanceObservations = restored.performanceObservations.map(normalizePerformanceObservation);
+    historyStorage.manifest = bundle.manifest;
+    historyStorage.savedFingerprint = bundle.manifest.contentFingerprint;
+    historyStorage.queuedFingerprint = bundle.manifest.contentFingerprint;
+    historyStorage.ready = true;
+    rememberSavedHistory(restored);
+    const localRaw = JSON.stringify(localPrimarySafeState());
+    localStorage.setItem(scope, localRaw);
+    if (localStorage.getItem(scope) !== localRaw) throw new Error("분리된 로컬 히스토리 포인터 저장 검증에 실패했습니다.");
+    return true;
+  } catch (error) {
+    console.error(error);
+    if (!storageContextIsCurrent()) return false;
+    historyStorage.blocked = true;
+    historyStorage.ready = false;
+    if (loadResult.raw && (loadResult.migrationPending || loadResult.historyMeta)) {
+      try {
+        localStorage.setItem(scope, loadResult.raw);
+      } catch {}
+      storageWritesBlocked = true;
+      protectedStorageRaw = loadResult.raw;
+    }
+    reportStorageFailure("장기 기록 저장소를 검증하지 못해 변경과 클라우드 동기화를 중단했습니다. IndexedDB 권한·저장 공간을 확인하거나 이전 전체 JSON 백업을 사용하세요.");
+    return false;
+  }
+}
+
+function queueHistoryPersistence() {
+  if (!historyStorage.ready || historyStorage.blocked || historyStorage.fallback || !historyStorage.adapter) {
+    return historyStorage.pending;
+  }
+  const repository = historyRepositoryEngine();
+  if (!repository) return historyStorage.pending;
+  const runtime = historyStorage;
+  const scope = activeStorageKey;
+  const flat = historyFlatState();
+  let fingerprint;
+  try {
+    fingerprint = historyProbeFingerprint(flat);
+  } catch (error) {
+    console.error(error);
+    historyStorage.blocked = true;
+    reportStorageFailure("히스토리 무결성 계산에 실패해 기록 저장을 중단했습니다.");
+    return historyStorage.pending;
+  }
+  if (!fingerprint || fingerprint === historyStorage.queuedFingerprint) return historyStorage.pending;
+  historyStorage.queuedFingerprint = fingerprint;
+  const generationId = historyGenerationId();
+  const adapter = runtime.adapter;
+  let previousHistoryId = null;
+  let previousPrimaryRaw = null;
+  historyStorage.pending = historyStorage.pending.then(async () => {
+    if (historyStorage !== runtime || historyStorage.blocked || scope !== activeStorageKey || historyStorage.scope !== scope) return;
+    if (!adapter) throw new Error("히스토리 저장소 연결이 없습니다.");
+    previousHistoryId = runtime.manifest?.historyId || null;
+    previousPrimaryRaw = localStorage.getItem(scope);
+    const bundle = await stageAndActivateLocalHistory(flat, scope, { historyId: generationId, adapter });
+    if (historyStorage !== runtime || scope !== activeStorageKey || historyStorage.scope !== scope) return;
+    if (historyStorage.blocked) return;
+    const primaryRaw = JSON.stringify(localPrimarySafeState(state, bundle.manifest));
+    localStorage.setItem(scope, primaryRaw);
+    if (localStorage.getItem(scope) !== primaryRaw) throw new Error("히스토리 포인터 저장 검증에 실패했습니다.");
+    historyStorage.manifest = bundle.manifest;
+    historyStorage.savedFingerprint = bundle.manifest.contentFingerprint;
+    rememberSavedHistory(flat);
+    if (previousHistoryId && previousHistoryId !== bundle.manifest.historyId) {
+      try {
+        await adapter.deleteBundle(scope, previousHistoryId);
+      } catch (error) {
+        console.warn("이전 로컬 히스토리 세대를 정리하지 못했습니다.", error);
+      }
+    }
+  }).catch(async (error) => {
+    console.error(error);
+    if (historyStorage === runtime && scope === activeStorageKey && historyStorage.scope === scope) {
+      if (adapter && previousHistoryId) {
+        try {
+          await adapter.setActiveHistoryId(scope, previousHistoryId);
+        } catch {}
+      }
+      if (historyStorage !== runtime || scope !== activeStorageKey || historyStorage.scope !== scope) return;
+      try {
+        if (previousPrimaryRaw === null) localStorage.removeItem(scope);
+        else localStorage.setItem(scope, previousPrimaryRaw);
+      } catch {}
+      historyStorage.blocked = true;
+      historyStorage.queuedFingerprint = historyStorage.savedFingerprint;
+      restoreSavedHistoryState();
+      reportStorageFailure("장기 기록을 저장하지 못했습니다. 기존 세대는 보존했으며 새 기록 저장과 클라우드 동기화를 중단했습니다.");
+    }
+  });
+  return historyStorage.pending;
+}
+
+async function flushHistoryPersistence() {
+  queueHistoryPersistence();
+  await historyStorage.pending;
+  return !historyStorage.blocked;
+}
+
 function migrateState(nextState) {
   const fallback = defaultState();
   const source = isPlainObject(nextState) ? nextState : {};
@@ -1162,7 +1522,11 @@ function migrateState(nextState) {
   if (sourceVersion >= 5 && !Array.isArray(source.events)) {
     throw new Error("v5 이상 데이터에 거래 원장 이벤트 목록이 없습니다.");
   }
-  if (sourceVersion >= 6 && !Array.isArray(source.performanceObservations)) {
+  const hasExternalizedHistory = sourceVersion >= 7 && Boolean(normalizeHistoryMeta(source.historyMeta));
+  if (sourceVersion >= 7 && source.historyMeta !== undefined && !hasExternalizedHistory) {
+    throw new Error("v7 장기 기록 무결성 정보가 올바르지 않습니다.");
+  }
+  if (sourceVersion >= 6 && !Array.isArray(source.performanceObservations) && !hasExternalizedHistory) {
     throw new Error("v6 성과 평가 관측점 목록이 없습니다.");
   }
   const events = normalizeLedgerEvents(source, assets);
@@ -1206,6 +1570,7 @@ function migrateState(nextState) {
 
 function replaceState(nextState) {
   const migrated = migrateState(nextState);
+  monthlyReviewFormContextKey = null;
   state.schemaVersion = STATE_SCHEMA_VERSION;
   state.assets = migrated.assets;
   state.decisionProfiles = migrated.decisionProfiles;
@@ -1374,12 +1739,21 @@ function normalizeSnapshot(snapshot, index = 0) {
       if (Number.isFinite(value) && value >= 0) typeTotals[type] = value;
     });
   }
+  const rawSource = String(source.source || "").trim().toUpperCase();
+  const snapshotSource = ["MONTHLY_REVIEW", "QUICK_SNAPSHOT", "LEGACY_SNAPSHOT"].includes(rawSource)
+    ? rawSource
+    : "LEGACY_SNAPSHOT";
   return {
     id: String(source.id || `snapshot-${createdAt}-${index}`).slice(0, IMPORT_STRING_LIMITS.id),
     createdAt,
     total: Number.isFinite(Number(source.total)) && Number(source.total) >= 0 ? Number(source.total) : 0,
     note: String(source.note || "").slice(0, IMPORT_STRING_LIMITS.note),
-    typeTotals
+    typeTotals,
+    source: snapshotSource,
+    nextReviewAt: normalizeDateKey(source.nextReviewAt) || null,
+    qualityIssues: Array.isArray(source.qualityIssues)
+      ? [...new Set(source.qualityIssues.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 20)
+      : []
   };
 }
 
@@ -1528,11 +1902,21 @@ function showUndoNotice(message, undo) {
   els.appNotice.hidden = false;
   els.appNotice.innerHTML = `<span>${escapeHtml(message)}</span> <button class="ghost-button" type="button">되돌리기</button>`;
   const button = els.appNotice.querySelector("button");
-  button.addEventListener("click", () => {
-    undo();
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    let completed = false;
+    try {
+      completed = await undo() !== false;
+    } catch (error) {
+      console.error(error);
+    }
+    if (!completed) {
+      button.disabled = false;
+      return;
+    }
     els.appNotice.hidden = true;
     els.appNotice.textContent = "";
-  }, { once: true });
+  });
 }
 
 function showStatusNotice(message) {
@@ -1702,6 +2086,7 @@ async function initFirebase() {
     cloud.getDoc = firestoreModule.getDoc;
     cloud.getDocs = firestoreModule.getDocs || null;
     cloud.setDoc = firestoreModule.setDoc;
+    cloud.deleteDoc = firestoreModule.deleteDoc || null;
     cloud.runTransaction = firestoreModule.runTransaction || null;
     cloud.enabled = true;
     cloud.ready = true;
@@ -1748,10 +2133,13 @@ async function completeCloudSignIn(user) {
   }
   if (generation !== cloud.authGeneration) return;
   persist();
+  await flushHistoryPersistence();
+  if (generation !== cloud.authGeneration) return;
   cloud.user = user;
   cloud.docRef = null;
   cloud.lastPushedFingerprint = null;
   cloud.knownEventIds = new Set();
+  cloud.activeHistoryMeta = null;
   cloud.conflictPending = false;
   cloud.schemaBlocked = false;
   cloud.schemaBlockSource = null;
@@ -1762,6 +2150,8 @@ async function completeCloudSignIn(user) {
   storageWritesBlocked = !localLoad.ok;
   protectedStorageRaw = localLoad.ok ? null : localLoad.raw;
   replaceState(localLoad.state);
+  await initializeLocalHistoryStorage(localLoad, activeStorageKey);
+  if (generation !== cloud.authGeneration) return;
   render(false);
   updateAuthUi();
   if (!user) {
@@ -1795,9 +2185,9 @@ function cloudContextIsCurrent(context) {
     && context.storageKey === activeStorageKey;
 }
 
-function cloudEventRef(eventId, ledgerId = state.ledgerMeta?.activeLedgerId) {
-  if (!cloud.docRef || !cloud.doc || !ledgerId || !eventId) return null;
-  return cloud.doc(cloud.db, "users", cloud.user.uid, "financeData", CLOUD_DOC_ID, "ledgers", ledgerId, "events", eventId);
+function cloudEventRef(eventId, ledgerId = state.ledgerMeta?.activeLedgerId, userUid = cloud.user?.uid) {
+  if (!cloud.docRef || !cloud.doc || !ledgerId || !eventId || !userUid) return null;
+  return cloud.doc(cloud.db, "users", userUid, "financeData", CLOUD_DOC_ID, "ledgers", ledgerId, "events", eventId);
 }
 
 function cloudLedgerCollectionRef(ledgerId, userUid = cloud.user?.uid) {
@@ -1805,9 +2195,43 @@ function cloudLedgerCollectionRef(ledgerId, userUid = cloud.user?.uid) {
   return cloud.collection(cloud.db, "users", userUid, "financeData", CLOUD_DOC_ID, "ledgers", ledgerId, "events");
 }
 
-function cloudBackupRef(backupId) {
-  if (!cloud.docRef || !cloud.doc || !backupId) return null;
-  return cloud.doc(cloud.db, "users", cloud.user.uid, "financeData", CLOUD_DOC_ID, "backups", backupId);
+function cloudHistoryChunkRef(historyId, chunkId, userUid = cloud.user?.uid) {
+  if (!cloud.doc || !historyId || !chunkId || !userUid) return null;
+  return cloud.doc(
+    cloud.db,
+    "users",
+    userUid,
+    "financeData",
+    CLOUD_DOC_ID,
+    "histories",
+    historyId,
+    "chunks",
+    chunkId
+  );
+}
+
+function cloudHistoryChunkCollectionRef(historyId, userUid = cloud.user?.uid) {
+  if (!cloud.collection || !historyId || !userUid) return null;
+  return cloud.collection(
+    cloud.db,
+    "users",
+    userUid,
+    "financeData",
+    CLOUD_DOC_ID,
+    "histories",
+    historyId,
+    "chunks"
+  );
+}
+
+function cloudBackupRef(backupId, userUid = cloud.user?.uid) {
+  if (!cloud.docRef || !cloud.doc || !backupId || !userUid) return null;
+  return cloud.doc(cloud.db, "users", userUid, "financeData", CLOUD_DOC_ID, "backups", backupId);
+}
+
+function cloudBackupCollectionRef(userUid = cloud.user?.uid) {
+  if (!cloud.collection || !userUid) return null;
+  return cloud.collection(cloud.db, "users", userUid, "financeData", CLOUD_DOC_ID, "backups");
 }
 
 function cloudRemoteBackup(snapshot, remoteRevision, { forcedOverwrite = false } = {}) {
@@ -1867,13 +2291,73 @@ async function pullCloudEvents(cloudData, context) {
   return { events, complete };
 }
 
-function cloudLedgerHead(data) {
+async function pullCloudHistory(cloudData, context) {
+  assertCloudContextCurrent(context);
+  const rawHistoryMeta = cloudData?.historyMeta;
+  const historyMeta = normalizeHistoryMeta(rawHistoryMeta);
+  if (rawHistoryMeta !== undefined && !historyMeta) {
+    throw createCloudSyncError(
+      "assettrail/cloud-history-incomplete",
+      "클라우드 장기 기록 무결성 정보가 올바르지 않아 기존 데이터를 유지했습니다."
+    );
+  }
+  if (!historyMeta) {
+    return {
+      history: {
+        snapshots: Array.isArray(cloudData?.snapshots) ? cloudData.snapshots.map(normalizeSnapshot) : [],
+        performanceObservations: Array.isArray(cloudData?.performanceObservations)
+          ? cloudData.performanceObservations.map(normalizePerformanceObservation)
+          : []
+      },
+      manifest: null,
+      complete: true
+    };
+  }
+  const repository = historyRepositoryEngine();
+  const collectionRef = cloudHistoryChunkCollectionRef(historyMeta.activeHistoryId, context.uid);
+  if (!repository || !collectionRef || typeof cloud.getDocs !== "function") {
+    throw createCloudSyncError(
+      "assettrail/cloud-history-unavailable",
+      "클라우드 장기 기록 하위 컬렉션을 읽을 수 없어 동기화를 중단했습니다."
+    );
+  }
+  const snapshot = await cloud.getDocs(collectionRef);
+  assertCloudContextCurrent(context);
+  const chunks = [];
+  snapshot.forEach((documentSnapshot) => {
+    chunks.push({
+      ...documentSnapshot.data(),
+      chunkId: documentSnapshot.id || documentSnapshot.data()?.chunkId
+    });
+  });
+  const manifest = {
+    schemaVersion: historyMeta.schemaVersion,
+    historyId: historyMeta.activeHistoryId,
+    snapshotCount: historyMeta.snapshotCount,
+    performanceCount: historyMeta.performanceCount,
+    chunkCount: historyMeta.chunkCount,
+    contentFingerprint: historyMeta.contentFingerprint,
+    updatedAt: historyMeta.updatedAt
+  };
+  const bundle = { manifest, chunks };
+  const validation = repository.validateHistoryBundle(bundle);
+  if (!validation.ok) {
+    return { history: null, manifest, complete: false };
+  }
+  return { history: validation.history, manifest, complete: true };
+}
+
+function cloudSyncHead(data) {
   return JSON.stringify({
     revision: normalizeRevision(data?.revision ?? data?.meta?.cloudRevision),
     schemaVersion: Number(data?.schemaVersion || 1),
     activeLedgerId: String(data?.ledgerMeta?.activeLedgerId || ""),
     eventCount: Number(data?.ledgerMeta?.eventCount || 0),
-    eventFingerprint: String(data?.ledgerMeta?.eventFingerprint || "")
+    eventFingerprint: String(data?.ledgerMeta?.eventFingerprint || ""),
+    activeHistoryId: String(data?.historyMeta?.activeHistoryId || ""),
+    snapshotCount: Number(data?.historyMeta?.snapshotCount || 0),
+    performanceCount: Number(data?.historyMeta?.performanceCount || 0),
+    historyFingerprint: String(data?.historyMeta?.contentFingerprint || "")
   });
 }
 
@@ -1894,26 +2378,38 @@ async function readCloudStateConsistently(context, maxAttempts = 3) {
       error.schemaVersion = firstData?.schemaVersion;
       throw error;
     }
-    const pulled = await pullCloudEvents(firstData, context);
+    const [pulledLedger, pulledHistory] = await Promise.all([
+      pullCloudEvents(firstData, context),
+      pullCloudHistory(firstData, context)
+    ]);
     const secondSnapshot = await cloud.getDoc(context.docRef);
     assertCloudContextCurrent(context);
-    if (secondSnapshot.exists() && cloudLedgerHead(firstData) === cloudLedgerHead(secondSnapshot.data())) {
-      if (!pulled.complete) {
+    if (secondSnapshot.exists() && cloudSyncHead(firstData) === cloudSyncHead(secondSnapshot.data())) {
+      if (!pulledLedger.complete) {
         throw createCloudSyncError(
           "assettrail/cloud-ledger-incomplete",
           "클라우드 거래 원장이 완전하지 않아 기존 데이터를 유지했습니다."
         );
       }
+      if (!pulledHistory.complete) {
+        throw createCloudSyncError(
+          "assettrail/cloud-history-incomplete",
+          "클라우드 장기 기록이 완전하지 않아 기존 데이터를 유지했습니다."
+        );
+      }
       const data = { ...secondSnapshot.data() };
-      if (data.ledgerMeta?.activeLedgerId || Array.isArray(data.events)) data.events = pulled.events;
+      if (data.ledgerMeta?.activeLedgerId || Array.isArray(data.events)) data.events = pulledLedger.events;
+      data.snapshots = pulledHistory.history.snapshots;
+      data.performanceObservations = pulledHistory.history.performanceObservations;
       assertCloudContextCurrent(context);
-      cloud.knownEventIds = new Set(pulled.events.map((event) => event.eventId));
+      cloud.knownEventIds = new Set(pulledLedger.events.map((event) => event.eventId));
+      cloud.activeHistoryMeta = pulledHistory.manifest;
       return { snapshot: secondSnapshot, data };
     }
   }
   throw createCloudSyncError(
-    "assettrail/cloud-ledger-moving",
-    "다른 기기에서 원장이 계속 변경되어 세 번 확인 후 동기화를 중단했습니다."
+    "assettrail/cloud-state-moving",
+    "다른 기기에서 원장이나 장기 기록이 계속 변경되어 세 번 확인 후 동기화를 중단했습니다."
   );
 }
 
@@ -2053,6 +2549,94 @@ function backupBeforeCloudConflictResolution() {
   return downloadStateFile(storageSafeState(), `assettrail-before-cloud-sync-${timestamp}.json`);
 }
 
+async function commitDownloadedStateLocally(cloudData, context) {
+  assertCloudContextCurrent(context);
+  const candidate = migrateState(cloudData);
+  const scope = context.storageKey;
+  const previousState = storageSafeState();
+  const previousStateFingerprint = dataFingerprint(previousState);
+  const previousPrimaryRaw = localStorage.getItem(scope);
+  const previousHistoryStorage = { ...historyStorage };
+  const adapter = previousHistoryStorage.adapter;
+  let stateReplaced = false;
+  let stagedBundle = null;
+  let stageStarted = false;
+
+  try {
+    if (!previousHistoryStorage.fallback) {
+      if (previousHistoryStorage.blocked
+          || !previousHistoryStorage.ready
+          || !adapter
+          || previousHistoryStorage.scope !== scope) {
+        throw new Error("로컬 장기 기록 저장소를 사용할 수 없습니다.");
+      }
+      stageStarted = true;
+      stagedBundle = await stageAndActivateLocalHistory(historyFlatState(candidate), scope, { adapter });
+      assertCloudContextCurrent(context);
+    }
+
+    assertCloudContextCurrent(context);
+    if (dataFingerprint(storageSafeState()) !== previousStateFingerprint) {
+      throw createCloudSyncError(
+        "assettrail/cloud-local-state-changed",
+        "클라우드 데이터를 준비하는 동안 이 기기의 데이터가 변경되어 적용을 취소했습니다."
+      );
+    }
+    replaceState(candidate);
+    stateReplaced = true;
+    if (stagedBundle) {
+      historyStorage.manifest = stagedBundle.manifest;
+      historyStorage.savedFingerprint = stagedBundle.manifest.contentFingerprint;
+      historyStorage.queuedFingerprint = stagedBundle.manifest.contentFingerprint;
+    }
+    rememberSavedHistory(historyFlatState(candidate));
+    state.meta.lastSyncDirection = "download";
+    const primaryRaw = JSON.stringify(localPrimarySafeState());
+    localStorage.setItem(scope, primaryRaw);
+    if (localStorage.getItem(scope) !== primaryRaw) {
+      throw new Error("클라우드 데이터의 로컬 포인터 저장 검증에 실패했습니다.");
+    }
+    render(false);
+    const previousHistoryId = previousHistoryStorage.manifest?.historyId;
+    if (stagedBundle && adapter && previousHistoryId && previousHistoryId !== stagedBundle.manifest.historyId) {
+      try {
+        await adapter.deleteBundle(scope, previousHistoryId);
+      } catch (error) {
+        console.warn("이전 로컬 히스토리 세대를 정리하지 못했습니다.", error);
+      }
+    }
+    return true;
+  } catch (error) {
+    console.error(error);
+    const activeHistoryIdToRestore = error?.code === "assettrail/cloud-local-state-changed"
+      && cloudContextIsCurrent(context)
+      ? historyStorage.manifest?.historyId
+      : previousHistoryStorage.manifest?.historyId;
+    if (stageStarted && adapter && activeHistoryIdToRestore) {
+      try {
+        await adapter.setActiveHistoryId(scope, activeHistoryIdToRestore);
+      } catch {}
+    }
+    if (!cloudContextIsCurrent(context) || error?.code === "assettrail/cloud-context-changed") {
+      throw createCloudSyncError("assettrail/cloud-context-changed", "로그인 사용자가 바뀌어 이전 클라우드 작업을 취소했습니다.");
+    }
+    if (error?.code === "assettrail/cloud-local-state-changed") throw error;
+    historyStorage = { ...previousHistoryStorage, blocked: true };
+    if (stateReplaced) replaceState(previousState);
+    try {
+      if (previousPrimaryRaw === null) localStorage.removeItem(scope);
+      else localStorage.setItem(scope, previousPrimaryRaw);
+    } catch {}
+    protectedStorageRaw = previousPrimaryRaw;
+    render(false);
+    reportStorageFailure("클라우드 데이터와 장기 기록을 함께 저장하지 못해 이 기기의 기존 데이터를 유지했습니다. IndexedDB·저장 공간을 확인하거나 이전 전체 JSON 백업을 사용하세요.");
+    throw createCloudSyncError(
+      "assettrail/cloud-local-history-commit-failed",
+      "클라우드 데이터의 로컬 장기 기록 전환에 실패했습니다."
+    );
+  }
+}
+
 async function pullCloudData(options = {}) {
   const context = options.context || captureCloudContext();
   if (!cloudContextIsCurrent(context) || !context.docRef) return false;
@@ -2116,12 +2700,22 @@ async function pullCloudData(options = {}) {
       }
     }
     if (!cloudContextIsCurrent(context)) return false;
-    replaceState(cloudData);
+    try {
+      await commitDownloadedStateLocally(cloudData, context);
+    } catch (error) {
+      if (error?.code !== "assettrail/cloud-local-state-changed") throw error;
+      if (!cloudContextIsCurrent(context)) return false;
+      cloud.conflictPending = true;
+      cancelCloudPush();
+      setSyncStatus("충돌 확인 필요");
+      setSyncDetail("동기화 중 이 기기의 데이터가 변경되었습니다. 다시 동기화해 사용할 데이터를 선택하세요.");
+      updateAuthUi();
+      return false;
+    }
+    if (!cloudContextIsCurrent(context)) return false;
     cloud.conflictPending = false;
     storageWritesBlocked = false;
     protectedStorageRaw = null;
-    state.meta.lastSyncDirection = "download";
-    render(false);
     if (remoteSchemaVersion < STATE_SCHEMA_VERSION) {
       try {
         await pushCloudData("upload", { expectedRemoteRevision: remoteRevision, context });
@@ -2177,10 +2771,15 @@ async function pushCloudData(direction = "save", options = {}) {
 
 async function pushCloudDataForContext(direction = "save", options = {}) {
   const context = options.context || captureCloudContext();
-  if (!cloudContextIsCurrent(context) || !context.docRef || storageWritesBlocked || cloud.schemaBlocked) {
+  if (!cloudContextIsCurrent(context) || !context.docRef || storageWritesBlocked || historyStorage.blocked || cloud.schemaBlocked) {
     updateAuthUi();
     return false;
   }
+  if (!await flushHistoryPersistence()) {
+    updateAuthUi();
+    return false;
+  }
+  if (!cloudContextIsCurrent(context)) return false;
   const fingerprintBeforeWrite = dataFingerprint(storageSafeState());
   if (direction !== "upload" && fingerprintBeforeWrite === cloud.lastPushedFingerprint) {
     updateAuthUi();
@@ -2190,7 +2789,8 @@ async function pushCloudDataForContext(direction = "save", options = {}) {
   try {
     const payload = await writeCloudState(options);
     if (!cloudContextIsCurrent(context)) return false;
-    cloud.lastPushedFingerprint = dataFingerprint(storageSafeState());
+    const fingerprintAfterWrite = dataFingerprint(storageSafeState());
+    cloud.lastPushedFingerprint = fingerprintBeforeWrite;
     cloud.lastErrorCode = null;
     state.meta.cloudUpdatedAt = payload.updatedAt;
     state.meta.cloudRevision = normalizeRevision(payload.revision);
@@ -2198,6 +2798,7 @@ async function pushCloudDataForContext(direction = "save", options = {}) {
     state.meta.lastSyncDirection = direction;
     state.meta.syncErrorCode = null;
     persist();
+    if (fingerprintAfterWrite !== fingerprintBeforeWrite) scheduleCloudPush();
     updateAuthUi();
     return true;
   } catch (error) {
@@ -2207,52 +2808,215 @@ async function pushCloudDataForContext(direction = "save", options = {}) {
   }
 }
 
-async function writeCloudState({ expectedRemoteRevision = null } = {}) {
+async function currentCloudHistoryBundle(flat = historyFlatState()) {
+  const repository = historyRepositoryEngine();
+  if (!repository) {
+    throw createCloudSyncError("assettrail/cloud-history-unavailable", "장기 기록 엔진을 불러오지 못했습니다.");
+  }
+  const adapter = historyStorage.adapter;
+  const manifest = historyStorage.manifest;
+  const scope = activeStorageKey;
+  const capturedBundle = repository.createHistoryBundle(flat, {
+    historyId: historyGenerationId(),
+    updatedAt: new Date().toISOString()
+  });
+  if (adapter && manifest?.historyId) {
+    const bundle = await adapter.readBundle(scope, manifest.historyId);
+    if (bundle
+        && repository.validateHistoryBundle(bundle).ok
+        && bundle.manifest.contentFingerprint === capturedBundle.manifest.contentFingerprint) {
+      return bundle;
+    }
+  }
+  return capturedBundle;
+}
+
+async function stageCloudHistoryBundle(bundle, context = captureCloudContext()) {
+  assertCloudContextCurrent(context);
+  if (typeof cloud.setDoc !== "function") {
+    throw createCloudSyncError("assettrail/cloud-history-unavailable", "클라우드 장기 기록 저장 기능을 사용할 수 없습니다.");
+  }
+  for (let index = 0; index < bundle.chunks.length; index += 50) {
+    const batch = bundle.chunks.slice(index, index + 50);
+    await Promise.all(batch.map((chunk) => {
+      const ref = cloudHistoryChunkRef(bundle.manifest.historyId, chunk.chunkId, context.uid);
+      if (!ref) throw createCloudSyncError("assettrail/cloud-history-unavailable", "클라우드 장기 기록 경로를 만들 수 없습니다.");
+      return cloud.setDoc(ref, chunk, { merge: false });
+    }));
+    assertCloudContextCurrent(context);
+  }
+}
+
+async function verifyStagedCloudHistoryBundle(bundle, context = captureCloudContext()) {
+  assertCloudContextCurrent(context);
+  const repository = historyRepositoryEngine();
+  const collectionRef = cloudHistoryChunkCollectionRef(bundle?.manifest?.historyId, context.uid);
+  if (!repository || !collectionRef || typeof cloud.getDocs !== "function") {
+    throw createCloudSyncError("assettrail/cloud-history-unavailable", "클라우드 장기 기록을 다시 읽어 검증할 수 없습니다.");
+  }
+  const snapshot = await cloud.getDocs(collectionRef);
+  assertCloudContextCurrent(context);
+  const chunks = [];
+  snapshot.forEach((documentSnapshot) => {
+    chunks.push({
+      ...documentSnapshot.data(),
+      chunkId: documentSnapshot.id || documentSnapshot.data()?.chunkId
+    });
+  });
+  const validation = repository.validateHistoryBundle({ manifest: bundle.manifest, chunks });
+  if (!validation.ok) {
+    const detail = validation.errors?.[0]?.message;
+    throw createCloudSyncError(
+      "assettrail/cloud-history-incomplete",
+      `클라우드 장기 기록 세대를 다시 읽어 검증하지 못해 활성 세대 전환을 중단했습니다.${detail ? ` ${detail}` : ""}`
+    );
+  }
+  return true;
+}
+
+async function cloudBackupsProtectHistory(historyId, context) {
+  const collectionRef = cloudBackupCollectionRef(context.uid);
+  if (!collectionRef || typeof cloud.getDocs !== "function") return true;
+  const snapshot = await cloud.getDocs(collectionRef);
+  assertCloudContextCurrent(context);
+  let protectedByBackup = false;
+  snapshot.forEach((documentSnapshot) => {
+    if (protectedByBackup) return;
+    const payload = documentSnapshot.data();
+    if (!isPlainObject(payload) || !isPlainObject(payload.state)) {
+      protectedByBackup = true;
+      return;
+    }
+    const rawMeta = payload.state.historyMeta;
+    if (rawMeta === undefined || rawMeta === null) return;
+    if (!isPlainObject(rawMeta)) {
+      protectedByBackup = true;
+      return;
+    }
+    const referencedHistoryId = String(rawMeta.activeHistoryId || rawMeta.historyId || "").trim();
+    if (referencedHistoryId === historyId || !normalizeHistoryMeta(rawMeta)) {
+      protectedByBackup = true;
+    }
+  });
+  return protectedByBackup;
+}
+
+async function cloudPrimaryPointsToHistory(historyId, context) {
+  if (!context?.docRef || typeof cloud.getDoc !== "function") return false;
+  const snapshot = await cloud.getDoc(context.docRef);
+  assertCloudContextCurrent(context);
+  return snapshot?.exists?.()
+    && normalizeHistoryMeta(snapshot.data()?.historyMeta)?.activeHistoryId === historyId;
+}
+
+async function cleanupPreviousCloudHistoryGeneration(previousHistoryId, committedHistoryId, context) {
+  if (!previousHistoryId
+      || !committedHistoryId
+      || previousHistoryId === committedHistoryId
+      || typeof cloud.deleteDoc !== "function"
+      || typeof cloud.getDocs !== "function"
+      || typeof cloud.getDoc !== "function") return false;
+  assertCloudContextCurrent(context);
+  if (!await cloudPrimaryPointsToHistory(committedHistoryId, context)) return false;
+  if (await cloudBackupsProtectHistory(previousHistoryId, context)) return false;
+
+  const collectionRef = cloudHistoryChunkCollectionRef(previousHistoryId, context.uid);
+  if (!collectionRef) return false;
+  const snapshot = await cloud.getDocs(collectionRef);
+  assertCloudContextCurrent(context);
+  const chunkRefs = [];
+  let invalidChunkPath = false;
+  snapshot.forEach((documentSnapshot) => {
+    const chunkId = String(documentSnapshot.id || documentSnapshot.data()?.chunkId || "").trim();
+    const ref = cloudHistoryChunkRef(previousHistoryId, chunkId, context.uid);
+    if (!ref) invalidChunkPath = true;
+    else chunkRefs.push(ref);
+  });
+  if (invalidChunkPath) return false;
+  if (!await cloudPrimaryPointsToHistory(committedHistoryId, context)) return false;
+
+  for (let index = 0; index < chunkRefs.length; index += 50) {
+    assertCloudContextCurrent(context);
+    await Promise.all(chunkRefs.slice(index, index + 50).map((ref) => cloud.deleteDoc(ref)));
+  }
+  return true;
+}
+
+async function writeCloudState({ expectedRemoteRevision = null, context = captureCloudContext() } = {}) {
+  assertCloudContextCurrent(context);
   const db = cloud.db;
   const docRef = cloud.docRef;
   if (!docRef) throw createCloudSyncError("assettrail/cloud-unavailable", "클라우드 연결이 없습니다.");
-  const localRevision = normalizeRevision(state.meta.cloudRevision);
-  const localEvents = state.events.map(normalizeLedgerEvent);
+  const capturedState = storageSafeState();
+  const capturedHistory = historyFlatState(capturedState);
+  const localRevision = normalizeRevision(capturedState.meta.cloudRevision);
+  const localEvents = capturedState.events.map(normalizeLedgerEvent);
   const pendingEvents = localEvents.filter((event) => !cloud.knownEventIds.has(event.eventId));
-  const writeEvent = (writer, event, ledgerId = state.ledgerMeta?.activeLedgerId) => {
-    const eventRef = cloudEventRef(event.eventId, ledgerId);
+  let historyBundle = await currentCloudHistoryBundle(capturedHistory);
+  assertCloudContextCurrent(context);
+  const remoteHistoryMeta = normalizeHistoryMeta(cloud.activeHistoryMeta);
+  const historyChanged = !remoteHistoryMeta
+    || remoteHistoryMeta.contentFingerprint !== historyBundle.manifest.contentFingerprint;
+  if (historyChanged) {
+    historyBundle = historyRepositoryEngine().createHistoryBundle(capturedHistory, {
+      historyId: historyGenerationId(),
+      updatedAt: new Date().toISOString()
+    });
+  }
+  const activeHistoryManifest = historyChanged ? historyBundle.manifest : cloud.activeHistoryMeta;
+  const writeEvent = (writer, event, ledgerId = capturedState.ledgerMeta?.activeLedgerId) => {
+    const eventRef = cloudEventRef(event.eventId, ledgerId, context.uid);
     if (!eventRef) throw createCloudSyncError("assettrail/cloud-ledger-unavailable", "클라우드 원장 저장 경로를 만들 수 없습니다.");
     writer.set(eventRef, event, { merge: false });
   };
   if (typeof cloud.runTransaction === "function") {
     const isBulkGeneration = pendingEvents.length > CLOUD_TRANSACTION_EVENT_LIMIT;
-    const writeLedgerId = isBulkGeneration ? `ledger-${uid()}` : state.ledgerMeta.activeLedgerId;
+    const writeLedgerId = isBulkGeneration ? `ledger-${uid()}` : capturedState.ledgerMeta.activeLedgerId;
     if (isBulkGeneration) {
       if (typeof cloud.setDoc !== "function") {
         throw createCloudSyncError("assettrail/cloud-ledger-unavailable", "대량 원장 이전을 지원하지 않는 클라우드 연결입니다.");
       }
-      assertCloudPayloadSize(cloudSafeState(localRevision + 1, undefined, { activeLedgerId: writeLedgerId }));
+      assertCloudPayloadSize(cloudSafeState(localRevision + 1, undefined, {
+        activeLedgerId: writeLedgerId,
+        historyManifest: activeHistoryManifest,
+        source: capturedState
+      }));
       for (let index = 0; index < localEvents.length; index += 100) {
         const chunk = localEvents.slice(index, index + 100);
         await Promise.all(chunk.map((event) => cloud.setDoc(
-          cloudEventRef(event.eventId, writeLedgerId),
+          cloudEventRef(event.eventId, writeLedgerId, context.uid),
           event,
           { merge: false }
         )));
+        assertCloudContextCurrent(context);
       }
     }
+    if (historyChanged) {
+      await stageCloudHistoryBundle(historyBundle, context);
+      await verifyStagedCloudHistoryBundle(historyBundle, context);
+    }
     const transactionEvents = isBulkGeneration ? [] : pendingEvents;
-    const payload = await cloud.runTransaction(db, async (transaction) => {
+    const committed = await cloud.runTransaction(db, async (transaction) => {
+      assertCloudContextCurrent(context);
       const remoteSnapshot = await transaction.get(docRef);
+      assertCloudContextCurrent(context);
       assertRemoteSchemaSupported(remoteSnapshot);
       const remoteRevision = revisionFromSnapshot(remoteSnapshot);
+      const previousHistoryId = normalizeHistoryMeta(remoteSnapshot.data?.()?.historyMeta)?.activeHistoryId || null;
       assertRemoteRevisionIsCurrent(localRevision, remoteRevision, expectedRemoteRevision);
       const payload = cloudSafeState(Math.max(localRevision, remoteRevision) + 1, undefined, {
-        activeLedgerId: writeLedgerId
+        activeLedgerId: writeLedgerId,
+        historyManifest: activeHistoryManifest,
+        source: capturedState
       });
       assertCloudPayloadSize(payload);
       const backup = cloudRemoteBackup(remoteSnapshot, remoteRevision, {
         forcedOverwrite: expectedRemoteRevision !== null
       });
-      if (backup) transaction.set(cloudBackupRef(backup.id), backup.payload, { merge: false });
+      if (backup) transaction.set(cloudBackupRef(backup.id, context.uid), backup.payload, { merge: false });
       transactionEvents.forEach((event) => writeEvent(transaction, event, writeLedgerId));
       transaction.set(docRef, payload, { merge: false });
-      return payload;
+      return { payload, previousHistoryId, backupCreated: Boolean(backup) };
     });
     if (isBulkGeneration) {
       state.ledgerMeta.activeLedgerId = writeLedgerId;
@@ -2260,13 +3024,33 @@ async function writeCloudState({ expectedRemoteRevision = null } = {}) {
     } else {
       pendingEvents.forEach((event) => cloud.knownEventIds.add(event.eventId));
     }
-    return payload;
+    const committedHistoryMeta = normalizeHistoryMeta(committed.payload.historyMeta);
+    cloud.activeHistoryMeta = committedHistoryMeta || activeHistoryManifest;
+    const shouldCleanPreviousHistory = expectedRemoteRevision === null
+      && historyChanged
+      && !committed.backupCreated
+      && committed.previousHistoryId
+      && committedHistoryMeta
+      && committed.previousHistoryId !== committedHistoryMeta.activeHistoryId;
+    if (shouldCleanPreviousHistory) {
+      try {
+        await cleanupPreviousCloudHistoryGeneration(
+          committed.previousHistoryId,
+          committedHistoryMeta.activeHistoryId,
+          context
+        );
+      } catch (error) {
+        console.warn("이전 클라우드 히스토리 세대를 정리하지 못했습니다.", error);
+      }
+    }
+    return committed.payload;
   }
 
   let remoteRevision = 0;
   let remoteSnapshot = null;
   if (typeof cloud.getDoc === "function") {
     remoteSnapshot = await cloud.getDoc(docRef);
+    assertCloudContextCurrent(context);
     assertRemoteSchemaSupported(remoteSnapshot);
     remoteRevision = revisionFromSnapshot(remoteSnapshot);
   }
@@ -2283,13 +3067,30 @@ async function writeCloudState({ expectedRemoteRevision = null } = {}) {
       "대량 원장은 새 세대로 안전하게 전환해야 하므로 Firestore transaction 지원이 필요합니다."
     );
   }
-  const payload = cloudSafeState(Math.max(localRevision, remoteRevision) + 1);
+  if (historyChanged) {
+    throw createCloudSyncError(
+      "assettrail/cloud-atomicity-required",
+      "장기 기록 세대 전환에는 Firestore transaction 지원이 필요합니다."
+    );
+  }
+  const payload = cloudSafeState(Math.max(localRevision, remoteRevision) + 1, undefined, {
+    historyManifest: activeHistoryManifest,
+    source: capturedState
+  });
   assertCloudPayloadSize(payload);
   const backup = cloudRemoteBackup(remoteSnapshot, remoteRevision);
-  if (backup) await cloud.setDoc(cloudBackupRef(backup.id), backup.payload, { merge: false });
+  if (backup) {
+    await cloud.setDoc(cloudBackupRef(backup.id, context.uid), backup.payload, { merge: false });
+    assertCloudContextCurrent(context);
+  }
   for (let index = 0; index < pendingEvents.length; index += 100) {
     const chunk = pendingEvents.slice(index, index + 100);
-    await Promise.all(chunk.map((event) => cloud.setDoc(cloudEventRef(event.eventId), event, { merge: false })));
+    await Promise.all(chunk.map((event) => cloud.setDoc(
+      cloudEventRef(event.eventId, capturedState.ledgerMeta.activeLedgerId, context.uid),
+      event,
+      { merge: false }
+    )));
+    assertCloudContextCurrent(context);
   }
   await cloud.setDoc(docRef, payload, { merge: false });
   pendingEvents.forEach((event) => cloud.knownEventIds.add(event.eventId));
@@ -2369,8 +3170,16 @@ function exposeCloudSyncError(error) {
     reportStorageFailure(error.message);
     return;
   }
-  if (["assettrail/cloud-ledger-unavailable", "assettrail/cloud-ledger-incomplete", "assettrail/cloud-ledger-moving"].includes(code)) {
-    setSyncStatus("원장 동기화 중단");
+  if ([
+    "assettrail/cloud-ledger-unavailable",
+    "assettrail/cloud-ledger-incomplete",
+    "assettrail/cloud-state-moving",
+    "assettrail/cloud-history-unavailable",
+    "assettrail/cloud-history-incomplete",
+    "assettrail/cloud-local-history-commit-failed",
+    "assettrail/cloud-atomicity-required"
+  ].includes(code)) {
+    setSyncStatus("데이터 동기화 중단");
     setSyncDetail(error.message);
     reportStorageFailure(error.message);
     return;
@@ -2389,7 +3198,7 @@ function cloudPushDelayMs() {
 }
 
 function scheduleCloudPush() {
-  if (!cloud.docRef || cloud.conflictPending || cloud.schemaBlocked || storageWritesBlocked) return;
+  if (!cloud.docRef || cloud.conflictPending || cloud.schemaBlocked || storageWritesBlocked || historyStorage.blocked) return;
   cloudPushPending = true;
   updateAuthUi();
   if (cloudPushTimer !== null) window.clearTimeout(cloudPushTimer);
@@ -2405,7 +3214,7 @@ async function flushCloudPush() {
     window.clearTimeout(cloudPushTimer);
     cloudPushTimer = null;
   }
-  if (cloud.conflictPending || cloud.schemaBlocked || storageWritesBlocked) {
+  if (cloud.conflictPending || cloud.schemaBlocked || storageWritesBlocked || historyStorage.blocked) {
     cloudPushPending = false;
     return;
   }
@@ -4211,6 +5020,13 @@ function updateAnalysisTaskStatus(task, status, detail, statusState) {
   if (button) button.dataset.status = statusState;
 }
 
+function updateLegacyBackupStatus(kind, message) {
+  const hiddenStatus = kind === "external" ? els.butlerImportStatus : els.etfCatalogStatus;
+  const settingsStatus = kind === "external" ? els.settingsExternalDataStatus : els.settingsEtfCatalogStatus;
+  if (hiddenStatus) hiddenStatus.textContent = message;
+  if (settingsStatus) settingsStatus.textContent = message;
+}
+
 function renderAnalysisTaskSummary() {
   const snapshotCount = Number(externalDataStore?.snapshots?.length || 0);
   if (analysisStorageIssues.external) {
@@ -4781,6 +5597,221 @@ function allPerformanceEvidence() {
   };
 }
 
+function aiReviewEngine() {
+  return window.AssetTrailAiReviewExportEngine || null;
+}
+
+function aiReviewMarketPositions(total) {
+  const grouped = new Map();
+  state.assets.map(normalizeAsset).forEach((asset) => {
+    const type = assetType(asset);
+    if (!isMarketType(type) || !(Number(asset.quantity || 0) > 0)) return;
+    const ticker = normalizeTicker(type, asset.ticker);
+    const key = `${type}:${ticker}`;
+    const kind = assetKind(asset);
+    const current = grouped.get(key) || {
+      market: type,
+      ticker,
+      kind: ["ETF", "ETN", "FUND"].includes(kind)
+        ? kind
+        : "STOCK",
+      value: 0,
+      cost: 0,
+      priceAsOf: null,
+      quality: "VERIFIED"
+    };
+    const value = assetValue(asset);
+    const cost = assetCost(asset);
+    const price = priceForAsset(asset);
+    current.value += Number.isFinite(value) ? value : 0;
+    current.cost += Number.isFinite(cost) ? cost : 0;
+    const priceDate = normalizeDateKey(price?.date);
+    if (priceDate && (!current.priceAsOf || priceDate < current.priceAsOf)) current.priceAsOf = priceDate;
+    const age = daysSince(price?.date);
+    if (!price || !(Number(price.close) > 0) || !priceDate) current.quality = "UNAVAILABLE";
+    else if (Number.isFinite(age) && age > PRICE_STALE_DAYS && current.quality !== "UNAVAILABLE") current.quality = "STALE";
+    grouped.set(key, current);
+  });
+  return [...grouped.values()]
+    .sort((left, right) => `${left.market}:${left.ticker}`.localeCompare(`${right.market}:${right.ticker}`))
+    .map((item) => ({
+      market: item.market,
+      ticker: item.ticker,
+      kind: item.kind,
+      weightPct: total > 0 ? (item.value / total) * 100 : 0,
+      priceReturnPct: item.cost > 0 && item.value > 0 ? ((item.value - item.cost) / item.cost) * 100 : null,
+      priceAsOf: item.priceAsOf,
+      quality: item.quality
+    }));
+}
+
+function aiReviewPerformance() {
+  const evidence = allPerformanceEvidence();
+  const facts = Object.fromEntries((evidence.facts || []).map((fact) => [fact.metric, fact.returnRate]));
+  const observations = state.performanceObservations.map(normalizePerformanceObservation)
+    .sort((left, right) => left.date.localeCompare(right.date));
+  return {
+    status: evidence.status || "INCOMPLETE",
+    startDate: observations[0]?.date || null,
+    endDate: observations.at(-1)?.date || null,
+    twrPct: Number.isFinite(facts.TWR_RETURN) ? facts.TWR_RETURN * 100 : null,
+    xirrPct: Number.isFinite(facts.XIRR_RETURN) ? facts.XIRR_RETURN * 100 : null,
+    maxDrawdownPct: Number.isFinite(facts.MAX_DRAWDOWN) ? facts.MAX_DRAWDOWN * 100 : null,
+    annualizedVolatilityPct: Number.isFinite(facts.ANNUALIZED_VOLATILITY)
+      ? facts.ANNUALIZED_VOLATILITY * 100
+      : null
+  };
+}
+
+function aiReviewGoal() {
+  if (!retirementConfigured()) {
+    return {
+      status: "DEFAULT_NOT_CONFIRMED",
+      yearsToRetirement: null,
+      fundedRatioPct: null,
+      requiredAnnualReturnPct: null
+    };
+  }
+  const result = calculateRetirement(state.retirement);
+  if (result.error || !(result.nestEgg > 0)) {
+    return {
+      status: "INVALID",
+      yearsToRetirement: null,
+      fundedRatioPct: null,
+      requiredAnnualReturnPct: null
+    };
+  }
+  return {
+    status: "CONFIGURED",
+    yearsToRetirement: result.yearsToRetire,
+    fundedRatioPct: Math.max(0, Number(state.retirement.currentInvestable || 0) / result.nestEgg) * 100,
+    requiredAnnualReturnPct: Number.isFinite(result.requiredWithContribution)
+      ? result.requiredWithContribution * 100
+      : null
+  };
+}
+
+function aiReviewStatus() {
+  const review = currentMonthlyReview();
+  const nextReviewAt = normalizeDateKey(review?.nextReviewAt);
+  if (!nextReviewAt) return { overdueCount: 0, dueSoonCount: 0, unscheduledCount: 1 };
+  const today = localDateInputValue();
+  const days = Math.round((Date.parse(`${nextReviewAt}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000);
+  return {
+    overdueCount: days < 0 ? 1 : 0,
+    dueSoonCount: days >= 0 && days <= 7 ? 1 : 0,
+    unscheduledCount: 0
+  };
+}
+
+function buildAiReviewInput(generatedAt = new Date().toISOString()) {
+  const total = totalAssets();
+  const bucketValues = bucketTotals();
+  const positions = aiReviewMarketPositions(total);
+  const priceDates = positions.map((position) => position.priceAsOf).filter(Boolean).sort();
+  const missingPriceCount = positions.filter((position) => position.quality === "UNAVAILABLE").length;
+  const hasStalePrice = positions.some((position) => position.quality === "STALE");
+  const dataQualityStatus = !priceBook.loaded || missingPriceCount
+    ? "INCOMPLETE"
+    : hasStalePrice ? "STALE" : "VERIFIED";
+  const concentration = portfolioConcentration();
+  const allPositionWeights = (() => {
+    if (!(total > 0)) return [];
+    const grouped = new Map();
+    state.assets.forEach((asset) => {
+      const key = decisionSubjectKeyForAsset(asset);
+      grouped.set(key, (grouped.get(key) || 0) + assetValue(asset));
+    });
+    return [...grouped.values()].filter((value) => value > 0).map((value) => value / total);
+  })();
+  const hhi = allPositionWeights.reduce((sum, weight) => sum + weight ** 2, 0);
+  const bucketMap = { domestic: "DOMESTIC", overseas: "OVERSEAS", cash: "CASH", manual: "MANUAL" };
+  const allocation = Object.entries(bucketMap).map(([key, bucket]) => ({
+    bucket,
+    weightPct: total > 0 ? (bucketValues[key] / total) * 100 : 0
+  }));
+  return {
+    generatedAt,
+    asOfDate: priceDates.at(-1) || localDateInputValue(),
+    dataQuality: {
+      status: dataQualityStatus,
+      marketPositionCount: positions.length,
+      pricedPositionCount: positions.length - missingPriceCount,
+      missingPriceCount,
+      oldestPriceDate: priceDates[0] || null,
+      latestPriceDate: priceDates.at(-1) || null,
+      performanceObservationCount: state.performanceObservations.length
+    },
+    portfolio: {
+      allocation,
+      positions,
+      concentration: {
+        top1Pct: concentration.top1Rate * 100,
+        top5Pct: concentration.top5Rate * 100,
+        hhi,
+        effectivePositionCount: hhi > 0 ? 1 / hhi : 0
+      },
+      targetComparison: {
+        status: "DEFAULT_NOT_CONFIRMED",
+        items: allocation.map((row) => ({
+          bucket: row.bucket,
+          currentPct: row.weightPct,
+          targetPct: null,
+          gapPctPoint: null
+        }))
+      }
+    },
+    performance: aiReviewPerformance(),
+    goal: aiReviewGoal(),
+    reviewStatus: aiReviewStatus()
+  };
+}
+
+function aiReviewMarkdown(reviewPackage) {
+  return [
+    "# AssetTrail AI 월간 점검 패키지",
+    "",
+    "이 파일에는 고정 분석 지침과 최소화된 상대 지표가 함께 들어 있습니다.",
+    "외부 AI에 업로드한 뒤 ‘첨부 파일 기준으로 점검해줘’라고 요청하세요.",
+    "",
+    "```json",
+    JSON.stringify(reviewPackage, null, 2),
+    "```",
+    ""
+  ].join("\n");
+}
+
+function exportAiReviewPackage() {
+  if (!state.assets.length) {
+    if (els.aiCheckPackageStatus) els.aiCheckPackageStatus.textContent = "자산을 먼저 등록하세요.";
+    return false;
+  }
+  const engine = aiReviewEngine();
+  if (!engine?.buildReviewPackage) {
+    if (els.aiCheckPackageStatus) els.aiCheckPackageStatus.textContent = "AI 점검 파일 엔진을 불러오지 못했습니다.";
+    return false;
+  }
+  try {
+    const reviewPackage = engine.buildReviewPackage(buildAiReviewInput());
+    const validation = engine.validateReviewPackage(reviewPackage);
+    if (!validation?.ok) throw new Error("생성된 점검 파일 검증에 실패했습니다.");
+    const exported = downloadTextFile(
+      aiReviewMarkdown(reviewPackage),
+      `assettrail-ai-review-${reviewPackage.asOfDate || localDateInputValue()}.md`,
+      "text/markdown;charset=utf-8"
+    );
+    if (!exported) throw new Error("점검 파일 다운로드를 시작하지 못했습니다.");
+    if (els.aiCheckPackageStatus) {
+      els.aiCheckPackageStatus.textContent = `점검 파일을 만들었습니다. 자동 전송하지 않았으며 품질 이슈 ${reviewPackage.dataQuality.issues.length}개를 함께 표시했습니다.`;
+    }
+    return true;
+  } catch (error) {
+    console.error(error);
+    if (els.aiCheckPackageStatus) els.aiCheckPackageStatus.textContent = error.message || "AI 점검 파일을 만들지 못했습니다.";
+    return false;
+  }
+}
+
 function externalEvidenceStatus() {
   const today = localDateInputValue();
   const snapshots = [...(externalDataStore.snapshots || [])].sort((left, right) => (
@@ -5090,27 +6121,17 @@ const VIEW_RENDERERS = {
   ASSETS: () => {
     renderAssets();
     renderPriceNotice();
-    renderDecisionCenter();
   },
   JOURNAL: () => {
+    renderHistory();
     renderJournal();
     renderRealized();
     renderLedger();
     renderPerformance();
     renderInvestmentRecordTabs();
   },
-  PORTFOLIO: () => {
-    renderBreakdown();
-    renderPortfolioBreakdownToggle();
-    renderActionSupport();
-  },
-  ANALYSIS: () => {
-    renderAnalysisWorkspace();
-  },
   GOALS: () => {
-    renderHistory();
     renderRetirement();
-    renderGoalMobilePanels();
   },
   SETTINGS: () => {
     renderSettingsSummary();
@@ -5275,7 +6296,7 @@ function renderDashboard() {
           }
         )
         .join("")
-    : `<li class="check-card check-card-ok"><span class="check-icon kind-ok" aria-hidden="true">✓</span><div class="check-text"><strong>모두 정상이에요</strong><span>가격, 목표 비중, 복기 기록이 안정적인 상태예요.</span></div></li>`;
+    : `<li class="check-card check-card-ok"><span class="check-icon kind-ok" aria-hidden="true">✓</span><div class="check-text"><strong>모두 정상이에요</strong><span>가격, 이번 달 기록과 은퇴 목표가 확인된 상태예요.</span></div></li>`;
 
   const configured = retirementConfigured();
   if (els.dashboardGoalCard) els.dashboardGoalCard.classList.toggle("goal-unset", !configured);
@@ -5291,8 +6312,139 @@ function renderDashboard() {
     if (els.dashboardGoalBar) els.dashboardGoalBar.style.width = "0%";
   }
 
+  renderMonthlyReview();
   renderDashboardComposition();
+  renderDashboardConcentration();
   renderDashboardRecentList();
+}
+
+function localMonthKey(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+function nextMonthlyReviewDate(value = new Date()) {
+  const date = value instanceof Date ? new Date(value) : new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const nextYear = date.getMonth() === 11 ? date.getFullYear() + 1 : date.getFullYear();
+  const nextMonth = (date.getMonth() + 1) % 12;
+  const lastDay = new Date(nextYear, nextMonth + 1, 0).getDate();
+  return new Date(nextYear, nextMonth, Math.min(date.getDate(), lastDay))
+    .toLocaleDateString("sv-SE");
+}
+
+function currentMonthlyReview() {
+  const month = localMonthKey();
+  return [...state.snapshots]
+    .map(normalizeSnapshot)
+    .filter((snapshot) => snapshot.source === "MONTHLY_REVIEW" && localMonthKey(snapshot.createdAt) === month)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] || null;
+}
+
+function monthlyReviewFormKey(review, scope = activeStorageKey, month = localMonthKey()) {
+  return `${scope}::${month}::${review?.id || "NEW"}`;
+}
+
+function hydrateMonthlyReviewForm(currentReview) {
+  const contextKey = monthlyReviewFormKey(currentReview);
+  if (monthlyReviewFormContextKey === contextKey) return;
+  monthlyReviewFormContextKey = contextKey;
+  if (els.dashboardMonthlyConclusion) {
+    els.dashboardMonthlyConclusion.value = currentReview?.note || "";
+  }
+  if (els.dashboardNextReviewDate) {
+    els.dashboardNextReviewDate.value = currentReview?.nextReviewAt || nextMonthlyReviewDate();
+  }
+}
+
+function sortSnapshotsCanonical() {
+  state.snapshots.sort((left, right) => {
+    const leftCreatedAt = String(left?.createdAt || "");
+    const rightCreatedAt = String(right?.createdAt || "");
+    if (leftCreatedAt < rightCreatedAt) return -1;
+    if (leftCreatedAt > rightCreatedAt) return 1;
+    const leftId = String(left?.id || "");
+    const rightId = String(right?.id || "");
+    return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
+  });
+}
+
+function monthlyReviewSteps() {
+  const readiness = snapshotReadiness();
+  const currentReview = currentMonthlyReview();
+  const hasChangeBoundary = state.snapshots.length >= 2;
+  const goalReady = retirementConfigured();
+  return [
+    {
+      complete: readiness.ok,
+      label: readiness.ok ? "평가 데이터 확인" : "가격·환율 확인 필요"
+    },
+    {
+      complete: Boolean(currentReview),
+      label: currentReview ? "이번 달 기록 저장" : "이번 달 기록 대기"
+    },
+    {
+      complete: hasChangeBoundary,
+      label: hasChangeBoundary ? "이전 기록과 변화 확인" : "비교 기준선 준비"
+    },
+    {
+      complete: goalReady,
+      label: goalReady ? "은퇴 목표 확인" : "은퇴 목표 입력 필요"
+    }
+  ];
+}
+
+function renderMonthlyReview() {
+  const steps = monthlyReviewSteps();
+  const completeCount = steps.filter((step) => step.complete).length;
+  const progress = Math.round((completeCount / steps.length) * 100);
+  const currentReview = currentMonthlyReview();
+  if (els.dashboardMonthlyReviewLabel) {
+    els.dashboardMonthlyReviewLabel.textContent = completeCount === steps.length
+      ? `이번 달 점검 완료 · ${completeCount}/${steps.length}`
+      : currentReview
+        ? `이번 달 기록 저장됨 · ${completeCount}/${steps.length}`
+        : `이번 달 점검 · ${completeCount}/${steps.length}`;
+  }
+  if (els.dashboardMonthlyReviewProgress) {
+    els.dashboardMonthlyReviewProgress.style.width = `${progress}%`;
+    els.dashboardMonthlyReviewProgress.parentElement?.setAttribute("aria-valuenow", String(progress));
+  }
+  if (els.dashboardSnapshotBtn) {
+    els.dashboardSnapshotBtn.textContent = currentReview ? "이번 달 점검 업데이트" : "이번 달 점검 저장";
+  }
+  hydrateMonthlyReviewForm(currentReview);
+}
+
+function portfolioConcentration() {
+  const total = totalAssets();
+  if (!(total > 0)) return { top1: null, top1Rate: 0, top5Rate: 0 };
+  const positions = new Map();
+  state.assets.forEach((asset) => {
+    const value = assetValue(asset);
+    if (!(value > 0)) return;
+    const key = decisionSubjectKeyForAsset(asset);
+    const current = positions.get(key) || { key, name: asset.name || asset.ticker || "이름 없는 자산", value: 0 };
+    current.value += value;
+    positions.set(key, current);
+  });
+  const ranked = [...positions.values()].sort((left, right) => right.value - left.value || left.key.localeCompare(right.key));
+  return {
+    top1: ranked[0] || null,
+    top1Rate: ranked[0] ? ranked[0].value / total : 0,
+    top5Rate: ranked.slice(0, 5).reduce((sum, item) => sum + item.value, 0) / total
+  };
+}
+
+function renderDashboardConcentration() {
+  if (!els.dashboardTop1Weight && !els.dashboardTop5Weight) return;
+  const concentration = portfolioConcentration();
+  if (els.dashboardTop1Weight) els.dashboardTop1Weight.textContent = percent(concentration.top1Rate);
+  if (els.dashboardTop1Name) els.dashboardTop1Name.textContent = concentration.top1?.name || "자산을 등록하세요";
+  if (els.dashboardTop5Weight) els.dashboardTop5Weight.textContent = percent(concentration.top5Rate);
 }
 
 function retirementConfigured() {
@@ -5331,24 +6483,17 @@ function renderDashboardComposition() {
     .map((bucket) => {
       const value = totals[bucket.key];
       const currentRate = total ? value / total : 0;
-      const targetRate = Math.max(0, Number(state.portfolioTargets?.[bucket.key] || 0)) / 100;
-      const diff = currentRate - targetRate;
-      const diffLabel = Math.abs(diff) < 0.005
-        ? "목표 충족"
-        : `목표 ${diff > 0 ? "초과" : "부족"} ${(Math.abs(diff) * 100).toFixed(1)}%p`;
       const width = Math.max(0, Math.min(100, currentRate * 100));
-      const markerPos = Math.max(0, Math.min(100, targetRate * 100));
       return `
         <div class="composition-row">
           <div class="composition-row-head">
             <span class="composition-label">${escapeHtml(bucket.label)}</span>
             <span class="composition-value">${(currentRate * 100).toFixed(1)}%</span>
           </div>
-          <div class="composition-track" role="img" aria-label="${escapeHtml(bucket.label)} 현재 ${(currentRate * 100).toFixed(1)}%, 목표 ${(targetRate * 100).toFixed(0)}%">
+          <div class="composition-track" role="img" aria-label="${escapeHtml(bucket.label)} 현재 ${(currentRate * 100).toFixed(1)}%">
             <span class="composition-fill" style="width:${width}%"></span>
-            <span class="composition-target" style="left:${markerPos}%" title="목표 ${(targetRate * 100).toFixed(0)}%"></span>
           </div>
-          <div class="composition-meta">${escapeHtml(money(value))} · ${escapeHtml(diffLabel)}</div>
+          <div class="composition-meta">${escapeHtml(money(value))}</div>
         </div>
       `;
     })
@@ -5387,7 +6532,7 @@ function renderDashboardRecentList() {
           return `<li class="recent-item"><span class="recent-badge badge-${escapeHtml(record.action.toLowerCase())}">${escapeHtml(label)}</span><div class="recent-text"><strong>${escapeHtml(record.title)}${escapeHtml(sub)}</strong></div><span class="recent-day">${escapeHtml(record.day)}</span></li>`;
         })
         .join("")
-    : `<li class="recent-record-empty"><strong>기록 없음</strong><span>매매일지를 작성하면 최근 기록이 쌓입니다.</span></li>`;
+    : `<li class="recent-record-empty"><strong>기록 없음</strong><span>거래 이유나 복기를 남기면 최근 기록이 쌓입니다.</span></li>`;
 }
 
 function dashboardTasks() {
@@ -5399,59 +6544,50 @@ function dashboardTasks() {
     }];
   }
   const tasks = [];
-  const reviewSubjects = new Map();
-  state.assets.forEach((asset) => {
-    const subjectKey = decisionSubjectKeyForAsset(asset);
-    if (!reviewSubjects.has(subjectKey)) {
-      reviewSubjects.set(subjectKey, { asset, profile: decisionProfileForAsset(asset) });
-    }
-  });
-  const overdueReviews = [...reviewSubjects.values()]
-    .filter(({ profile }) => reviewTimingForProfile(profile) === "overdue")
-    .sort((a, b) => a.profile.nextReviewAt.localeCompare(b.profile.nextReviewAt));
-  if (overdueReviews.length) {
-    const first = overdueReviews[0];
-    tasks.push({
-      kind: "review",
-      action: "review-asset",
-      assetId: first.asset.id,
-      title: `검토기한 초과 자산 ${overdueReviews.length}개`,
-      detail: `${first.asset.name}부터 투자 가설과 다음 행동을 확인하세요.`
-    });
-  }
 
   const missingPrices = marketAssetsMissingPrices();
   if (missingPrices.length) {
     tasks.push({
       kind: "price",
       title: `가격 대기 자산 ${missingPrices.length}개`,
-      detail: "다음 가격표 생성을 기다리는 티커가 있어요."
+      detail: "정확한 총자산과 월간 기록을 위해 가격 상태를 확인하세요."
     });
   }
 
-  const reviewCount = (state.tradeJournalEntries || []).filter((entry) => entry.status === "REVIEW").length;
-  if (reviewCount) {
+  const freshness = heldMarketPriceFreshness();
+  if (!missingPrices.length && (freshness.stale.length || freshness.undated.length)) {
+    tasks.push({
+      kind: "price",
+      title: `기준일 확인이 필요한 가격 ${freshness.stale.length + freshness.undated.length}개`,
+      detail: "가격 기준일이 오래됐거나 표시되지 않은 보유 자산이 있어요."
+    });
+  }
+
+  const currentMonth = localMonthKey();
+  const staleManual = state.assets.filter((asset) => assetType(asset) === "MANUAL"
+    && Number(asset.amount || 0) > 0
+    && localMonthKey(asset.updatedAt) !== currentMonth);
+  if (staleManual.length) {
     tasks.push({
       kind: "review",
-      title: `복기 필요한 기록 ${reviewCount}건`,
-      detail: "매매일지를 다시 볼 차례예요."
+      title: `수동 자산 금액 확인 ${staleManual.length}개`,
+      detail: "이번 달 기준으로 평가금액을 다시 확인하세요."
     });
   }
 
-  const targetGap = largestTargetGap();
-  if (targetGap && targetGap.absRate >= 0.05) {
-    tasks.push({
-      kind: "target",
-      title: "목표 비중 차이",
-      detail: `${targetGap.label} 비중이 목표보다 ${targetGap.direction} ${Math.abs(targetGap.rate * 100).toFixed(1)}%p예요.`
-    });
-  }
-
-  if (!state.snapshots.length) {
+  if (!currentMonthlyReview()) {
     tasks.push({
       kind: "snapshot",
-      title: "첫 조회 기록",
-      detail: "오늘 총자산을 저장하면 변화 추적이 시작돼요."
+      title: "이번 달 자산 점검",
+      detail: state.snapshots.length ? "결론과 다음 점검일을 확인하고 이번 달 기록을 저장하세요." : "첫 기준선을 저장하면 자산 변화 추적이 시작됩니다."
+    });
+  }
+
+  if (!retirementConfigured()) {
+    tasks.push({
+      kind: "goal",
+      title: "은퇴 목표 입력",
+      detail: "목표 나이와 월 지출을 입력하면 현재 거리를 계산할 수 있어요."
     });
   }
 
@@ -5478,7 +6614,7 @@ function renderSettingsSummary() {
   }
   if (els.settingsCloudDescription) {
     els.settingsCloudDescription.textContent = cloud.user
-      ? "주 데이터는 이 기기에 즉시 저장되고 사용자별 클라우드와 동기화됩니다. Butler·ETF 데이터는 이 기기에만 남습니다."
+      ? "자산·원장·기록·목표는 이 기기에 저장되고 사용자별 클라우드와 동기화됩니다. 기존 확장 데이터는 이 기기에만 남습니다."
       : "주 데이터는 이 브라우저의 기기 저장소에 보관됩니다. 로그인하면 사용자별 클라우드 동기화를 사용할 수 있습니다.";
   }
   if (els.settingsPrimaryStorage) {
@@ -5513,8 +6649,9 @@ function setActiveView(view, options = {}) {
     if (selected) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   });
-  els.appNavItems.forEach((button) => {
-    button.tabIndex = button.dataset.navView === nextView ? 0 : -1;
+  const hasPrimaryNavMatch = els.appNavItems.some((button) => button.dataset.navView === nextView);
+  els.appNavItems.forEach((button, index) => {
+    button.tabIndex = button.dataset.navView === nextView || (!hasPrimaryNavMatch && index === 0) ? 0 : -1;
   });
   if (options.updateHash) {
     const target = viewHash(nextView);
@@ -5534,7 +6671,7 @@ function setActiveView(view, options = {}) {
   if (nextView === "DASHBOARD") {
     requestAnimationFrame(() => drawHeroSparkline());
   }
-  if (nextView === "GOALS") {
+  if (nextView === "JOURNAL") {
     requestAnimationFrame(() => drawChart(filteredHistorySnapshots()));
   }
 }
@@ -5609,7 +6746,6 @@ function renderAssets() {
 
   filtered.forEach((asset) => {
     const type = assetType(asset);
-    const decisionProfile = decisionProfileForAsset(asset);
     const gain = assetGain(asset);
     const gainRate = gain === null ? null : gain / assetCost(asset);
     const valueDetail = assetValueDetail(asset);
@@ -5639,7 +6775,6 @@ function renderAssets() {
         <span class="asset-sub">
           ${asset.ticker ? `<span class="ticker">${escapeHtml(asset.ticker)}</span>` : ""}
           <span class="badge">${escapeHtml(assetTypeLabel(asset))}</span>
-          ${decisionRoleBadge(decisionProfile)}
           ${asset.account ? `<span class="asset-account">${escapeHtml(asset.account)}</span>` : ""}
         </span>
         ${asset.note ? `<span class="asset-note-line">${escapeHtml(asset.note)}</span>` : ""}
@@ -5655,11 +6790,11 @@ function renderAssets() {
       </td>
     `;
     els.assetRows.append(row);
-    renderAssetCard(asset, decisionProfile, gain, gainRate, valueDetail, buyButton, sellButton, journalButton, cashActionButtons);
+    renderAssetCard(asset, gain, gainRate, valueDetail, buyButton, sellButton, journalButton, cashActionButtons);
   });
 }
 
-function renderAssetCard(asset, decisionProfile, gain, gainRate, valueDetail, buyButton, sellButton, journalButton, cashActionButtons) {
+function renderAssetCard(asset, gain, gainRate, valueDetail, buyButton, sellButton, journalButton, cashActionButtons) {
   if (!els.assetCards) return;
   const type = assetType(asset);
   const gainTone = gain > 0 ? "positive" : gain < 0 ? "negative" : "";
@@ -5687,7 +6822,7 @@ function renderAssetCard(asset, decisionProfile, gain, gainRate, valueDetail, bu
       </div>
       ${valueDetail}
     </div>
-    ${decisionProfile.investmentRole !== "UNASSIGNED" || metaParts.length ? `<div class="asset-card-meta">${decisionRoleBadge(decisionProfile)}${metaParts.join("")}</div>` : ""}
+    ${metaParts.length ? `<div class="asset-card-meta">${metaParts.join("")}</div>` : ""}
     ${asset.note ? `<p class="asset-card-note">${escapeHtml(asset.note)}</p>` : ""}
     <div class="asset-card-actions">
       ${type === "CASH" ? cashActionButtons : `${isMarketType(type) ? `${buyButton}${sellButton}` : ""}${journalButton}`}
@@ -6222,6 +7357,10 @@ function currentPerformanceObservation({ source = "AUTOMATIC_PRICE_CLOSE", snaps
 }
 
 function refreshPerformanceObservation(options = {}) {
+  if (historyStorage.blocked) {
+    showStatusNotice("장기 기록 저장소를 확인하지 못해 새 성과 평가점을 만들지 않았습니다.");
+    return null;
+  }
   const observation = currentPerformanceObservation(options);
   if (!observation || observation.completeness === "INCOMPLETE") return null;
   const index = state.performanceObservations.findIndex((item) => item.date === observation.date);
@@ -7023,7 +8162,7 @@ function performancePreparationMarkup(dataset) {
     {
       complete: exactCount >= 1,
       title: "첫 날짜 평가점",
-      detail: exactCount >= 1 ? "첫 검증 평가점을 확보했습니다." : "오늘 자산 기록을 저장하면 첫 평가점이 만들어집니다."
+      detail: exactCount >= 1 ? "첫 검증 평가점을 확보했습니다." : "이번 달 점검을 저장하면 첫 평가점이 만들어집니다."
     },
     {
       complete: exactCount >= 2,
@@ -7849,7 +8988,7 @@ function renderJournal() {
   if (!entries.length) {
     const empty = document.createElement("div");
     empty.className = "journal-empty";
-    empty.innerHTML = `<div class="empty-state"><span class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4a2 2 0 0 1 2-2h11a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6a2 2 0 0 1-2-2z"></path><path d="M4 4v16"></path><path d="M9 7h5M9 11h5"></path></svg></span><strong>${total ? "조건에 맞는 일지가 없어요" : "아직 매매일지가 없어요"}</strong><p>${total ? "필터를 바꿔서 다시 찾아보세요." : "자산 원장의 일지 버튼이나 일지 작성으로 첫 판단을 기록해 보세요. 투자 추천이 아니라 스스로의 복기를 위한 공간이에요."}</p></div>`;
+    empty.innerHTML = `<div class="empty-state"><span class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4a2 2 0 0 1 2-2h11a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6a2 2 0 0 1-2-2z"></path><path d="M4 4v16"></path><path d="M9 7h5M9 11h5"></path></svg></span><strong>${total ? "조건에 맞는 메모가 없어요" : "아직 거래 메모가 없어요"}</strong><p>${total ? "필터를 바꿔서 다시 찾아보세요." : "거래 이유나 나중에 확인할 복기를 선택해서 남겨보세요."}</p></div>`;
     els.journalList.append(empty);
     return;
   }
@@ -7932,7 +9071,7 @@ function resetJournalForm() {
     els.journalPrice
   ].filter(Boolean).forEach((field) => { field.disabled = false; });
   els.saveJournalBtn.textContent = "일지 저장";
-  if (els.journalFormTitle) els.journalFormTitle.textContent = "매매일지 작성";
+  if (els.journalFormTitle) els.journalFormTitle.textContent = "거래 메모 작성";
   hideJournalForm();
 }
 
@@ -7987,7 +9126,7 @@ function showJournalForm(entry = null) {
     els.journalPrice
   ].filter(Boolean).forEach((field) => { field.disabled = Boolean(normalized.ledgerEventId); });
   els.saveJournalBtn.textContent = "수정 저장";
-  if (els.journalFormTitle) els.journalFormTitle.textContent = "매매일지 수정";
+  if (els.journalFormTitle) els.journalFormTitle.textContent = "거래 메모 수정";
   els.journalAssetName.focus();
 }
 
@@ -9916,24 +11055,29 @@ window.addEventListener("storage", (event) => {
 
 els.downloadExternalDataBtn?.addEventListener("click", () => {
   const downloaded = downloadAnalysisStore("external");
-  if (els.butlerImportStatus) {
-    els.butlerImportStatus.textContent = downloaded
+  updateLegacyBackupStatus(
+    "external",
+    downloaded
       ? "현재 사용자의 외부 데이터 원본을 백업 파일로 만들었습니다."
-      : "외부 데이터 백업 파일을 만들지 못했습니다.";
-  }
+      : "외부 데이터 백업 파일을 만들지 못했습니다."
+  );
+});
+
+els.importExternalDataBtn?.addEventListener("click", () => {
+  els.externalDataBackupInput?.click();
 });
 
 els.externalDataBackupInput?.addEventListener("change", async (event) => {
   const [file] = event.target.files || [];
   if (!file) return;
-  if (els.butlerImportStatus) els.butlerImportStatus.textContent = "외부 데이터 백업을 로컬에서 검증하고 있습니다.";
+  updateLegacyBackupStatus("external", "외부 데이터 백업을 로컬에서 검증하고 있습니다.");
   try {
     const imported = await importExternalDataBackupFile(file);
-    if (imported && els.butlerImportStatus) {
-      els.butlerImportStatus.textContent = "기존 외부 데이터를 백업하고 검증된 백업 파일로 교체했습니다.";
+    if (imported) {
+      updateLegacyBackupStatus("external", "기존 외부 데이터를 백업하고 검증된 백업 파일로 교체했습니다.");
     }
   } catch (error) {
-    if (els.butlerImportStatus) els.butlerImportStatus.textContent = error.message || "외부 데이터 백업을 가져오지 못했습니다.";
+    updateLegacyBackupStatus("external", error.message || "외부 데이터 백업을 가져오지 못했습니다.");
   } finally {
     event.target.value = "";
   }
@@ -9953,11 +11097,11 @@ els.externalCompanyList?.addEventListener("click", (event) => {
 
 els.clearExternalDataBtn?.addEventListener("click", () => {
   try {
-    if (clearAnalysisStore("external") && els.butlerImportStatus) {
-      els.butlerImportStatus.textContent = "현재 사용자의 외부 기업 실적만 비웠습니다. 포트폴리오와 원장에는 영향이 없습니다.";
+    if (clearAnalysisStore("external")) {
+      updateLegacyBackupStatus("external", "현재 사용자의 외부 기업 실적만 비웠습니다. 포트폴리오와 원장에는 영향이 없습니다.");
     }
   } catch (error) {
-    if (els.butlerImportStatus) els.butlerImportStatus.textContent = error.message || "외부 데이터를 비우지 못했습니다.";
+    updateLegacyBackupStatus("external", error.message || "외부 데이터를 비우지 못했습니다.");
   }
 });
 
@@ -9978,15 +11122,19 @@ els.clearExternalDataBtn?.addEventListener("click", () => {
   });
 });
 
+els.importEtfCatalogBtn?.addEventListener("click", () => {
+  els.etfCatalogInput?.click();
+});
+
 els.etfCatalogInput?.addEventListener("change", async (event) => {
   const [file] = event.target.files || [];
   if (!file) return;
-  if (els.etfCatalogStatus) els.etfCatalogStatus.textContent = "ETF 구성 파일을 로컬에서 검증하고 있습니다.";
+  updateLegacyBackupStatus("etf", "ETF 구성 파일을 로컬에서 검증하고 있습니다.");
   try {
     await importEtfCatalogFile(file);
-    if (els.etfCatalogStatus) els.etfCatalogStatus.textContent = "검증된 ETF 구성 데이터만 현재 사용자 브라우저에 저장했습니다.";
+    updateLegacyBackupStatus("etf", "검증된 ETF 구성 데이터만 현재 사용자 브라우저에 저장했습니다.");
   } catch (error) {
-    if (els.etfCatalogStatus) els.etfCatalogStatus.textContent = error.message || "ETF 구성 파일을 읽지 못했습니다.";
+    updateLegacyBackupStatus("etf", error.message || "ETF 구성 파일을 읽지 못했습니다.");
   } finally {
     event.target.value = "";
   }
@@ -10000,20 +11148,21 @@ els.downloadEtfTemplateBtn?.addEventListener("click", () => {
 
 els.downloadEtfCatalogBtn?.addEventListener("click", () => {
   const downloaded = downloadAnalysisStore("etf");
-  if (els.etfCatalogStatus) {
-    els.etfCatalogStatus.textContent = downloaded
+  updateLegacyBackupStatus(
+    "etf",
+    downloaded
       ? "현재 사용자의 ETF 구성 원본을 백업 파일로 만들었습니다."
-      : "ETF 구성 백업 파일을 만들지 못했습니다.";
-  }
+      : "ETF 구성 백업 파일을 만들지 못했습니다."
+  );
 });
 
 els.clearEtfCatalogBtn?.addEventListener("click", () => {
   try {
-    if (clearAnalysisStore("etf") && els.etfCatalogStatus) {
-      els.etfCatalogStatus.textContent = "현재 사용자의 ETF 구성만 비웠습니다. ETF 보유 금액은 미지원 노출로 보존합니다.";
+    if (clearAnalysisStore("etf")) {
+      updateLegacyBackupStatus("etf", "현재 사용자의 ETF 구성만 비웠습니다. ETF 보유 금액은 미지원 노출로 보존합니다.");
     }
   } catch (error) {
-    if (els.etfCatalogStatus) els.etfCatalogStatus.textContent = error.message || "ETF 구성을 비우지 못했습니다.";
+    updateLegacyBackupStatus("etf", error.message || "ETF 구성을 비우지 못했습니다.");
   }
 });
 
@@ -10443,17 +11592,6 @@ function openAssetDetail(assetId, opener = document.activeElement, {
   const asset = state.assets.find((item) => item.id === assetId);
   if (!asset || !els.assetDetailDrawer || !els.assetDetailOverlay) return;
   assetDetailOpener = opener && typeof opener.focus === "function" ? opener : null;
-  const decisionProfile = decisionProfileForAsset(asset);
-  const subjectKey = decisionSubjectKeyForAsset(asset);
-  const sharedAssetCount = state.assets.filter((item) => decisionSubjectKeyForAsset(item) === subjectKey).length;
-  const reviewTiming = reviewTimingForProfile(decisionProfile);
-  const reviewTimingLabel = reviewTiming === "overdue"
-    ? `검토기한 초과 · ${decisionProfile.nextReviewAt}`
-    : reviewTiming === "dueToday"
-      ? "오늘 검토"
-      : decisionProfile.nextReviewAt
-        ? `다음 검토 ${decisionProfile.nextReviewAt}`
-        : "검토일 미설정";
   const value = assetValue(asset);
   const gain = assetGain(asset);
   const cost = assetCost(asset);
@@ -10466,7 +11604,7 @@ function openAssetDetail(assetId, opener = document.activeElement, {
     : `${arrow}${gain > 0 ? "+" : ""}${money(gain)}${gainRate ? ` (${gainRate > 0 ? "+" : ""}${percent(gainRate)})` : ""}`;
   const noteHtml = asset.note
     ? `<p>${escapeHtml(asset.note)}</p>`
-    : `<p class="detail-empty">작성된 메모가 없어요. 일지에서 판단을 기록해 보세요.</p>`;
+    : `<p class="detail-empty">작성된 메모가 없어요. 기록 화면에서 이유와 복기를 남겨보세요.</p>`;
   els.assetDetailDrawer.innerHTML = `
     <div class="detail-head">
       <div class="detail-id">
@@ -10474,7 +11612,6 @@ function openAssetDetail(assetId, opener = document.activeElement, {
         <span class="asset-sub">
           ${asset.ticker ? `<span class="ticker">${escapeHtml(asset.ticker)}</span>` : ""}
           <span class="badge">${escapeHtml(assetTypeLabel(asset))}</span>
-          ${decisionRoleBadge(decisionProfile)}
           ${asset.account ? `<span class="asset-account">${escapeHtml(asset.account)}</span>` : ""}
         </span>
       </div>
@@ -10496,78 +11633,6 @@ function openAssetDetail(assetId, opener = document.activeElement, {
         <span class="detail-kicker">메모</span>
         ${noteHtml}
       </div>
-      <section class="decision-section detail-decision-section ${reviewTiming === "overdue" ? "review-overdue" : ""}" aria-labelledby="assetDecisionHeading">
-        <div class="decision-section-head detail-decision-head">
-          <div>
-            <span class="detail-kicker">Investment decision</span>
-            <h3 id="assetDecisionHeading">투자 의사결정</h3>
-          </div>
-          <span class="decision-status status-${escapeHtml(reviewTiming)}">${escapeHtml(reviewTimingLabel)}</span>
-        </div>
-        <p class="decision-profile-guide">${sharedAssetCount > 1
-          ? `같은 종목의 ${sharedAssetCount}개 계좌 보유가 이 가설을 함께 사용합니다.`
-          : "보유 이유와 확인 조건을 구조화해 다음 검토 때 같은 기준으로 판단합니다."}</p>
-        ${decisionMigrationConflictHtml(decisionProfile)}
-        <form class="decision-form" data-asset-decision-form data-id="${escapeHtml(asset.id)}">
-          <div class="decision-form-grid">
-            <label>
-              자산 역할
-              <select name="investmentRole">${decisionSelectOptions(INVESTMENT_ROLE_LABELS, decisionProfile.investmentRole)}</select>
-            </label>
-            <label>
-              투자 기간
-              <select name="horizon">${decisionSelectOptions(INVESTMENT_HORIZON_LABELS, decisionProfile.horizon)}</select>
-            </label>
-            <label>
-              확신도
-              <select name="conviction">${decisionSelectOptions(CONVICTION_LABELS, decisionProfile.conviction)}</select>
-            </label>
-            <label>
-              검토 상태
-              <select name="reviewStatus">${decisionSelectOptions(REVIEW_STATUS_LABELS, decisionProfile.reviewStatus)}</select>
-            </label>
-            <label class="wide-field">
-              투자 가설
-              <textarea name="thesis" rows="3" maxlength="10000" placeholder="왜 이 자산을 보유하는지 적어두세요.">${escapeHtml(decisionProfile.thesis)}</textarea>
-            </label>
-            <label class="wide-field">
-              기대수익 원천
-              <textarea name="returnSource" rows="2" maxlength="10000" placeholder="실적 성장, 밸류에이션 정상화, 배당 등">${escapeHtml(decisionProfile.returnSource)}</textarea>
-            </label>
-            <label class="wide-field">
-              관찰 KPI
-              <textarea name="kpis" rows="2" maxlength="10000" placeholder="매출, 마진, 수주, 점유율처럼 반복 확인할 지표">${escapeHtml(decisionProfile.kpis)}</textarea>
-            </label>
-            <label class="wide-field">
-              촉매
-              <textarea name="catalysts" rows="2" maxlength="10000" placeholder="가설이 현실화될 계기와 예상 시점">${escapeHtml(decisionProfile.catalysts)}</textarea>
-            </label>
-            <label class="wide-field">
-              가설 무효화 조건
-              <textarea name="invalidation" rows="2" maxlength="10000" placeholder="더는 기존 가설을 유지할 수 없는 조건">${escapeHtml(decisionProfile.invalidation)}</textarea>
-            </label>
-            <label class="wide-field">
-              감속 조건
-              <textarea name="deceleration" rows="2" maxlength="10000" placeholder="비중 확대를 멈추거나 판단을 보류할 조건">${escapeHtml(decisionProfile.deceleration)}</textarea>
-            </label>
-            <label>
-              다음 검토일
-              <input name="nextReviewAt" type="date" value="${escapeHtml(decisionProfile.nextReviewAt)}">
-            </label>
-            <label>
-              마지막 검토일
-              <input name="lastReviewedAt" type="date" value="${escapeHtml(decisionProfile.lastReviewedAt)}">
-            </label>
-          </div>
-          ${riskTagEditorHtml(decisionProfile)}
-          <p class="field-help">집중도 계산은 계좌별 보유 행을 합치지만, 매수·매도 결론을 자동으로 만들지 않습니다.</p>
-          <p class="decision-form-status" data-decision-status role="status" aria-live="polite"></p>
-          <div class="decision-form-actions">
-            <button class="primary-button" type="submit" data-decision-action="save">의사결정 저장</button>
-            <button class="ghost-button" type="button" data-decision-action="mark-reviewed">오늘 검토 완료</button>
-          </div>
-        </form>
-      </section>
     </div>
     <div class="detail-actions">
       ${assetType(asset) === "CASH" ? `
@@ -10584,18 +11649,12 @@ function openAssetDetail(assetId, opener = document.activeElement, {
       <button class="ghost-button danger-action" type="button" data-action="delete" data-id="${escapeHtml(asset.id)}">삭제</button>
     </div>
   `;
-  const decisionForm = els.assetDetailDrawer.querySelector("[data-asset-decision-form]");
-  if (decisionForm) decisionForm.dataset.initialSnapshot = decisionFormSnapshot(decisionForm);
   const detailBody = els.assetDetailDrawer.querySelector(".detail-body");
   if (detailBody && Number.isFinite(bodyScrollTop)) detailBody.scrollTop = Math.max(0, bodyScrollTop);
-  const detailStatus = els.assetDetailDrawer.querySelector("[data-decision-status]");
   els.assetDetailOverlay.hidden = false;
   els.app?.setAttribute("inert", "");
-  if (detailStatus) detailStatus.textContent = statusMessage;
   const focusTarget = (focusSelector && els.assetDetailDrawer.querySelector(focusSelector))
-    || (focusDecision
-      ? els.assetDetailDrawer.querySelector('[name="investmentRole"]')
-      : els.assetDetailDrawer.querySelector("[data-detail-close]"));
+    || els.assetDetailDrawer.querySelector("[data-detail-close]");
   focusTarget?.focus();
 }
 
@@ -11215,7 +12274,7 @@ els.priceRefreshBtn?.addEventListener("click", () => {
 });
 
 els.dashboardSnapshotBtn?.addEventListener("click", () => {
-  els.snapshotBtn?.click();
+  saveAssetSnapshot({ monthlyReview: true });
 });
 
 els.dashboardChecklist?.addEventListener("click", (event) => {
@@ -11269,24 +12328,46 @@ els.realizedYearFilter?.addEventListener("change", () => {
   renderRealized();
 });
 
-els.snapshotBtn.addEventListener("click", () => {
+async function saveAssetSnapshot({ monthlyReview = false } = {}) {
+  if (historyStorage.blocked) {
+    alert("장기 기록 저장소를 확인하지 못해 새 기록을 저장할 수 없습니다. IndexedDB 권한·저장 공간을 확인하거나 이전 전체 JSON 백업을 사용하세요.");
+    return false;
+  }
   const readiness = snapshotReadiness();
   if (!readiness.ok) {
     alert(readiness.message);
-    return;
+    return false;
   }
 
   const now = new Date().toISOString();
-  const snapshotNote = els.snapshotNote?.value.trim() || "";
+  const snapshotNote = monthlyReview
+    ? els.dashboardMonthlyConclusion?.value.trim() || ""
+    : els.snapshotNote?.value.trim() || "";
   if (snapshotNote.length > IMPORT_STRING_LIMITS.note) {
     alert("조회 기록 메모는 10,000자 이하로 입력하세요.");
-    return;
+    return false;
   }
+  const nextReviewAt = monthlyReview ? normalizeDateKey(els.dashboardNextReviewDate?.value) : null;
+  if (monthlyReview && !nextReviewAt) {
+    alert("다음 점검일을 선택하세요.");
+    els.dashboardNextReviewDate?.focus();
+    return false;
+  }
+  const existingMonthlyReview = monthlyReview ? currentMonthlyReview() : null;
+  if (!existingMonthlyReview && state.snapshots.length >= IMPORT_LIMITS.snapshots) {
+    alert(`조회 기록은 최대 ${IMPORT_LIMITS.snapshots.toLocaleString("ko-KR")}개까지 저장할 수 있습니다. 기존 기록을 내보낸 뒤 불필요한 조회 기록을 정리하세요.`);
+    return false;
+  }
+  const previousSnapshots = state.snapshots.map(normalizeSnapshot);
+  const previousPerformanceObservations = state.performanceObservations.map(normalizePerformanceObservation);
   const snapshot = {
-    id: uid(),
+    id: existingMonthlyReview?.id || uid(),
     createdAt: now,
     total: totalAssets(),
     note: snapshotNote,
+    source: monthlyReview ? "MONTHLY_REVIEW" : "QUICK_SNAPSHOT",
+    nextReviewAt,
+    qualityIssues: readiness.warnings,
     typeTotals: Object.fromEntries(
       state.assets.reduce((map, asset) => {
         const type = assetType(asset);
@@ -11295,34 +12376,50 @@ els.snapshotBtn.addEventListener("click", () => {
       }, new Map())
     )
   };
-  state.snapshots.push(normalizeSnapshot(snapshot));
-  const performanceDate = performanceValuationDate();
-  const previousPerformanceObservation = state.performanceObservations.find((item) => item.date === performanceDate);
-  const previousPerformanceCopy = previousPerformanceObservation
-    ? normalizePerformanceObservation(JSON.parse(JSON.stringify(previousPerformanceObservation)))
-    : null;
-  const performanceObservation = refreshPerformanceObservation({
-    source: "USER_SNAPSHOT",
+  if (existingMonthlyReview) {
+    const index = state.snapshots.findIndex((item) => item.id === existingMonthlyReview.id);
+    if (index >= 0) state.snapshots[index] = normalizeSnapshot(snapshot, index);
+  } else {
+    state.snapshots.push(normalizeSnapshot(snapshot));
+  }
+  sortSnapshotsCanonical();
+  refreshPerformanceObservation({
+    source: monthlyReview ? "MONTHLY_REVIEW" : "USER_SNAPSHOT",
     snapshotId: snapshot.id
   });
+  if (!persist() || !await flushHistoryPersistence()) {
+    restoreSavedHistoryState();
+    render(false);
+    alert("장기 기록을 저장하지 못해 이번 변경을 화면에서도 되돌렸습니다. IndexedDB 권한·저장 공간을 확인하거나 이전 전체 JSON 백업을 사용하세요.");
+    return false;
+  }
   if (els.snapshotNote) els.snapshotNote.value = "";
+  if (monthlyReview && els.dashboardMonthlyConclusion) els.dashboardMonthlyConclusion.value = snapshotNote;
   render();
   const warning = readiness.warnings.length ? ` ${readiness.warnings.join(" ")}` : "";
-  showUndoNotice(`조회 기록을 저장했습니다.${warning}`, () => {
-    state.snapshots = state.snapshots.filter((item) => item.id !== snapshot.id);
-    if (performanceObservation) {
-      if (previousPerformanceCopy) {
-        const index = state.performanceObservations.findIndex((item) => item.id === performanceObservation.id);
-        if (index >= 0) state.performanceObservations[index] = previousPerformanceCopy;
-      } else {
-        state.performanceObservations = state.performanceObservations.filter((item) => item.id !== performanceObservation.id);
-      }
+  const successMessage = monthlyReview
+    ? `이번 달 자산 점검을 ${existingMonthlyReview ? "업데이트" : "저장"}했습니다.`
+    : "조회 기록을 저장했습니다.";
+  showUndoNotice(`${successMessage}${warning}`, async () => {
+    state.snapshots = previousSnapshots;
+    state.performanceObservations = previousPerformanceObservations;
+    if (!persist() || !await flushHistoryPersistence()) {
+      restoreSavedHistoryState();
+      render(false);
+      alert("되돌린 기록을 저장하지 못해 직전 상태를 유지했습니다.");
+      return false;
     }
     render();
+    return true;
   });
+  return true;
+}
+
+els.snapshotBtn?.addEventListener("click", () => {
+  saveAssetSnapshot({ monthlyReview: false });
 });
 
-els.historyRows.addEventListener("click", (event) => {
+els.historyRows?.addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-history-delete]");
   if (!button) return;
   const snapshot = state.snapshots.find((item) => item.id === button.dataset.historyDelete);
@@ -11330,22 +12427,48 @@ els.historyRows.addEventListener("click", (event) => {
   if (!confirm(`${formatDate(snapshot.createdAt)} 조회 기록을 삭제할까요?\n총자산 ${money(snapshot.total)} 기록만 삭제되고 자산 원장은 유지됩니다.`)) return;
   const before = [...state.snapshots];
   state.snapshots = state.snapshots.filter((item) => item.id !== snapshot.id);
+  if (!persist() || !await flushHistoryPersistence()) {
+    restoreSavedHistoryState();
+    render(false);
+    alert("조회 기록을 삭제하지 못해 기존 기록을 유지했습니다.");
+    return;
+  }
   render();
-  showUndoNotice("조회 기록을 삭제했습니다.", () => {
+  showUndoNotice("조회 기록을 삭제했습니다.", async () => {
     state.snapshots = before;
+    if (!persist() || !await flushHistoryPersistence()) {
+      restoreSavedHistoryState();
+      render(false);
+      alert("삭제 취소를 저장하지 못해 삭제된 상태를 유지했습니다.");
+      return false;
+    }
     render();
+    return true;
   });
 });
 
-els.clearHistoryBtn.addEventListener("click", () => {
+els.clearHistoryBtn?.addEventListener("click", async () => {
   if (!state.snapshots.length) return;
   const before = [...state.snapshots];
   if (confirm(`조회 히스토리 ${state.snapshots.length}개를 모두 삭제할까요?\n\n삭제되는 것: 조회 시각별 총자산 기록\n유지되는 것: 자산 원장, 은퇴 설정, 가격표\n\n삭제 직후에는 되돌리기 버튼으로 복구할 수 있습니다.`)) {
     state.snapshots = [];
+    if (!persist() || !await flushHistoryPersistence()) {
+      restoreSavedHistoryState();
+      render(false);
+      alert("조회 히스토리를 비우지 못해 기존 기록을 유지했습니다.");
+      return;
+    }
     render();
-    showUndoNotice("조회 히스토리를 비웠습니다.", () => {
+    showUndoNotice("조회 히스토리를 비웠습니다.", async () => {
       state.snapshots = before;
+      if (!persist() || !await flushHistoryPersistence()) {
+        restoreSavedHistoryState();
+        render(false);
+        alert("비우기 취소를 저장하지 못해 비운 상태를 유지했습니다.");
+        return false;
+      }
       render();
+      return true;
     });
   }
 });
@@ -11430,9 +12553,9 @@ els.deleteScenarioBtn.addEventListener("click", () => {
   });
 });
 
-function downloadTextFile(content, filename) {
+function downloadTextFile(content, filename, mimeType = "application/json") {
   try {
-    const blob = new Blob([content], { type: "application/json" });
+    const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -11446,8 +12569,19 @@ function downloadTextFile(content, filename) {
   }
 }
 
+function serializeStateFile(data) {
+  return JSON.stringify(data);
+}
+
 function downloadStateFile(data, filename) {
-  return downloadTextFile(JSON.stringify(data, null, 2), filename);
+  return downloadTextFile(serializeStateFile(data), filename);
+}
+
+function assertImportFileSize(file) {
+  const size = Number(file?.size);
+  if (!Number.isSafeInteger(size) || size < 0 || size > IMPORT_FILE_MAX_BYTES) {
+    throw new Error(`가져오기 파일은 ${IMPORT_FILE_MAX_BYTES / 1024 / 1024}MB 이하여야 합니다.`);
+  }
 }
 
 const BROKER_CSV_ISSUE_LABELS = {
@@ -12138,6 +13272,8 @@ function validateImportedSnapshot(snapshot, index) {
   assertImportString(snapshot.id, `${prefix}.id`, IMPORT_STRING_LIMITS.id);
   assertImportDate(snapshot.createdAt, `${prefix}.createdAt`);
   assertImportString(snapshot.note, `${prefix}.note`, IMPORT_STRING_LIMITS.note);
+  assertImportString(snapshot.source, `${prefix}.source`, IMPORT_STRING_LIMITS.short);
+  assertImportString(snapshot.nextReviewAt, `${prefix}.nextReviewAt`, IMPORT_STRING_LIMITS.short);
   assertImportNumber(snapshot.total, `${prefix}.total`, { min: 0, max: 1e18 });
   if (!String(snapshot.id || "").trim()) throw new Error(`${prefix}.id가 없습니다.`);
   if (!snapshot.createdAt || !Number.isFinite(Date.parse(snapshot.createdAt))) {
@@ -12155,6 +13291,21 @@ function validateImportedSnapshot(snapshot, index) {
   });
   if (snapshot.assets !== undefined && !Array.isArray(snapshot.assets)) {
     throw new Error(`${prefix}.assets가 목록이 아닙니다.`);
+  }
+  if (snapshot.source !== undefined
+    && !["MONTHLY_REVIEW", "QUICK_SNAPSHOT", "LEGACY_SNAPSHOT"].includes(String(snapshot.source).toUpperCase())) {
+    throw new Error(`${prefix}.source에 알 수 없는 값이 있습니다.`);
+  }
+  if (snapshot.nextReviewAt && !normalizeDateKey(snapshot.nextReviewAt)) {
+    throw new Error(`${prefix}.nextReviewAt이 올바른 YYYY-MM-DD 날짜가 아닙니다.`);
+  }
+  if (snapshot.qualityIssues !== undefined) {
+    if (!Array.isArray(snapshot.qualityIssues) || snapshot.qualityIssues.length > 20) {
+      throw new Error(`${prefix}.qualityIssues가 올바른 목록이 아닙니다.`);
+    }
+    snapshot.qualityIssues.forEach((issue, issueIndex) => {
+      assertImportString(issue, `${prefix}.qualityIssues[${issueIndex}]`, IMPORT_STRING_LIMITS.short);
+    });
   }
 }
 
@@ -12480,6 +13631,10 @@ els.applyBrokerCsvImportBtn?.addEventListener("click", applyBrokerCsvPreview);
 els.downloadBrokerCsvTemplateBtn?.addEventListener("click", downloadBrokerCsvTemplate);
 
 els.exportBtn.addEventListener("click", () => {
+  if (historyStorage.blocked) {
+    alert("장기 기록을 읽지 못한 상태에서는 불완전한 전체 백업이 만들어질 수 있어 내보내기를 중단했습니다. IndexedDB를 허용한 뒤 다시 열거나 이전 전체 JSON 백업을 사용하세요.");
+    return;
+  }
   const exported = downloadStateFile(
     storageSafeState(),
     `finance-ledger-${new Date().toISOString().slice(0, 10)}.json`
@@ -12487,14 +13642,14 @@ els.exportBtn.addEventListener("click", () => {
   if (!exported) alert("데이터 내보내기 파일을 만들지 못했습니다.");
 });
 
+els.exportAiCheckPackageBtn?.addEventListener("click", exportAiReviewPackage);
+
 els.importInput.addEventListener("change", async (event) => {
   const [file] = event.target.files;
   if (!file) return;
 
   try {
-    if (file.size > IMPORT_FILE_MAX_BYTES) {
-      throw new Error(`가져오기 파일은 ${IMPORT_FILE_MAX_BYTES / 1024 / 1024}MB 이하여야 합니다.`);
-    }
+    assertImportFileSize(file);
     const imported = JSON.parse(await file.text());
     const candidate = validateImportPayload(imported);
     const summary = [
@@ -12515,8 +13670,19 @@ els.importInput.addEventListener("change", async (event) => {
       : downloadStateFile(storageSafeState(), `finance-ledger-before-import-${backupTimestamp}.json`);
     if (!backupCreated) throw new Error("현재 데이터 자동 백업에 실패해 가져오기를 중단했습니다.");
     const previousState = storageSafeState();
+    const importStorageKey = activeStorageKey;
+    const previousPrimaryRaw = localStorage.getItem(importStorageKey);
+    const restorePreviousPrimaryRaw = () => {
+      if (localStorage.getItem(importStorageKey) === previousPrimaryRaw) return;
+      if (previousPrimaryRaw === null) localStorage.removeItem(importStorageKey);
+      else localStorage.setItem(importStorageKey, previousPrimaryRaw);
+      if (localStorage.getItem(importStorageKey) !== previousPrimaryRaw) {
+        throw new Error("가져오기 전 로컬 원본 복구 검증에 실패했습니다.");
+      }
+    };
     const previousStorageWritesBlocked = storageWritesBlocked;
     const previousProtectedStorageRaw = protectedStorageRaw;
+    const previousHistoryStorage = { ...historyStorage };
     candidate.meta.cloudRevision = normalizeRevision(state.meta.cloudRevision);
     candidate.meta.cloudUpdatedAt = state.meta.cloudUpdatedAt;
     candidate.meta.lastSavedAt = null;
@@ -12526,13 +13692,48 @@ els.importInput.addEventListener("change", async (event) => {
     cloud.knownEventIds = new Set();
     storageWritesBlocked = false;
     protectedStorageRaw = null;
+    if (historyStorage.blocked) {
+      const repository = historyRepositoryEngine();
+      if (repository && (window.indexedDB || typeof window.assetTrailHistoryAdapterFactory === "function")) {
+        historyStorage.adapter = historyStorage.adapter
+          || (typeof window.assetTrailHistoryAdapterFactory === "function"
+            ? window.assetTrailHistoryAdapterFactory(activeStorageKey)
+            : repository.createIndexedDbHistoryAdapter({ indexedDB: window.indexedDB }));
+        historyStorage.fallback = false;
+      } else {
+        historyStorage.fallback = true;
+      }
+      historyStorage.blocked = false;
+      historyStorage.ready = true;
+      historyStorage.queuedFingerprint = null;
+    }
     replaceState(candidate);
     applyPricesToAssets();
-    if (!render(false)) {
+    const primaryPersisted = render(false);
+    const historyPersisted = primaryPersisted ? await flushHistoryPersistence() : false;
+    if (activeStorageKey !== importStorageKey) {
+      try {
+        restorePreviousPrimaryRaw();
+      } catch (restoreError) {
+        console.error(restoreError);
+      }
+      throw new Error("가져오는 동안 사용자 데이터 영역이 바뀌어 작업을 취소했습니다. 가져오기 전 자동 백업 파일은 그대로 보관됩니다.");
+    }
+    if (!primaryPersisted || !historyPersisted) {
       storageWritesBlocked = previousStorageWritesBlocked;
       protectedStorageRaw = previousProtectedStorageRaw;
+      historyStorage = previousHistoryStorage;
       replaceState(previousState);
       render(false);
+      try {
+        restorePreviousPrimaryRaw();
+      } catch (restoreError) {
+        console.error(restoreError);
+        storageWritesBlocked = true;
+        protectedStorageRaw = previousPrimaryRaw;
+        reportStorageFailure("가져오기 실패 후 로컬 원본을 복구하지 못해 자동 저장을 중단했습니다. 가져오기 전에 내려받은 복구 파일을 보관하세요.");
+        throw new Error("가져온 데이터 저장과 기존 로컬 원본 복구에 실패했습니다. 자동 백업 파일을 사용해 복원하세요.");
+      }
       throw new Error("가져온 데이터를 이 기기에 저장하지 못해 기존 화면 데이터로 되돌렸습니다.");
     }
     const recoveredBlockedLocalData = cloud.schemaBlockSource === "local";
@@ -12554,17 +13755,6 @@ els.importInput.addEventListener("change", async (event) => {
   }
 });
 
-hydrateRetirementInputs();
-hydratePortfolioTargetInputs();
-hydrateActionSupportInputs();
-renderRetirementScenarioOptions();
-state.assets = state.assets.map(normalizeAsset);
-state.decisionProfiles = state.decisionProfiles.map(normalizeDecisionProfile);
-state.watchlist = state.watchlist.map(normalizeWatchlistItem);
-applyPricesToAssets();
-updateAssetFormForType();
-uiState.activeView = viewFromHash();
-history.replaceState({ view: uiState.activeView }, "", viewHash(uiState.activeView));
 window.addEventListener("popstate", () => {
   setActiveView(viewFromHash(), { scroll: false, focus: true });
 });
@@ -12573,14 +13763,34 @@ window.addEventListener("hashchange", () => {
 });
 let responsiveChartResizeRaf = 0;
 window.addEventListener("resize", () => {
-  if (!["DASHBOARD", "GOALS"].includes(uiState.activeView)) return;
+  if (!["DASHBOARD", "JOURNAL"].includes(uiState.activeView)) return;
   cancelAnimationFrame(responsiveChartResizeRaf);
   responsiveChartResizeRaf = requestAnimationFrame(() => {
     if (uiState.activeView === "DASHBOARD") drawHeroSparkline();
-    if (uiState.activeView === "GOALS") drawChart(filteredHistorySnapshots());
+    if (uiState.activeView === "JOURNAL") drawChart(filteredHistorySnapshots());
   });
 });
-renderAllViews();
-updateAuthUi();
-initPrices();
-initFirebase();
+
+async function bootstrapAssetTrail() {
+  await initializeLocalHistoryStorage(initialStateLoad, activeStorageKey);
+  hydrateRetirementInputs();
+  hydratePortfolioTargetInputs();
+  hydrateActionSupportInputs();
+  renderRetirementScenarioOptions();
+  state.assets = state.assets.map(normalizeAsset);
+  state.decisionProfiles = state.decisionProfiles.map(normalizeDecisionProfile);
+  state.watchlist = state.watchlist.map(normalizeWatchlistItem);
+  applyPricesToAssets();
+  updateAssetFormForType();
+  uiState.activeView = viewFromHash();
+  history.replaceState({ view: uiState.activeView }, "", viewHash(uiState.activeView));
+  renderAllViews();
+  updateAuthUi();
+  initPrices();
+  initFirebase();
+}
+
+bootstrapAssetTrail().catch((error) => {
+  console.error(error);
+  reportStorageFailure("앱 초기화 중 데이터를 검증하지 못했습니다. 저장 권한을 확인하고 페이지를 새로고침하거나 이전 전체 JSON 백업을 사용하세요.");
+});

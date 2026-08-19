@@ -27,6 +27,73 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    function validHistoryChunk(historyId, chunkId) {
+      return request.resource.data.keys().hasAll([
+          'schemaVersion',
+          'historyId',
+          'chunkId',
+          'kind',
+          'bucket',
+          'items',
+          'itemCount',
+          'updatedAt',
+          'digest'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'schemaVersion',
+          'historyId',
+          'chunkId',
+          'kind',
+          'bucket',
+          'items',
+          'itemCount',
+          'updatedAt',
+          'digest'
+        ])
+        && request.resource.data.schemaVersion == 'assettrail.history-chunk.v1'
+        && request.resource.data.historyId is string
+        && request.resource.data.historyId == historyId
+        && request.resource.data.chunkId is string
+        && request.resource.data.chunkId == chunkId
+        && request.resource.data.kind is string
+        && request.resource.data.kind in ['PERFORMANCE', 'SNAPSHOT']
+        && request.resource.data.bucket is string
+        && request.resource.data.bucket.matches('^[0-9]{4}-(0[1-9]|1[0-2])$')
+        && request.resource.data.items is list
+        && request.resource.data.itemCount is int
+        && request.resource.data.itemCount >= 0
+        && request.resource.data.itemCount == request.resource.data.items.size()
+        && request.resource.data.digest is string
+        && request.resource.data.digest.matches('^history-chunk-v1:[a-f0-9]{64}$')
+        && request.resource.data.updatedAt is string
+        && request.resource.data.updatedAt.matches(
+          '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$'
+        )
+        && (
+          (request.resource.data.kind == 'PERFORMANCE'
+            && request.resource.data.itemCount <= 31)
+          || (request.resource.data.kind == 'SNAPSHOT'
+            && request.resource.data.itemCount <= 50)
+        );
+    }
+
+    function inactiveHistoryGeneration(userId, historyId) {
+      return exists(/databases/$(database)/documents/users/$(userId)/financeData/primary)
+        && get(/databases/$(database)/documents/users/$(userId)/financeData/primary).data.keys().hasAll(['historyMeta'])
+        && get(/databases/$(database)/documents/users/$(userId)/financeData/primary).data.historyMeta is map
+        && get(/databases/$(database)/documents/users/$(userId)/financeData/primary).data.historyMeta.keys().hasAll(['activeHistoryId'])
+        && get(/databases/$(database)/documents/users/$(userId)/financeData/primary).data.historyMeta.activeHistoryId is string
+        && get(/databases/$(database)/documents/users/$(userId)/financeData/primary).data.historyMeta.activeHistoryId != historyId;
+    }
+
+    match /users/{userId}/financeData/primary/histories/{historyId}/chunks/{chunkId} {
+      allow read: if signedInAs(userId);
+      allow create, update: if signedInAs(userId)
+        && validHistoryChunk(historyId, chunkId);
+      allow delete: if signedInAs(userId)
+        && inactiveHistoryGeneration(userId, historyId);
+    }
+
     match /users/{userId}/analysisPreferences/primary {
       allow read, write: if signedInAs(userId);
     }

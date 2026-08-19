@@ -85,14 +85,14 @@ function submit(selector) {
 }
 
 const migrated = stored();
-assert.equal(migrated.schemaVersion, 6);
+assert.equal(migrated.schemaVersion, 7);
 assert.equal(migrated.events.length, 2);
 assert.equal(migrated.events.every((event) => event.type === "OPENING_BALANCE"), true);
 assert.equal(migrated.events.some((event) => event.type === "BUY"), false);
 assert.equal(migrated.events.find((event) => event.assetId === "stock-1").instrumentKey, "INSTRUMENT:KRX:005930");
 assert.equal(migrated.ledgerMeta.baselineDate, "2026-08-01");
 assert.equal(
-  window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v4-to-v6`),
+  window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v4-to-v7`),
   legacyRaw
 );
 

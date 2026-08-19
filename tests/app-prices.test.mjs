@@ -121,7 +121,10 @@ assert.equal(window.document.activeElement, appNavItems[1]);
 assert.equal(appNavItems[1].getAttribute("aria-current"), "page");
 appNavItems[1].dispatchEvent(new window.KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true }));
 assert.equal(window.document.activeElement, appNavItems.at(-1));
+assert.equal(window.location.hash, "#goals");
+window.document.querySelector("#settingsBtn").click();
 assert.equal(window.location.hash, "#settings");
+appNavItems.at(-1).focus();
 appNavItems.at(-1).dispatchEvent(new window.KeyboardEvent("keydown", { key: "Home", bubbles: true, cancelable: true }));
 assert.equal(window.document.activeElement, appNavItems[0]);
 assert.equal(window.location.hash, "#dashboard");
@@ -322,20 +325,17 @@ assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "1
 assert.match(window.document.querySelector("#assetRows").textContent, /현금/);
 setValue("#assetTypeFilter", "ALL");
 
-window.document.querySelector('[data-nav-view="GOALS"]').click();
+window.document.querySelector('[data-nav-view="JOURNAL"]').click();
 assert.match(window.document.querySelector("#historySummary").textContent, /기록 상태/);
-const historyMobileButton = window.document.querySelector('[data-goal-mobile-panel="HISTORY"]');
-const retirementMobileButton = window.document.querySelector('[data-goal-mobile-panel="RETIREMENT"]');
 const historyCanvas = window.document.querySelector("#historyChart");
-const historyPanel = window.document.querySelector("#historyPanel");
 Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 2 });
 Object.defineProperty(historyCanvas, "clientWidth", {
   configurable: true,
-  get: () => historyPanel.classList.contains("goal-panel-mobile-hidden") ? 0 : 320
+  get: () => 320
 });
 Object.defineProperty(historyCanvas, "clientHeight", {
   configurable: true,
-  get: () => historyPanel.classList.contains("goal-panel-mobile-hidden") ? 0 : 180
+  get: () => 180
 });
 historyCanvas.getBoundingClientRect = () => ({
   bottom: 180,
@@ -347,36 +347,27 @@ historyCanvas.getBoundingClientRect = () => ({
   x: 0,
   y: 0
 });
-assert.equal(historyMobileButton.getAttribute("aria-pressed"), "true");
-assert.equal(window.document.querySelector("#retirementPanel").classList.contains("goal-panel-mobile-hidden"), true);
+assert.equal(window.document.querySelectorAll("[data-goal-mobile-panel]").length, 0);
 assert.equal(window.eval("drawChart([])"), true);
 assert.equal(historyCanvas.width, 640);
 assert.equal(historyCanvas.height, 360);
-retirementMobileButton.click();
-assert.equal(retirementMobileButton.getAttribute("aria-pressed"), "true");
-assert.equal(window.document.querySelector("#historyPanel").classList.contains("goal-panel-mobile-hidden"), true);
-assert.equal(window.document.querySelector("#retirementPanel").classList.contains("goal-panel-mobile-hidden"), false);
 for (let index = 0; index < 6; index += 1) window.eval("drawChart([])");
 assert.equal(historyCanvas.width, 640);
 assert.equal(historyCanvas.height, 360);
-historyMobileButton.click();
-await new Promise((resolve) => window.setTimeout(resolve, 20));
-assert.equal(window.document.querySelector("#historyPanel").classList.contains("goal-panel-mobile-hidden"), false);
-assert.equal(window.document.querySelector("#retirementPanel").classList.contains("goal-panel-mobile-hidden"), true);
-assert.equal(historyCanvas.width, 640);
-assert.equal(historyCanvas.height, 360);
 window.document.querySelector("#snapshotBtn").click();
+await new Promise((resolve) => window.setTimeout(resolve, 30));
 assert.match(window.document.querySelector("#historySummary").textContent, /기록 수/);
 assert.match(window.document.querySelector("#historySummary").textContent, /1회/);
 assert.match(window.document.querySelector("#appNotice").textContent, /조회 기록을 저장했습니다/);
 const savedAfterSnapshot = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
-assert.equal(savedAfterSnapshot.schemaVersion, 6);
+assert.equal(savedAfterSnapshot.schemaVersion, 7);
 assert.equal(savedAfterSnapshot.snapshots[0].assets, undefined);
 assert.deepEqual(
   Object.keys(savedAfterSnapshot.snapshots[0]).sort(),
-  ["createdAt", "id", "note", "total", "typeTotals"]
+  ["createdAt", "id", "nextReviewAt", "note", "qualityIssues", "source", "total", "typeTotals"]
 );
 
+window.document.querySelector('[data-nav-view="GOALS"]').click();
 const requiredNestEggBeforePreset = window.document.querySelector("#requiredNestEgg").textContent;
 window.document.querySelector('[data-retirement-preset="growth"]').click();
 assert.equal(window.document.querySelector("#monthlyInvest").value, "1,500,000");
@@ -412,40 +403,9 @@ assert.match(rows.join("\n"), /청년 적금 MANUAL 수동 적금 계좌 - ₩2,
 assert.match(rows.join("\n"), /주택청약저축 MANUAL 수동 청약 계좌 - ₩300,000/);
 assert.match(rows.join("\n"), /IRP 대기자산 MANUAL 수동 IRP - ₩500,000/);
 assert.match(rows.join("\n"), /DC 대기자산 MANUAL 수동 DC - ₩700,000/);
-window.document.querySelector('[data-nav-view="PORTFOLIO"]').click();
-assert.match(window.document.querySelector(".ledger-panel .panel-header p").textContent, /US 평가손익은 환차손익을 제외/);
-assert.match(window.document.querySelector("#categoryBreakdown").textContent, /계좌 분석/);
-assert.match(window.document.querySelector("#categoryBreakdown").textContent, /연금계좌/);
-assert.match(window.document.querySelector("#categoryBreakdown").textContent, /적금/);
-assert.match(window.document.querySelector("#categoryBreakdown").textContent, /상품 유형 분석/);
-assert.match(window.document.querySelector("#categoryBreakdown").textContent, /개별종목/);
-assert.match(window.document.querySelector("#categoryBreakdown").textContent, /ETF/);
-assert.match(window.document.querySelector("#categoryBreakdown").textContent, /국내\/해외 비중/);
-assert.match(window.document.querySelector("#categoryBreakdown").textContent, /해외/);
-assert.equal(window.document.querySelectorAll(".pie-chart").length, 4);
-assert.match(window.document.querySelector(".pie-chart").style.background, /conic-gradient/);
-const portfolioBreakdownToggle = window.document.querySelector("#portfolioBreakdownToggle");
-assert.equal(portfolioBreakdownToggle.hidden, false);
-assert.equal(portfolioBreakdownToggle.getAttribute("aria-expanded"), "false");
-assert.equal(window.document.querySelector("#categoryBreakdown").classList.contains("mobile-collapsed"), true);
-portfolioBreakdownToggle.click();
-assert.equal(portfolioBreakdownToggle.getAttribute("aria-expanded"), "true");
-assert.equal(window.document.querySelector("#categoryBreakdown").classList.contains("mobile-collapsed"), false);
+assert.equal(window.document.querySelector('[data-nav-view="PORTFOLIO"]'), null);
+assert.equal(window.document.querySelector('.portfolio-panel[data-app-section="LEGACY"]').hidden, true);
 assert.equal(window.document.querySelector("#assetTableWrap").classList.contains("asset-table-wrap"), true);
-window.document.querySelector("#targetDomestic").value = "40";
-window.document.querySelector("#targetOverseas").value = "30";
-window.document.querySelector("#targetCash").value = "20";
-setValue("#targetManual", "10");
-assert.equal(JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1")).portfolioTargets.domestic, 40);
-setValue("#targetDomestic", "41");
-assert.match(window.document.querySelector("#targetValidation").textContent, /현재 합계는 101%/);
-assert.equal(JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1")).portfolioTargets.domestic, 40);
-setValue("#targetManual", "-1");
-assert.match(window.document.querySelector("#targetValidation").textContent, /0% 이상 100% 이하/);
-assert.equal(JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1")).portfolioTargets.manual, 10);
-window.document.querySelector("#targetDomestic").value = "40";
-setValue("#targetManual", "10");
-assert.match(window.document.querySelector("#targetValidation").textContent, /합계는 100%/);
 assert.deepEqual(
   saved.assets.map((asset) => ({
     amount: asset.amount,
@@ -605,6 +565,7 @@ async function runSnapshotGuardScenario({ assets, priceData, failPrices = false 
   scenarioWindow.eval(appCode);
   await new Promise((resolve) => scenarioWindow.setTimeout(resolve, 20));
   scenarioWindow.document.querySelector("#snapshotBtn").click();
+  await new Promise((resolve) => scenarioWindow.setTimeout(resolve, 30));
 
   const stored = JSON.parse(scenarioWindow.localStorage.getItem("finance-ledger-retirement-v1"));
   const notice = scenarioWindow.document.querySelector("#appNotice").textContent;

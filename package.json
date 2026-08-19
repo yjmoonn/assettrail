@@ -4,7 +4,7 @@
   "description": "AssetTrail static finance tracker",
   "private": true,
   "scripts": {
-    "check:js": "node --check decision-engine.js && node --check action-engine.js && node --check ledger-engine.js && node --check performance-engine.js && node --check broker-csv-engine.js && node --check broker-csv-adapter-standard.js && node --check external-data-engine.js && node --check etf-exposure-engine.js && node --check ai-report-engine.js && node --check scripts/manage_us_tickers.mjs && node --check app.js",
+    "check:js": "node --check decision-engine.js && node --check action-engine.js && node --check ledger-engine.js && node --check performance-engine.js && node --check broker-csv-engine.js && node --check broker-csv-adapter-standard.js && node --check external-data-engine.js && node --check etf-exposure-engine.js && node --check ai-report-engine.js && node --check ai-review-export-engine.js && node --check history-repository.js && node --check scripts/manage_us_tickers.mjs && node --check app.js",
     "test:decision": "node tests/decision-engine.test.mjs",
     "test:action": "node tests/action-engine.test.mjs",
     "test:action-app": "node tests/app-action-support.test.mjs",
@@ -14,11 +14,16 @@
     "test:external-data": "node tests/external-data-engine.test.mjs",
     "test:etf": "node tests/etf-exposure-engine.test.mjs",
     "test:ai": "node tests/ai-report-engine.test.mjs",
+    "test:ai-review": "node tests/ai-review-export-engine.test.mjs && node tests/app-ai-review-export.test.mjs",
+    "test:history": "node tests/history-repository.test.mjs",
+    "test:history-race": "node tests/app-history-transaction-race.test.mjs",
+    "test:product": "node tests/app-product-restructure.test.mjs",
     "test:stage5": "npm run test:external-data && npm run test:etf && npm run test:ai && node tests/app-stage5.test.mjs && node tests/manage-us-tickers.test.mjs",
     "test:investment": "node tests/app-investment-decisions.test.mjs",
     "test:cloud-conflict": "node tests/app-cloud-conflict.test.mjs",
     "test:cloud-auth-race": "node tests/app-cloud-auth-race.test.mjs",
     "test:cloud": "node tests/app-cloud-sync.test.mjs",
+    "test:cloud-history-gc": "node tests/app-cloud-history-gc.test.mjs",
     "test:cloud-prices": "node tests/app-cloud-prices.test.mjs",
     "test:data": "node tests/app-data-durability.test.mjs",
     "test:price-fallback": "node tests/app-price-fallback.test.mjs",
@@ -27,7 +32,7 @@
     "test:price-requests": "python3 tests/generate-prices-requests.test.py",
     "test:firestore": "firebase emulators:exec --only firestore \"node tests/firestore-rules.test.mjs\"",
     "tickers:review": "node scripts/manage_us_tickers.mjs",
-    "test": "npm run check:js && npm run test:decision && npm run test:action && npm run test:action-app && npm run test:ledger && npm run test:performance && npm run test:broker-csv && npm run test:stage5 && npm run test:investment && npm run test:prices && npm run test:price-fallback && npm run test:symbols && npm run test:cloud && npm run test:cloud-conflict && npm run test:cloud-auth-race && npm run test:cloud-prices && npm run test:data && npm run test:price-requests && npm run test:firestore"
+    "test": "npm run check:js && npm run test:decision && npm run test:action && npm run test:action-app && npm run test:ledger && npm run test:performance && npm run test:broker-csv && npm run test:stage5 && npm run test:ai-review && npm run test:history && npm run test:history-race && npm run test:product && npm run test:investment && npm run test:prices && npm run test:price-fallback && npm run test:symbols && npm run test:cloud && npm run test:cloud-history-gc && npm run test:cloud-conflict && npm run test:cloud-auth-race && npm run test:cloud-prices && npm run test:data && npm run test:price-requests && npm run test:firestore"
   },
   "repository": {
     "type": "git",
@@ -42,6 +47,7 @@
   "homepage": "https://github.com/yjmoonn/assettrail#readme",
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.1",
+    "fake-indexeddb": "^6.2.5",
     "firebase": "^12.13.0",
     "firebase-tools": "^15.25.0",
     "jsdom": "^29.1.1"
