@@ -4,6 +4,8 @@ import { JSDOM } from "jsdom";
 
 const html = readFileSync("index.html", "utf8");
 const css = readFileSync("styles.css", "utf8");
+const brandMarkSvg = readFileSync("assettrail-mark.svg", "utf8");
+const deployWorkflow = readFileSync(".github/workflows/deploy-pages.yml", "utf8");
 const engineCode = [
   "decision-engine.js",
   "action-engine.js",
@@ -95,6 +97,22 @@ async function waitUntil(window, predicate, timeoutMs = 1000) {
 // Static product contract: four primary destinations and one separately labelled settings action.
 const staticDom = new JSDOM(html);
 const staticDocument = staticDom.window.document;
+const favicon = staticDocument.querySelector('link[rel="icon"]');
+assert.equal(favicon?.getAttribute("href"), "assettrail-mark.svg?v=20260819-logo-v1");
+assert.equal(favicon?.getAttribute("type"), "image/svg+xml");
+assert.equal(favicon?.getAttribute("sizes"), "any");
+assert.match(staticDocument.title, /^AssetTrail · /);
+const brandMark = staticDocument.querySelector(".brand-block .brand-mark");
+assert.equal(brandMark?.tagName, "IMG");
+assert.equal(brandMark?.getAttribute("src"), "assettrail-mark.svg?v=20260819-logo-v1");
+assert.equal(brandMark?.getAttribute("alt"), "");
+assert.equal(brandMark?.getAttribute("width"), "28");
+assert.equal(brandMark?.getAttribute("height"), "28");
+assert.match(brandMarkSvg, /viewBox="0 0 48 48"/);
+assert.match(brandMarkSvg, /fill="#2563eb"/);
+assert.match(deployWorkflow, /\bassettrail-mark\.svg\b/);
+assert.match(css, /\.brand-mark\s*\{[^}]*height:\s*28px;[^}]*width:\s*28px/s);
+assert.match(css, /@media \(max-width:\s*720px\)[\s\S]*?\.brand-mark\s*\{[^}]*height:\s*24px;[^}]*width:\s*24px/s);
 const primaryNav = [...staticDocument.querySelectorAll(".app-nav > .app-nav-item")];
 assert.deepEqual(primaryNav.map((button) => button.dataset.navView), [
   "DASHBOARD",
@@ -213,7 +231,7 @@ assert.match(usageGuideCss, /\.usage-guide h3\s*\{[^}]*font-size:\s*16px[^}]*fon
 assert.match(usageGuideCss, /\.usage-guide ol\s*\{[^}]*font-size:\s*var\(--fs-body-sm\)[^}]*line-height:\s*1\.65/s);
 assert.match(usageGuideCss, /\.usage-guide-note p,[\s\S]*?\.usage-guide-more p\s*\{[^}]*font-size:\s*var\(--fs-caption\)[^}]*font-weight:\s*var\(--fw-medium\)[^}]*line-height:\s*1\.6/s);
 assert.doesNotMatch(usageGuideCss, /font-weight:\s*(?:650|750)/);
-assert.match(staticDocument.querySelector('link[rel="stylesheet"]')?.getAttribute("href") || "", /styles\.css\?v=20260819-usage-guide-type/);
+assert.match(staticDocument.querySelector('link[rel="stylesheet"]')?.getAttribute("href") || "", /styles\.css\?v=20260819-logo-v1/);
 
 const historyEmpty = staticDocument.querySelector("#historyChartEmpty");
 assert.match(historyEmpty?.textContent || "", /자산 화면에서 현재 자산을 기록/);

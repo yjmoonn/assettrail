@@ -27,7 +27,7 @@ env:
     performance-engine.js broker-csv-engine.js broker-csv-adapter-standard.js
     external-data-engine.js etf-exposure-engine.js ai-report-engine.js
     ai-review-export-engine.js history-repository.js styles.css
-    assettrail-tokens.css firebase-config.js prices.json symbols.json .nojekyll
+    assettrail-tokens.css assettrail-mark.svg firebase-config.js prices.json symbols.json .nojekyll
 
 jobs:
   test:
