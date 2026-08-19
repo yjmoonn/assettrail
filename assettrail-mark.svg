@@ -1,7 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
   <title id="title">AssetTrail</title>
-  <desc id="desc">시간에 따라 상승하는 자산 기록 경로</desc>
-  <rect x="3" y="3" width="42" height="42" rx="12" fill="#2563eb"/>
-  <path d="M12 33c5.25 0 6-7.5 11.25-7.5s6-9 12.75-10.5" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="4.75"/>
-  <circle cx="36" cy="15" r="3.6" fill="#fff"/>
+  <desc id="desc">시간축과 기록점을 결합한 AT 모노그램</desc>
+  <path d="M18 106 47 20l29 86M31 66h62" fill="none" stroke="#2563eb" stroke-linecap="round" stroke-linejoin="round" stroke-width="9"/>
+  <path d="M76 20h34M93 20v86" fill="none" stroke="#2563eb" stroke-linecap="round" stroke-linejoin="round" stroke-width="9"/>
+  <circle cx="84" cy="48" r="4.5" fill="#2563eb"/>
+  <circle cx="84" cy="76" r="4.5" fill="#2563eb"/>
 </svg>
