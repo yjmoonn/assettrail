@@ -185,6 +185,31 @@ assert.match(
   /els\.dashboardSnapshotBtn\?\.addEventListener\("click",[\s\S]*?saveAssetSnapshot\(\{ monthlyReview: true \}\)/
 );
 
+// Home explains the complete operating rhythm without adding another top-level destination.
+const usageGuide = staticDocument.querySelector('[data-app-section="DASHBOARD"] .usage-guide');
+assert.ok(usageGuide);
+assert.equal(usageGuide.tagName, "DETAILS");
+assert.equal(usageGuide.open, false, "usage guide stays compact until the user opens it");
+assert.equal(usageGuide.closest("section")?.getAttribute("aria-labelledby"), "usageGuideTitle");
+const usageCopy = usageGuide.textContent.replace(/\s+/g, " ");
+["일별 자산 변화", "조회 기록을 저장", "조회 히스토리", "입출금을 포함", "기간 성과", "이번 달 점검", "AI 점검 패키지"]
+  .forEach((copy) => assert.match(usageCopy, new RegExp(copy)));
+const usageDestinations = [...usageGuide.querySelectorAll("button[data-go-view]")];
+assert.deepEqual(usageDestinations.map((button) => button.dataset.goView), [
+  "ASSETS",
+  "JOURNAL",
+  "GOALS",
+  "SETTINGS"
+]);
+usageDestinations.forEach((button) => assert.equal(button.type, "button"));
+assert.match(css, /\.usage-guide-flows\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,/);
+assert.match(css, /@media \(max-width:\s*900px\)[\s\S]*?\.usage-guide-flows\s*\{\s*grid-template-columns:\s*1fr/);
+assert.match(css, /@media \(max-width:\s*560px\)[\s\S]*?\.usage-guide-actions \.text-link-button\s*\{[\s\S]*?min-height:\s*44px/);
+
+const historyEmpty = staticDocument.querySelector("#historyChartEmpty");
+assert.match(historyEmpty?.textContent || "", /자산 화면에서 현재 자산을 기록/);
+assert.equal(historyEmpty?.querySelector("button")?.dataset.goView, "ASSETS");
+
 const legacyState = {
   schemaVersion: 6,
   assets: [],
@@ -384,6 +409,17 @@ window.document.querySelector("#importExternalDataBtn").click();
 window.document.querySelector("#importEtfCatalogBtn").click();
 assert.equal(externalFileChooserClicks, 1, "Butler restore button must open its hidden file input");
 assert.equal(etfFileChooserClicks, 1, "ETF restore button must open its hidden file input");
+
+// The guide reuses the app's existing view navigation and lands on the daily snapshot action.
+const runtimeUsageGuide = window.document.querySelector(".usage-guide");
+runtimeUsageGuide.open = true;
+runtimeUsageGuide.querySelector('[data-go-view="ASSETS"]').click();
+assert.equal(window.__productRestructureTestApi.activeView(), "ASSETS");
+assert.equal(window.location.hash, "#assets");
+assert.equal(window.document.querySelector('[data-app-section="ASSETS"]').hidden, false);
+assert.equal(window.document.querySelector("#snapshotBtn").hidden, false);
+assert.equal(window.document.querySelector("#viewAnnounce").textContent, "자산 화면");
+window.document.querySelector('.app-nav-item[data-nav-view="DASHBOARD"]').click();
 
 // Roving keyboard navigation remains limited to the four primary tabs.
 const runtimeNav = [...window.document.querySelectorAll(".app-nav > .app-nav-item")];
