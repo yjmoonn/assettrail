@@ -1,8 +1,17 @@
 # AssetTrail 아키텍처
 
-AssetTrail은 GitHub Pages로 배포되는 정적 개인 자산 관리 앱이다. 루트의 HTML, CSS, JavaScript 파일이 앱을 구성하고, Firebase가 로그인 및 사용자별 저장을 담당하며, GitHub Actions가 시장 가격표를 생성한다.
+AssetTrail은 GitHub Pages로 배포되는 정적 개인 자산 관리 앱이다. 사용자가 현재 자산,
+지난 기록 이후의 변화, 현금흐름과 투자 성과, 은퇴 목표까지의 거리를 월 1회 5분 안에
+점검하도록 돕는다. 루트의 HTML, CSS, JavaScript 파일이 앱을 구성하고, Firebase가
+로그인 및 사용자별 저장을 담당하며, GitHub Actions가 시장 가격표를 생성한다.
 
 라이브 앱: https://yjmoonn.github.io/assettrail/
+
+현재 사용자 정보 구조는 `홈 / 자산 / 기록 / 목표` 네 화면과 우측 상단 `설정`이다.
+홈은 현재 상태·변화·집중도·월간 결론, 자산은 보유 원장, 기록은 거래·현금흐름·성과·
+조회 이력, 목표는 은퇴 거리를 맡는다. 설정은 동기화·가격·백업·CSV·AI Markdown
+내보내기를 맡는다. 기존 포트폴리오·의사결정·분석 섹션은 `LEGACY`로 숨기지만 저장된
+필드와 별도 Butler·ETF 로컬 데이터는 삭제하지 않는다.
 
 ## 앱 구조
 
@@ -17,16 +26,21 @@ AssetTrail은 GitHub Pages로 배포되는 정적 개인 자산 관리 앱이다
 | `action-engine.js` | 신규자금 제약 배분과 수동 태그 노출·위험예산을 계산하는 순수 엔진 |
 | `ledger-engine.js` | 거래·현금흐름 이벤트 검증, 기초잔액, 수량·원가·CASH 투영, 정정·취소 감사를 계산하는 순수 엔진 |
 | `performance-engine.js` | 검증 평가점의 TWR·XIRR, 원화 가치변화 브리지, 벤치마크, 낙폭·회복·변동성을 계산하는 순수 엔진 |
+| `history-repository.js` | 조회 스냅샷·성과 평가점을 월별 chunk로 정규화하고 digest 검증, IndexedDB 저장과 평면 배열 복원을 담당하는 순수 저장 엔진 |
 | `broker-csv-engine.js` | CSV 파싱·형식 감지·매핑 요청·중복 판별과 행별 처리 결과를 만드는 순수 엔진 |
 | `broker-csv-adapter-standard.js` | AssetTrail 표준 거래 CSV v1을 원장 이벤트 후보로 바꾸는 독립 어댑터 |
 | `external-data-engine.js` | 사용자가 붙여넣은 Butler 표를 출처·기준일·확정/컨센서스가 분리된 기업 사실 스냅샷으로 정규화하는 순수 엔진 |
 | `etf-exposure-engine.js` | 허용된 ETF 카탈로그를 검증하고 직접·간접 중복노출, 현금·미매핑·미보고 비중을 계산하는 순수 엔진 |
 | `ai-report-engine.js` | 상대지표 근거 envelope, 결정론 보고서, 수동 ChatGPT handoff와 응답 계약을 만드는 순수 엔진 |
+| `ai-review-export-engine.js` | 월간 점검용 `ASSETTRAIL_AI_REVIEW_V1` 최소 데이터, 고정 프롬프트와 무결성 digest를 만드는 순수 엔진 |
 | `firebase-config.js` | 브라우저용 Firebase 클라이언트 설정 |
 | `firebase.json` | Firebase 프로젝트 설정 |
 | `firestore.rules` | Firestore 접근 제어 경계 |
 
-GitHub Pages 배포는 `.github/workflows/deploy-pages.yml`에서 처리한다. 워크플로는 CI 중 `_site/`를 만들지만, `_site/`는 생성물이라 커밋하지 않는다.
+GitHub Pages 배포는 `.github/workflows/deploy-pages.yml`에서 처리한다. 워크플로는
+`STATIC_SITE_FILES` manifest로 런타임 파일을 `_site/`에 복사하고 `index.html`·
+`styles.css`의 로컬 참조가 배포 산출물에 모두 있는지 검사한다. `_site/`는 생성물이라
+커밋하지 않는다.
 
 ## 사용자 데이터 경계
 
@@ -37,6 +51,8 @@ AssetTrail은 로그아웃 상태의 로컬 사용과 로그인 상태의 클라
 | 로그아웃 | 브라우저 로컬 저장소 |
 | 로그인 주 상태 | Firestore 문서 `users/{uid}/financeData/primary` |
 | 로그인 원장 이벤트 | `users/{uid}/financeData/primary/ledgers/{ledgerId}/events/{eventId}` |
+| 로그아웃 장기 히스토리 | IndexedDB `assettrail-history-v1`의 사용자 범위별 manifest/chunk |
+| 로그인 장기 히스토리 | `users/{uid}/financeData/primary/histories/{historyId}/chunks/{chunkId}` |
 
 사용자 문서는 아래 데이터를 가진다.
 
@@ -44,63 +60,80 @@ AssetTrail은 로그아웃 상태의 로컬 사용과 로그인 상태의 클라
 |---|---|
 | `assets` | 자산 원장 |
 | `ledgerMeta` | 활성 원장 세대, 기준일, 이벤트 개수와 고정 fingerprint |
-| `decisionProfiles` | 종목 또는 비시장 자산 단위 투자 가설·역할·검토 기준과 7차원 `riskTags` |
-| `watchlist` | 보유 자산과 분리된 관심종목 목록 |
-| `snapshots` | 저장된 포트폴리오 히스토리 스냅샷 |
-| `performanceObservations` | 검증된 날짜별 NAV·누적 현금흐름·원장/가격 evidence·내용 무결성·벤치마크 평가점 |
+| `decisionProfiles` | UI는 일몰했지만 마이그레이션·백업 호환을 위해 보존하는 기존 투자 판단 데이터 |
+| `watchlist` | UI는 일몰했지만 보존하는 기존 관심종목 목록 |
+| `historyMeta` | v7 활성 히스토리 세대, 개수, chunk 수와 내용 fingerprint |
 | `realizedTrades` | 매도 처리로 생성된 실현손익 기록 |
 | `tradeJournalEntries` | 매수, 매도, 리밸런싱, 관찰 판단 매매일지 |
 | `retirement` | 은퇴 시뮬레이터 설정 |
 | `retirementScenarios` | 저장한 은퇴 시나리오 |
 | `portfolioTargets` | 밴드 목표값과 호환되는 기존 국내·해외·현금·수동 목표 비중 |
-| `policyProfile` | 네 자산군의 최소·목표·최대 비중 밴드와 역할·오버레이 위험예산 |
-| `contributionPlan` | 일회성·월 정기 신규자금 모드와 금액 |
+| `policyProfile` | UI는 일몰했지만 보존하는 기존 자산군 밴드·위험예산 |
+| `contributionPlan` | UI는 일몰했지만 보존하는 기존 신규자금 계획 |
 
 로컬 저장과 JSON 내보내기에는 `events` 배열도 포함되지만 로그인 사용자의 클라우드
 주 문서에는 이벤트 배열을 넣지 않는다. 클라우드에서는 `ledgerMeta.activeLedgerId`가
 가리키는 세대의 하위 컬렉션에서 이벤트를 읽는다. 이 구조는 이벤트 증가가 주 문서의
 900KB 안전 한도를 소진하지 않게 한다.
 
-저장 데이터는 현재 `schemaVersion: 6`을 사용한다. 버전이 없거나
-`schemaVersion: 1~5`인 기존 데이터는 검증 가능한 원본 백업을 먼저 만든 뒤 v6으로
-마이그레이션한다. 기존 자산마다 원장 기준일의 `OPENING_BALANCE`를 만들며 매수 시점과
-과거 환율을 추정하지 않는다. v5→v6은 빈 `performanceObservations`를 추가할 뿐 과거
-`snapshots`를 수익률 평가점으로 복제하지 않는다. 로컬 마이그레이션 백업은 별도 키에 쓴 뒤 다시 읽어
+저장 데이터는 현재 `schemaVersion: 7`을 사용한다. 버전이 없거나 v1~v6인 기존 데이터는
+검증 가능한 원본 백업을 먼저 만든 뒤 v7으로 마이그레이션한다. 기존 자산마다 원장
+기준일의 `OPENING_BALANCE`를 만들며 매수 시점과 과거 환율을 추정하지 않는다. v5→v6은
+빈 `performanceObservations`를 추가할 뿐 과거 `snapshots`를 수익률 평가점으로 복제하지
+않고, v6→v7은 IndexedDB를 사용할 수 있으면 두 평면 배열을 검증한 새 히스토리 세대로
+옮긴 뒤에만 v7 주 상태의 `historyMeta` 포인터를 저장한다. IndexedDB 미지원 환경은
+검증된 v7 평면 배열 호환 저장을 유지한다. 로컬 마이그레이션 백업은 별도 키에 쓴 뒤 다시 읽어
 일치 여부를 확인하고, 클라우드 스키마 이전 또는 강제 충돌 업로드 전에는 변경 불가능한
-`primary/backups/{backupId}` 사본을 남긴다. 이전에 실패하면 원래 상태를 유지한다.
+`primary/backups/{backupId}` 사본을 남긴다. 이전에 실패하면 원래 상태와 활성 세대를
+유지하고 새 기록 저장·동기화를 중단한다.
 
 기존 `portfolioTargets`는 각 목표값을 중심으로 기본 ±10%p 범위의
 `allocationBands`로 이전한다. v4에서 도입한 `policyProfile`, `contributionPlan`과
 `decisionProfiles.riskTags`도 그대로 유지한다. 같은 종목의 이전 계좌 행에 서로 다른
-판단이 있으면 첫 값을 임의로
-덮어쓰지 않고 `migrationConflicts`에 계좌별 원본을 보존해 상세 화면에서 비교하게
-한다. 사용자가 현재 판단을 명시적으로 저장한 뒤에만 충돌 기록을 해소한다.
+판단이 있으면 첫 값을 임의로 덮어쓰지 않고 `migrationConflicts`에 계좌별 원본을
+보존한다. 현재 레거시 편집 UI에서는 비교·해소하지 않으며 JSON 호환만 유지한다.
 자산의 시장·티커를 이미 다른 프로필이 있는 종목으로 바꾸면 대상 판단을 유지하고
 티커 변경으로 이전 `subjectKey`의 마지막 참조가 사라질 때만 이전 판단과 그 충돌
 원본을 대상의 `migrationConflicts`로 옮겨 비교 가능하게 한다. 다른 계좌나 관심종목이
 이전 `subjectKey`를 계속 사용하면 두 종목의 판단을 그대로 분리해 둔다.
-구버전 앱이 v6 데이터를 읽고 새 필드나 원장 하위 컬렉션을 제거한 채 다시 쓰지 못하도록
+구버전 앱이 v7 데이터를 읽고 새 필드나 원장·히스토리 하위 컬렉션을 제거한 채 다시 쓰지 못하도록
 미지원 미래 버전 보호를 유지하며, 로컬 또는 원격 문서가 현재 앱보다 새 버전이면 자동 pull과
 push를 모두 중단한다. 클라우드 문서는 단조 증가하는
 `revision`을 함께 저장하며, 다른 기기에서 더 최신 revision을 발견하면 자동
 덮어쓰기를 멈춘다. 사용자는 클라우드 가져오기, 이 기기 데이터 올리기, 나중에
 결정하기 중 하나를 선택하고, 앞의 두 작업 전에 현재 기기 JSON 백업을 받는다.
 
-조회 히스토리 스냅샷은 자산 전체를 복제하지 않고 `id`, `createdAt`, `total`,
-`note`, `typeTotals`만 저장한다.
-
-성과 평가점은 조회 스냅샷과 별개다. `performanceObservations`는 날짜별 NAV, 시장·현금·
+조회 히스토리 스냅샷은 자산 전체를 복제하지 않고 `id`, `createdAt`, `total`, `note`,
+`typeTotals`, 월간 점검 출처와 다음 점검일·품질 이슈만 저장한다. 같은 달의
+`MONTHLY_REVIEW`는 기존 기록을 갱신하고, 빠른 조회 기록은 별도 `QUICK_SNAPSHOT`으로
+추가한다. `performanceObservations`는 조회 기록과 별개로 날짜별 NAV, 시장·현금·
 수동평가·미결제 금액, 누적 입출금·배당·이자·비용, USD/KRW와 벤치마크 수준,
-`ledgerAsOfFingerprint`, `priceFingerprint`, `markFingerprint`, 방법론과 완전성
-상태를 저장한다. 최대 300개만 허용하며, 로컬·클라우드·JSON 내보내기/가져오기와
-충돌 fingerprint에 포함한다. 같은 날짜의 평가점은 최신 검증 상태로 갱신한다. 300개
-한도에 도달하면 기존 날짜 평가점은 보존·갱신할 수 있지만 새 날짜 평가점은 생성하지
-않고 화면에 이유를 알린다. 이 상한은 사용자 주 문서의 900KB 한도에 안전 여유를
-남기기 위한 현재 정책이며 장기 보존에는 별도 하위 컬렉션 또는 chunk 구조가 필요하다.
+`ledgerAsOfFingerprint`, `priceFingerprint`, `markFingerprint`, 방법론과 완전성을
+저장한다. 두 목록은 각각 최대 10,000개까지 가져오고 보존한다.
+
+v7 장기 이력은 주 상태 문서에서 분리한다. 로컬에서는 IndexedDB
+`assettrail-history-v1`, 클라우드에서는
+`users/{uid}/financeData/primary/histories/{historyId}/chunks/{chunkId}`를 사용한다.
+성과 평가점은 날짜 기준 월별 chunk 하나에 최대 31개, 조회 스냅샷은 생성 월 기준
+chunk 하나에 최대 50개·256KiB를 넣는다. 스냅샷 chunk가 한도를 넘으면 ID의 SHA-256
+prefix로 안정적으로 shard한다. 각 chunk digest와 전체 content fingerprint를 검증한다.
+로컬 IndexedDB와 Firestore 모두 새 세대를 쓴 뒤 다시 읽어 검증하고, 마지막에 주 상태의
+`historyMeta` 포인터만 전환한다. Firestore에서는 사용자 본인만 읽고 제한된 chunk
+스키마를 만족한 생성·갱신을 할 수 있다. 일반 저장이 성공하면 백업이 참조하지 않는
+직전 비활성 세대만 정리하고, 활성 세대와 스키마 이전·강제 충돌 백업이 참조하는 세대는
+삭제하지 않는다. digest 내용 검증은 클라이언트가 세대 활성화 전에 수행한다.
+
+정상 JSON 내보내기·가져오기는 이동성을 위해 `snapshots`와
+`performanceObservations` 평면 배열을 계속 포함한다. 전체 수동 내보내기와 가져오기·
+CSV·클라우드 충돌 전 자동 백업은 같은 compact JSON 직렬화를 사용하고, portable JSON
+가져오기 파일은 브라우저 메모리 방어를 위해 32MiB 이하로 제한한다. 분리 세대가 아직 없는 신규·v6
+데이터에서 IndexedDB를 사용할 수 없으면 같은 평면 배열을 로컬 주 상태에 두는 명시적
+호환 모드로 전환한다. 기존 v7 `historyMeta`가 가리키는 세대를 읽지 못하면 원본 포인터를
+보호하고 변경·동기화·전체 내보내기를 중단한다.
 
 사용자별 Firestore 경계는 제품 요구사항이다. 포트폴리오 데이터는 해당 로그인 사용자만 읽고 쓸 수 있어야 한다.
 
-5단계의 기업 스냅샷과 ETF 카탈로그는 v6 사용자 주 문서와 분리한다. 현재
+기존 기업 스냅샷과 ETF 카탈로그는 v7 사용자 주 문서와 분리한다. 현재
 `activeStorageKey`에 각각 `:external-data-v1`, `:etf-catalog-v1` 접미사를 붙인
 브라우저 로컬 저장소를 사용하므로 로그인 사용자가 바뀌면 저장 경계도 함께 전환된다.
 기업 저장소는 정규화 스냅샷 최대 60개·약 750KB, ETF 카탈로그는 약 2MB로 제한한다.
@@ -110,7 +143,8 @@ push를 모두 중단한다. 클라우드 문서는 단조 증가하는
 비우기를 중단하고, 다른 탭의 `storage` 이벤트는 최신 저장소를 다시 읽는다. 사용자 전환은
 진행 중인 외부·ETF 파일 읽기 토큰을 무효화하고 입력·결과 DOM을 초기화한다. 외부 데이터는
 백업을 다시 가져올 수 있고 개별 스냅샷 삭제 전에도 백업하며, ETF 전체 교체 전에는 기존
-카탈로그를 백업한다. Butler 원문과 AI 보고서 입력·응답도 영구 저장하지 않는다.
+카탈로그를 백업한다. 현재 분석 UI는 숨겨져 있고 설정의 기존 확장 데이터 백업·복원만
+노출한다. Butler 원문과 AI 점검 파일 입력·외부 AI 응답도 영구 저장하지 않는다.
 
 ## 자산 모델
 
@@ -137,7 +171,10 @@ push를 모두 중단한다. 클라우드 문서는 단조 증가하는
 
 같은 티커라도 계좌가 다르면 별도 자산 행으로 관리한다.
 
-## 의사결정 모델과 식별자 경계
+## 레거시 의사결정 모델과 식별자 경계
+
+의사결정 상세·관심종목 UI는 현재 핵심 제품에서 일몰했다. 아래 계약은 기존 저장 데이터,
+백업과 과거 엔진 테스트를 손실 없이 유지하기 위한 호환 경계다.
 
 보유 수량과 거래 처리는 계좌별 자산 행을 기준으로 하지만, 시장 종목의 투자 가설은
 계좌와 무관한 종목 단위로 공유한다.
@@ -217,8 +254,8 @@ manifest를 검증한 뒤 마지막 transaction에서 `activeLedgerId`를 원자
 
 JSON 가져오기는 이벤트 자체뿐 아니라 자산·CASH·실현손익·매매일지의 양방향 참조와
 최종 잔액을 검증한 뒤에만 현재 상태를 교체한다. 강제 충돌 업로드는 원격 주 문서를
-변경 불가능한 백업으로 남긴 뒤 진행한다. 스키마 v6과 원장·성과 필드를 모르는 이전 앱은
-v6 주 문서를 감지하면 읽기·쓰기를 중단한다.
+변경 불가능한 백업으로 남긴 뒤 진행한다. 스키마 v7과 원장·성과·히스토리 필드를 모르는
+이전 앱은 v7 주 문서를 감지하면 읽기·쓰기를 중단한다.
 
 ## 증권사 CSV 증분 가져오기
 
@@ -316,7 +353,10 @@ S&P 500 환율 날짜가 포트폴리오 평가점과 모두 일치할 때만 �
 임계값은 확인을 돕는 일반 정보이며 자동 매수·매도 또는 개인 투자정책이 아니다.
 성과율, ETF 투시, 국가·통화 실질노출과 AI 해석은 1단계 엔진 범위에 포함하지 않는다.
 
-## 행동 지원 계산
+## 레거시 행동 지원 계산
+
+신규자금 배분·위험예산 UI는 현재 숨겨져 있다. 계산 엔진과 입력 데이터는 기존 백업의
+재현성과 무손실 마이그레이션을 위해 유지한다.
 
 `action-engine.js`의 신규자금 계산은 국내·해외·현금·수동 네 자산군의 현재 원화
 평가금액과 최소·목표·최대 비중을 입력받는다. 먼저 최소 비중 부족분을 채우고, 남은
@@ -341,7 +381,10 @@ S&P 500 환율 날짜가 포트폴리오 평가점과 모두 일치할 때만 �
 ETF 구성종목 자동 투시와 태그별 부분 노출률은 지원하지 않는다. ETF 자동 투시는
 출처·기준일·커버리지 모델을 갖추는 5단계 범위다.
 
-## 외부 기업 데이터
+## 레거시 외부 기업 데이터
+
+Butler 가져오기 화면은 현재 숨겨져 있다. 아래 형식으로 이미 저장된 사용자별 로컬
+데이터는 설정에서 별도 백업·복원할 수 있다.
 
 `external-data-engine.js`의 현재 운영 입력은 Butler 공식 화면에서 사용자가 직접 복사한
 재무정보 TSV다. 앱은 자산, 시장, 통화와 `butler.works` 출처 URL을 사용자가 확인한 뒤
@@ -367,7 +410,10 @@ Butler는 보조 집계 출처다. 현재 구현은 공식 개발자 API나 자�
 설계하고 승인해야 한다. 컨센서스 데이터도 제품·비용·라이선스 결정 전에는 자동
 수집하지 않는다.
 
-## ETF 실질노출
+## 레거시 ETF 실질노출
+
+ETF 투시 화면은 현재 숨겨져 있다. 아래 카탈로그 계약과 기존 사용자별 로컬 데이터는
+삭제하지 않고 설정의 별도 백업·복원 경로로 보존한다.
 
 `etf-exposure-engine.js`는 `assettrail.etf-holdings.v1` 카탈로그만 받아 표준
 `KRX:005930`, `US:AAPL` 형태로 종목을 연결한다. 카탈로그와 각 펀드는 출처 URL,
@@ -393,30 +439,28 @@ Butler는 보조 집계 출처다. 현재 구현은 공식 개발자 API나 자�
 행과 겹치면 주식으로 유지한다. 종류가 없는 v1 구성종목은 실제 하위 펀드 행이 있을
 때만 이전 중첩 호환 동작을 사용한다.
 
-## 근거 envelope와 AI 보고서
+## AI 월간 점검 Markdown
 
-`ai-report-engine.js`는 포트폴리오 비중, 검증 성과율, ETF 커버리지와 데이터 상태처럼
-허용된 상대지표만 `ASSETTRAIL_AI_EVIDENCE_V1`로 정규화한다. 개별 Butler 기업 비율은
-분석 화면에서 결정론적으로 표시하되 명시적 기업 범위·익명화 정책이 생기기 전에는 AI
-envelope에 넣지 않는다. UID,
-이메일, 계좌·자산·거래 ID, 원거래, 절대 금액·수량, 자유 메모, URL과 은퇴 입력은
-제외한다. 근거 ID는 불투명 ID로 바꾸고 envelope와 각 사실의 digest를 검증해 입력
-변조와 알려지지 않은 근거 참조를 막는다.
+`ai-review-export-engine.js`는 설정에서 내려받는 `ASSETTRAIL_AI_REVIEW_V1` 패키지를
+만든다. 파일은 고정 `ASSETTRAIL_MONTHLY_REVIEW_PROMPT_V1`과 검증 가능한 JSON을 한
+Markdown 안에 담는다. 포트폴리오 자산군·포지션 상대 비중, Top 1·Top 5·HHI,
+검증된 TWR·XIRR·낙폭·변동성, 은퇴 충족률·필요수익률과 월간 점검 상태만 허용한다.
+현재 앱은 숨겨진 레거시 `portfolioTargets`를 사용자의 현재 확정값으로 간주하지 않는다.
+따라서 `targetComparison.status`는 항상 `DEFAULT_NOT_CONFIRMED`이고 목표 비중과 차이는
+`null`로 내보낸다. 엔진의 `USER_CONFIGURED` 계약은 향후 명시적 확인 UI를 위한 호환
+범위일 뿐 현재 앱이 생성하지 않는다. 데이터 품질이 `LIMITED`, `STALE`, `INCOMPLETE`, `UNAVAILABLE` 또는
+`UNKNOWN`이면 지침이 한계를 먼저 밝히고 결론을 유보하도록 요구한다.
 
-기본 `ASSETTRAIL_AI_REPORT_V1`은 `DETERMINISTIC_RULES`가 만들며 계산과 데이터 품질을
-근거 ID에 연결한다. 외부 AI가 없어도 이 보고서와 위험 경고는 동작한다. 사용자가
-원할 때만 `ASSETTRAIL_CHATGPT_HANDOFF_V1` JSON을 복사해 ChatGPT에 수동 전달할 수
-있다. 돌아온 JSON은 기존 근거만 인용하는지, 계산값을 새로 만들어내지 않는지,
-불확실성과 누락을 숨기지 않는지 검증한다. 각 항목은 exact `factIds`와 그 사실들의 exact
-근거 합집합을 요구하며, 계산 문장은 결정론 템플릿과 완전 일치하고 해석·불확실성은
-고정 안전 문구만 허용한다. 자동 매매 지시·HTML·마크다운·URL·프롬프트 삽입도 거부한다.
-성과 수치는 정확한 기간 경계, 완전한 평가점과 현금흐름, 검증된 TWR을 모두 만족할 때만
-근거로 제공하고 최신 평가점이 7일을 넘으면 해당 AI 근거를 `STALE`로 표시한다.
+UID·이메일·이름, 계좌명, 내부 자산·거래 ID, 원거래, 절대 평가액·거래액·수량, 자유
+메모와 URL은 제외한다. `privacy` 필드는 절대 금액·계좌명·거래 행·자유 텍스트,
+네트워크 요청과 앱 데이터 저장 쓰기가 모두 없었음을 명시한다. digest는 `generatedAt`을
+제외한 안정 콘텐츠의 canonical JSON SHA-256이며, exact-key 검증을 통과한 경우에만
+Markdown으로 내려받는다.
 
-브라우저와 배포물에는 모델 API 키나 자동 네트워크 호출이 없다. ChatGPT Pro 인증은
-커스텀 앱의 API 인증이나 사용량으로 전환할 수 없으므로 재사용하지 않는다. 인증된
-callable 백엔드, App Check, 서버측 최신 revision 재검증, Secret Manager와 별도 모델
-비용을 포함한 자동 호출은 제품·비용·보안 승인을 받기 전까지 미구현 상태다.
+앱은 AI API나 ChatGPT 계정을 연동하지 않고 파일을 자동 전송하지 않는다. 외부 AI의
+응답을 다시 가져오거나 저장·실행하는 경로도 없다. 사용자가 파일을 원하는 서비스에
+직접 첨부하고 해석 결과를 판단한다. 기존 `ai-report-engine.js`의 evidence/report/handoff
+계약과 저장된 Butler·ETF 데이터는 삭제하지 않지만 해당 분석 UI는 `LEGACY`로 숨긴다.
 
 ## 가격표 흐름
 

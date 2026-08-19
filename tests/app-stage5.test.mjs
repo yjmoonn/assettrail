@@ -377,8 +377,9 @@ assert.equal(analysisAiPanel.hidden, false);
 assert.equal(window.document.activeElement, window.document.querySelector("#aiReportTitle"));
 analysisTaskButtons[0].click();
 assert.equal(analysisExternalPanel.hidden, false);
-assert.ok(window.document.querySelector("#downloadExternalDataBtn").closest(".analysis-data-management"));
+assert.ok(window.document.querySelector("#downloadExternalDataBtn").closest(".settings-backup-card"));
 assert.ok(window.document.querySelector("#downloadEtfTemplateBtn").closest(".analysis-data-management"));
+assert.ok(window.document.querySelector("#downloadEtfCatalogBtn").closest(".settings-backup-card"));
 assert.ok(window.document.querySelector("#refreshEvidenceBtn").closest(".analysis-data-management"));
 
 const butlerTable = [

@@ -3,10 +3,17 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 
 const html = readFileSync("index.html", "utf8");
-const appCode = [readFileSync("ledger-engine.js", "utf8"), readFileSync("app.js", "utf8")].join("\n");
+const historyRepositoryCode = readFileSync("history-repository.js", "utf8");
+const appCode = [
+  readFileSync("ledger-engine.js", "utf8"),
+  historyRepositoryCode,
+  readFileSync("app.js", "utf8")
+].join("\n");
 const STORAGE_KEY = "finance-ledger-retirement-v1";
+const PORTABLE_IMPORT_MAX_BYTES = 32 * 1024 * 1024;
+const MAX_PORTABLE_HISTORY_FIXTURE_BYTES = 16_106_941;
 
-function installBrowserStubs(window, { alerts = [], downloads = [] } = {}) {
+function installBrowserStubs(window, { alerts = [], downloads = [], downloadBlobs = [] } = {}) {
   window.HTMLCanvasElement.prototype.getContext = () => ({
     arc() {},
     beginPath() {},
@@ -31,8 +38,12 @@ function installBrowserStubs(window, { alerts = [], downloads = [] } = {}) {
   window.HTMLElement.prototype.scrollIntoView = () => {};
   window.HTMLAnchorElement.prototype.click = function click() {
     downloads.push(this.download);
+    if (window.__assetTrailDownloadBlob) downloadBlobs.push(window.__assetTrailDownloadBlob);
   };
-  window.URL.createObjectURL = () => "blob:assettrail-test";
+  window.URL.createObjectURL = (blob) => {
+    window.__assetTrailDownloadBlob = blob;
+    return "blob:assettrail-test";
+  };
   window.URL.revokeObjectURL = () => {};
   window.alert = (message) => alerts.push(String(message));
   window.confirm = () => true;
@@ -145,12 +156,186 @@ function evalAppWithLedgerCloudTestApi(window) {
   return window.__ledgerCloudTestApi;
 }
 
+for (const protectedRaw of [
+  JSON.stringify({
+    schemaVersion: 8,
+    futureOnlyData: { mustRemain: true },
+    assets: [],
+    snapshots: []
+  }),
+  JSON.stringify({
+    schemaVersion: 7,
+    assets: [],
+    events: [],
+    historyMeta: {
+      schemaVersion: "assettrail.history.v1",
+      activeHistoryId: "history-over-limit",
+      snapshotCount: 10_001,
+      performanceCount: 0,
+      chunkCount: 1,
+      contentFingerprint: `history-v1:${"0".repeat(64)}`,
+      updatedAt: "2026-08-19T00:00:00.000Z"
+    },
+    retirement: {}
+  }),
+  "{malformed-json-that-must-remain"
+]) {
+  const dom = makeDom();
+  const { window } = dom;
+  installBrowserStubs(window);
+  window.firebaseConfig = {};
+  window.indexedDB = {};
+  window.assetTrailHistoryAdapterFactory = () => (
+    window.AssetTrailHistoryRepository.createMemoryHistoryAdapter()
+  );
+  window.localStorage.setItem(STORAGE_KEY, protectedRaw);
+
+  window.eval(appCode);
+  await waitForApp(window);
+
+  assert.equal(
+    window.localStorage.getItem(STORAGE_KEY),
+    protectedRaw,
+    "unreadable local primary must remain byte-identical even when a history adapter is available"
+  );
+  assert.equal(window.eval("persist()"), false);
+  assert.match(window.document.querySelector("#appNotice").textContent, /자동 저장을 중단|그대로 보호/);
+  dom.window.close();
+}
+
+// A present but oversized v7 history pointer is invalid, not a signal to fall
+// back to flat arrays. Reject it before any remote history chunk read.
+{
+  const dom = makeDom();
+  const { window } = dom;
+  installBrowserStubs(window);
+  window.firebaseConfig = {};
+  window.eval(`${appCode}
+    window.__oversizedHistoryMetaTestApi = {
+      pull(data, getDocs) {
+        cloud.user = { uid: "history-limit-user" };
+        cloud.docRef = { path: "users/history-limit-user/financeData/primary" };
+        cloud.db = {};
+        cloud.collection = (_database, ...segments) => ({ path: segments.join("/") });
+        cloud.getDocs = getDocs;
+        activeStorageKey = storageKeyForUser(cloud.user);
+        return pullCloudHistory(data, captureCloudContext());
+      }
+    };
+  `);
+  await waitForApp(window);
+
+  for (const counts of [
+    { snapshotCount: 10_001, performanceCount: 0 },
+    { snapshotCount: 0, performanceCount: 10_001 }
+  ]) {
+    let historyChunkReads = 0;
+    const cloudData = {
+      schemaVersion: 7,
+      snapshots: [],
+      performanceObservations: [],
+      historyMeta: {
+        schemaVersion: "assettrail.history.v1",
+        activeHistoryId: "history-over-limit",
+        ...counts,
+        chunkCount: 1,
+        contentFingerprint: `history-v1:${"0".repeat(64)}`,
+        updatedAt: "2026-08-19T00:00:00.000Z"
+      }
+    };
+    await assert.rejects(
+      window.__oversizedHistoryMetaTestApi.pull(cloudData, async () => {
+        historyChunkReads += 1;
+        return { forEach() {} };
+      }),
+      (error) => error?.code === "assettrail/cloud-history-incomplete"
+    );
+    assert.equal(historyChunkReads, 0, "oversized history metadata must fail before chunk reads");
+  }
+  dom.window.close();
+}
+
+{
+  const dom = makeDom();
+  const { window } = dom;
+  const alerts = [];
+  installBrowserStubs(window, { alerts });
+  window.firebaseConfig = {};
+  window.eval(historyRepositoryCode);
+  const originalBundle = window.eval(`AssetTrailHistoryRepository.createHistoryBundle(
+    { snapshots: [], performanceObservations: [] },
+    { historyId: "history-original", updatedAt: "2026-08-19T00:00:00.000Z" }
+  )`);
+  const { historyId, ...manifest } = JSON.parse(JSON.stringify(originalBundle.manifest));
+  const originalRaw = JSON.stringify({
+    schemaVersion: 7,
+    assets: [],
+    events: [],
+    historyMeta: { ...manifest, activeHistoryId: historyId },
+    retirement: { monthlySpend: 4400000 }
+  });
+  window.localStorage.setItem(STORAGE_KEY, originalRaw);
+  window.assetTrailHistoryAdapterFactory = () => ({
+    deleteBundle: async () => {},
+    readActiveBundle: async () => null,
+    readBundle: async () => null,
+    setActiveHistoryId: async () => {},
+    writeBundle: async () => {
+      await Promise.resolve();
+      throw new Error("simulated async history write failure");
+    }
+  });
+  window.eval(`${appCode}
+    window.__importRollbackTestApi = {
+      state: () => storageSafeState(),
+      blocked: () => historyStorage.blocked
+    };
+  `);
+  await waitForApp(window, 50);
+  assert.equal(window.__importRollbackTestApi.blocked(), true);
+  assert.equal(window.__importRollbackTestApi.state().retirement.monthlySpend, 4400000);
+
+  const candidate = window.__importRollbackTestApi.state();
+  candidate.retirement.monthlySpend = 7777777;
+  await dispatchImport(window, jsonFile(window, candidate, "blocked-recovery.json"));
+  await waitForApp(window, 100);
+
+  assert.match(alerts.at(-1), /저장하지 못해 기존 화면 데이터로 되돌렸습니다/);
+  const restoredRaw = window.localStorage.getItem(STORAGE_KEY);
+  assert.equal(
+    restoredRaw,
+    originalRaw,
+    "failed blocked-state recovery import must restore the original primary byte-for-byte"
+  );
+  dom.window.close();
+
+  const reloadDom = makeDom();
+  const reloadWindow = reloadDom.window;
+  installBrowserStubs(reloadWindow);
+  reloadWindow.firebaseConfig = {};
+  reloadWindow.localStorage.setItem(STORAGE_KEY, restoredRaw);
+  reloadWindow.eval(`${appCode}
+    window.__importRollbackReloadApi = {
+      state: () => storageSafeState()
+    };
+  `);
+  await waitForApp(reloadWindow, 50);
+  assert.equal(
+    reloadWindow.__importRollbackReloadApi.state().retirement.monthlySpend,
+    4400000,
+    "a fresh reload after rejected recovery import must see the original state"
+  );
+  assert.equal(reloadWindow.localStorage.getItem(STORAGE_KEY), originalRaw);
+  reloadDom.window.close();
+}
+
 {
   const dom = makeDom();
   const { window } = dom;
   const alerts = [];
   const downloads = [];
-  installBrowserStubs(window, { alerts, downloads });
+  const downloadBlobs = [];
+  installBrowserStubs(window, { alerts, downloads, downloadBlobs });
   window.firebaseConfig = {};
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
     assets: [{
@@ -187,7 +372,7 @@ function evalAppWithLedgerCloudTestApi(window) {
   await waitForApp(window);
 
   const migrated = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
-  assert.equal(migrated.schemaVersion, 6);
+  assert.equal(migrated.schemaVersion, 7);
   assert.equal(migrated.assets[0].updatedAt, "2026-07-29T12:00:00.000Z");
   assert.equal(migrated.assets[0].investmentRole, undefined);
   assert.equal(migrated.decisionProfiles.length, 1);
@@ -208,19 +393,24 @@ function evalAppWithLedgerCloudTestApi(window) {
   assert.deepEqual(migrated.watchlist, []);
   assert.deepEqual(
     Object.keys(migrated.snapshots[0]).sort(),
-    ["createdAt", "id", "note", "total", "typeTotals"]
+    ["createdAt", "id", "nextReviewAt", "note", "qualityIssues", "source", "total", "typeTotals"]
   );
   assert.equal(migrated.snapshots[0].assets, undefined);
   assert.deepEqual(migrated.snapshots[0].typeTotals, { CASH: 3000000 });
 
+  const firstAutomaticBackupBytes = Buffer.byteLength(
+    window.eval("serializeStateFile(storageSafeState())"),
+    "utf8"
+  );
   await dispatchImport(window, jsonFile(window, migrated, "round-trip-v2.json"));
   const roundTripped = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
-  assert.equal(roundTripped.schemaVersion, 6);
+  assert.equal(roundTripped.schemaVersion, 7);
   assert.equal(roundTripped.assets[0].id, "legacy-cash");
   assert.equal(roundTripped.snapshots[0].id, "legacy-snapshot");
   assert.equal(roundTripped.decisionProfiles[0].nextReviewAt, "2026-08-31");
   assert.equal(roundTripped.policyProfile.riskBudgets.coreMinPct, 40);
   assert.equal(downloads.length, 1);
+  assert.equal(downloadBlobs[0].size, firstAutomaticBackupBytes, "pre-import backup must use compact portable JSON");
 
   const storagePrototype = Object.getPrototypeOf(window.localStorage);
   const originalSetItem = storagePrototype.setItem;
@@ -230,6 +420,10 @@ function evalAppWithLedgerCloudTestApi(window) {
   assert.equal(window.eval("persist()"), false);
   assert.match(window.document.querySelector("#appNotice").textContent, /저장하지 못했습니다/);
   const beforeFailedImport = window.localStorage.getItem(STORAGE_KEY);
+  const failedImportBackupBytes = Buffer.byteLength(
+    window.eval("serializeStateFile(storageSafeState())"),
+    "utf8"
+  );
   await dispatchImport(window, jsonFile(window, {
     assets: [{
       id: "unsaved-import",
@@ -243,10 +437,141 @@ function evalAppWithLedgerCloudTestApi(window) {
   assert.equal(window.localStorage.getItem(STORAGE_KEY), beforeFailedImport);
   assert.equal(window.document.querySelector("#totalAsset").textContent, "₩3,000,000");
   assert.equal(downloads.length, 2);
+  assert.equal(downloadBlobs[1].size, failedImportBackupBytes, "failed import recovery backup must stay portable");
   assert.match(alerts.at(-1), /저장하지 못해 기존 화면 데이터로 되돌렸습니다/);
   assert.doesNotMatch(window.document.querySelector("#appNotice").textContent, /새 데이터를 가져왔습니다/);
   storagePrototype.setItem = originalSetItem;
   assert.equal(alerts.length, 1);
+  dom.window.close();
+}
+
+{
+  const dom = makeDom();
+  const { window } = dom;
+  const downloads = [];
+  const downloadBlobs = [];
+  installBrowserStubs(window, { downloads, downloadBlobs });
+  window.firebaseConfig = {};
+  window.eval(appCode);
+  await waitForApp(window);
+
+  const historyCountLimit = 10000;
+  const startAt = Date.UTC(1990, 0, 1);
+  const dateAt = (index) => new Date(startAt + (index * 24 * 60 * 60 * 1000))
+    .toISOString()
+    .slice(0, 10);
+  const snapshots = Array.from({ length: historyCountLimit }, (_, index) => {
+    const date = dateAt(index);
+    return {
+      id: `snapshot-${String(index).padStart(5, "0")}`,
+      createdAt: `${date}T12:00:00.000Z`,
+      total: 100000000 + index,
+      note: `월간 점검 ${index + 1}`,
+      typeTotals: { KRX: 40000000, US: 30000000, CASH: 20000000, MANUAL: 10000000 + index },
+      source: "MONTHLY_REVIEW",
+      nextReviewAt: date,
+      qualityIssues: ["PRICE_STALE", "FX_STALE"]
+    };
+  });
+  const performanceObservations = Array.from({ length: historyCountLimit }, (_, index) => {
+    const date = dateAt(index);
+    return {
+      id: `performance-${String(index).padStart(5, "0")}`,
+      date,
+      capturedAt: `${date}T23:59:59.000Z`,
+      cutoff: "END_OF_DAY_POST_FLOW",
+      source: "AUTOMATIC_PRICE_CLOSE",
+      snapshotId: snapshots[index].id,
+      navKRW: 100000000 + index,
+      marketValueKRW: 70000000 + index,
+      cashKRW: 20000000,
+      manualValueKRW: 10000000,
+      unsettledKRW: 0,
+      usMarketValueNative: 25000,
+      usMarketValueKRW: 30000000,
+      usdKrw: 1300,
+      usdKrwDate: date,
+      typeTotals: { KRX: 40000000 + index, US: 30000000, CASH: 20000000, MANUAL: 10000000 },
+      cumulative: {
+        externalFlowKRW: 0,
+        depositsKRW: 1000000,
+        withdrawalsKRW: 1000000,
+        dividendsKRW: 10000,
+        interestKRW: 1000,
+        feesKRW: 500,
+        taxesKRW: 100,
+        fxDifferenceKRW: 0
+      },
+      benchmarkLevels: {
+        KOSPI: {
+          level: 2500 + index,
+          date,
+          currency: "KRW",
+          returnType: "PRICE",
+          source: "PUBLIC_PRICE_FILE",
+          priceBasis: "CLOSE",
+          distributionTreatment: "EXCLUDED",
+          levelUnit: "INDEX_POINT"
+        },
+        SP500: {
+          level: 4500 + index,
+          date,
+          currency: "USD",
+          returnType: "PRICE",
+          source: "PUBLIC_PRICE_FILE",
+          priceBasis: "CLOSE",
+          distributionTreatment: "EXCLUDED",
+          levelUnit: "INDEX_POINT"
+        }
+      },
+      priceBasis: "CLOSE",
+      distributionTreatment: "EXCLUDED",
+      ledgerAsOfFingerprint: `ledger-event-v1:${String(index).padStart(32, "0")}`,
+      priceFingerprint: `performance-price-v1:${String(index).padStart(32, "0")}`,
+      markFingerprint: "",
+      completeness: "INCOMPLETE",
+      issueCodes: ["MARK_NOT_SEALED"]
+    };
+  });
+  window.__maxPortableFixture = {
+    ...window.eval("storageSafeState()"),
+    snapshots,
+    performanceObservations
+  };
+  const result = window.eval(`(() => {
+    replaceState(migrateState(window.__maxPortableFixture));
+    const portable = storageSafeState();
+    const serialized = serializeStateFile(portable);
+    const bytes = new Blob([serialized]).size;
+    assertImportFileSize({ size: bytes });
+    const validated = validateImportPayload(JSON.parse(serialized));
+    return {
+      serialized,
+      bytes,
+      limit: ${PORTABLE_IMPORT_MAX_BYTES},
+      snapshotCount: validated.snapshots.length,
+      performanceCount: validated.performanceObservations.length
+    };
+  })()`);
+
+  assert.equal(result.snapshotCount, historyCountLimit);
+  assert.equal(result.performanceCount, historyCountLimit);
+  assert.equal(result.serialized, JSON.stringify(JSON.parse(result.serialized)), "portable state JSON must be compact");
+  assert.equal(result.bytes, Buffer.byteLength(result.serialized, "utf8"));
+  assert.equal(result.bytes, MAX_PORTABLE_HISTORY_FIXTURE_BYTES, "maximum history fixture byte size changed");
+  assert.equal(result.bytes <= result.limit, true, `maximum history fixture must fit the ${result.limit}-byte import limit`);
+  assert.doesNotThrow(() => window.eval(`assertImportFileSize({ size: ${result.limit} })`));
+  assert.throws(
+    () => window.eval(`assertImportFileSize({ size: ${result.limit + 1} })`),
+    /32MB/
+  );
+
+  window.document.querySelector("#exportBtn").click();
+  assert.equal(downloads.length, 1);
+  assert.match(downloads[0], /^finance-ledger-\d{4}-\d{2}-\d{2}\.json$/);
+  assert.equal(downloadBlobs.length, 1);
+  assert.equal(downloadBlobs[0].size, result.bytes, "manual full backup must use the same compact portable payload");
+  delete window.__maxPortableFixture;
   dom.window.close();
 }
 
@@ -265,7 +590,7 @@ function evalAppWithLedgerCloudTestApi(window) {
   const storagePrototype = Object.getPrototypeOf(window.localStorage);
   const originalSetItem = storagePrototype.setItem;
   storagePrototype.setItem = function setItemWithMigrationFailure(key, value) {
-    if (key === STORAGE_KEY && JSON.parse(String(value)).schemaVersion === 6) {
+    if (key === STORAGE_KEY && JSON.parse(String(value)).schemaVersion === 7) {
       throw new window.DOMException("quota", "QuotaExceededError");
     }
     return originalSetItem.call(this, key, value);
@@ -275,7 +600,7 @@ function evalAppWithLedgerCloudTestApi(window) {
   await waitForApp(window);
 
   assert.equal(window.localStorage.getItem(STORAGE_KEY), legacyRaw, "failed migration must keep the active v4 payload");
-  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v4-to-v6`), legacyRaw);
+  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v4-to-v7`), legacyRaw);
   assert.equal(window.eval("persist()"), false);
   assert.match(window.document.querySelector("#appNotice").textContent, /자동 저장을 중단|보호/);
   window.document.querySelector("#assetForm").dispatchEvent(
@@ -623,6 +948,8 @@ function evalAppWithLedgerCloudTestApi(window) {
 
   const testApi = evalAppWithLedgerCloudTestApi(window);
   await waitForApp(window, 50);
+  transactionAttempts = 0;
+  stagedWrites.length = 0;
 
   const oldEvent = ledgerDepositEvent(9000, { eventId: "old-existing-event" });
   const oldFingerprint = testApi.fingerprint([oldEvent]);
@@ -768,7 +1095,7 @@ function evalAppWithLedgerCloudTestApi(window) {
   installBrowserStubs(window, { alerts, downloads });
   window.firebaseConfig = {};
   const futureRaw = JSON.stringify({
-    schemaVersion: 6,
+    schemaVersion: 8,
     futureOnlyData: { mustRemain: true },
     assets: [],
     snapshots: []
@@ -802,12 +1129,12 @@ function evalAppWithLedgerCloudTestApi(window) {
 
   await dispatchImport(window, {
     name: "oversized.json",
-    size: 15 * 1024 * 1024 + 1,
+    size: PORTABLE_IMPORT_MAX_BYTES + 1,
     text: async () => "{}"
   });
   assert.equal(window.localStorage.getItem(STORAGE_KEY), beforeInvalidImport);
   assert.equal(downloads.length, 0);
-  assert.match(alerts.at(-1), /15MB 이하/);
+  assert.match(alerts.at(-1), /32MB 이하/);
 
   await dispatchImport(window, jsonFile(window, {
     assets: [{
@@ -839,7 +1166,7 @@ function evalAppWithLedgerCloudTestApi(window) {
   const recovered = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
   assert.equal(downloads.length, 1);
   assert.match(downloads[0], /^finance-ledger-recovery-before-import-/);
-  assert.equal(recovered.schemaVersion, 6);
+  assert.equal(recovered.schemaVersion, 7);
   assert.equal(recovered.assets[0].id, "recovered-cash");
   assert.equal(recovered.watchlist[0].ticker, "MSFT");
   assert.equal(recovered.decisionProfiles[0].subjectKey, "INSTRUMENT:US:MSFT");
@@ -938,7 +1265,7 @@ function evalAppWithLedgerCloudTestApi(window) {
   await waitForApp(window, 50);
   const primaryTransactionWrites = () => transactionWrites.filter((write) => write.path === "users/alice/financeData/primary");
   assert.equal(primaryTransactionWrites().length, 1, "legacy remote state must be promoted immediately after download");
-  assert.equal(primaryTransactionWrites()[0].data.schemaVersion, 6);
+  assert.equal(primaryTransactionWrites()[0].data.schemaVersion, 7);
   assert.equal(primaryTransactionWrites()[0].data.revision, 5);
   assert.equal(primaryTransactionWrites()[0].data.meta.cloudRevision, 5);
   assert.equal(primaryTransactionWrites()[0].options.merge, false);
@@ -965,7 +1292,7 @@ function evalAppWithLedgerCloudTestApi(window) {
   addCash("추가 현금", 2000000);
   await waitForApp(window, 50);
   assert.equal(primaryTransactionWrites().length, 2);
-  assert.equal(primaryTransactionWrites()[1].data.schemaVersion, 6);
+  assert.equal(primaryTransactionWrites()[1].data.schemaVersion, 7);
   assert.equal(primaryTransactionWrites()[1].data.revision, 6);
   assert.equal(primaryTransactionWrites()[1].data.meta.cloudRevision, 6);
   assert.equal(primaryTransactionWrites()[1].options.merge, false);

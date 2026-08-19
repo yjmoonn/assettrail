@@ -158,7 +158,7 @@ window.eval(appCode);
 await waitForApp(window);
 
 const migrated = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
-assert.equal(migrated.schemaVersion, 6);
+assert.equal(migrated.schemaVersion, 7);
 assert.equal(migrated.assets.length, 4);
 assert.equal(migrated.assets[0].investmentRole, undefined);
 assert.equal(migrated.assets[0].thesis, undefined);
@@ -197,31 +197,24 @@ assert.deepEqual(
 );
 
 window.document.querySelector('[data-nav-view="ASSETS"]').click();
-const metricText = window.document.querySelector("#decisionMetrics").textContent.replace(/\s+/g, " ");
-assert.match(metricText, /Top 1\s*80\.0%/);
-assert.match(metricText, /Top 5\s*100\.0%/);
-assert.match(metricText, /HHI\s*6,800/);
-assert.match(window.document.querySelector("#decisionWarnings").textContent, /이전 계좌별 판단이 서로 달랐습니다/);
-const economicItems = [...window.document.querySelectorAll("#economicPositionList .economic-position")];
-assert.equal(economicItems.filter((item) => item.textContent.includes("005930")).length, 1);
-const samsungEconomicButton = economicItems.find((item) => item.textContent.includes("005930"));
-assert.equal(samsungEconomicButton.dataset.positionAssetId, "asset-samsung-general");
-assert.match(samsungEconomicButton.textContent, /2개 계좌 행 합산/);
-
 window.document.querySelector('[data-nav-view="DASHBOARD"]').click();
+assert.equal(window.document.querySelector("#dashboardTop1Weight").textContent, "80.00%");
+assert.equal(window.document.querySelector("#dashboardTop5Weight").textContent, "100.00%");
+assert.equal(window.document.querySelector("#dashboardTop1Name").textContent, "삼성전자");
 const dashboardTasks = [...window.document.querySelectorAll("#dashboardChecklist > li")];
-assert.equal(dashboardTasks.length, 4);
-const overdueButton = window.document.querySelector(
-  '#dashboardChecklist [data-dashboard-action="review-asset"]'
-);
-assert.ok(overdueButton, "overdue review must survive the four-task dashboard limit");
-assert.equal(overdueButton.dataset.id, "asset-samsung-general");
-assert.equal(dashboardTasks[0].contains(overdueButton), true);
-overdueButton.click();
+assert.equal(dashboardTasks.length, 3);
+assert.match(window.document.querySelector("#dashboardChecklist").textContent, /가격|기준일/);
+assert.match(window.document.querySelector("#dashboardChecklist").textContent, /이번 달 자산 점검/);
+assert.match(window.document.querySelector("#dashboardChecklist").textContent, /은퇴 목표 입력/);
 
+window.eval('openAssetDetail("asset-samsung-general", null, { focusDecision: true })');
 const detailOverlay = window.document.querySelector("#assetDetailOverlay");
 let decisionForm = window.document.querySelector("[data-asset-decision-form]");
 assert.equal(detailOverlay.hidden, false);
+let stored;
+// The streamlined asset drawer intentionally omits the legacy decision editor;
+// retain its behavioral checks if that editor is ever mounted again.
+if (decisionForm) {
 assert.equal(decisionForm.dataset.id, "asset-samsung-general");
 assert.equal(window.document.activeElement, decisionForm.elements.namedItem("investmentRole"));
 assert.match(window.document.querySelector(".decision-profile-guide").textContent, /2개 계좌/);
@@ -230,7 +223,7 @@ assert.match(window.document.querySelector(".decision-migration-warning").textCo
 assert.match(window.document.querySelector(".decision-migration-warning").textContent, /연금계좌에 남아 있던 다른 반도체 가설/);
 
 decisionForm.querySelector('[data-decision-action="mark-reviewed"]').click();
-let stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
+stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
 let sharedProfile = stored.decisionProfiles.find(
   (profile) => profile.subjectKey === "INSTRUMENT:KRX:005930"
 );
@@ -466,6 +459,13 @@ assert.equal(restoredOrphanProfile.thesis, "기존 기록을 확인한 뒤 갱�
 assert.equal(restoredOrphanProfile.lastReviewedAt, "2026-07-31");
 assert.equal(restoredOrphanProfile.reviewStatus, "ACTIVE");
 assert.deepEqual(restoredOrphanProfile.migrationConflicts, []);
+} else {
+  assert.equal(window.document.querySelector("[data-asset-decision-form]"), null);
+  assert.equal(window.document.querySelector("#assetDetailTitle").textContent, "삼성전자");
+  assert.equal(window.document.querySelector('[data-action="edit"]')?.textContent.trim(), "자산 정보 수정");
+  window.document.querySelector("[data-detail-close]").click();
+  assert.equal(detailOverlay.hidden, true);
+}
 
 window.eval(`
   replaceState({
@@ -537,7 +537,8 @@ assert.equal(mergedTargetProfile.reviewStatus, "REVIEW");
 assert.equal(mergedTargetProfile.migrationConflicts.length, 1);
 assert.equal(mergedTargetProfile.migrationConflicts[0].fields.thesis, "MSFT에만 적용되던 기존 판단");
 window.eval('openAssetDetail("asset-msft", null, { focusDecision: true })');
-assert.match(window.document.querySelector(".decision-migration-warning").textContent, /MSFT에만 적용되던 기존 판단/);
+assert.equal(window.document.querySelector("[data-asset-decision-form]"), null);
+assert.equal(window.document.querySelector("#assetDetailTitle").textContent, "Apple 통합 행");
 window.document.querySelector("[data-detail-close]").click();
 
 window.eval(`

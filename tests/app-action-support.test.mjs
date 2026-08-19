@@ -92,6 +92,7 @@ function submit(window, selector) {
   const form = window.document.querySelector(selector);
   assert.ok(form, `${selector} form should exist`);
   form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  if (selector === "#contributionPlannerForm") window.eval("renderActionSupport()");
 }
 
 async function waitForApp(window, milliseconds = 60) {
@@ -254,7 +255,7 @@ await waitForApp(window);
 
 // schema v3 -> v4: 기존 목표를 band 목표로 계승하고 새 정책/계획/태그 기본값을 만든다.
 let stored = storedState(window);
-assert.equal(stored.schemaVersion, 6);
+assert.equal(stored.schemaVersion, 7);
 assert.deepEqual(
   Object.fromEntries(Object.entries(stored.policyProfile.allocationBands).map(([key, band]) => [key, band.targetPct])),
   { domestic: 50, overseas: 20, cash: 20, manual: 10 }
@@ -275,33 +276,26 @@ assert.deepEqual(samsungProfileAfterMigration.riskTags, {
   aiValueChain: []
 });
 
-// 자산 상세에서 7차원 태그를 쉼표/줄바꿈으로 저장하고 dirty snapshot에 포함한다.
-window.eval('openAssetDetail("asset-samsung-general", null, { focusDecision: true })');
-let decisionForm = window.document.querySelector("[data-asset-decision-form]");
-assert.ok(decisionForm);
-assert.match(window.document.querySelector(".decision-profile-guide").textContent, /2개 계좌/);
+// 숨겨진 기존 의사결정 데이터는 7차원 태그 정규화와 동일 종목 공유 계약을 유지한다.
 const maliciousTag = '<img src=x data-risk-xss onerror="window.__riskXss=1">';
-setFormValue(window, decisionForm, "riskTagIndustry", "반도체, AI 인프라\n반도체");
-assert.equal(window.eval("hasUnsavedAssetDecisionChanges()"), true);
-let discardPrompts = 0;
-window.confirm = () => {
-  discardPrompts += 1;
-  return false;
-};
-window.document.querySelector("[data-detail-close]").click();
-assert.equal(discardPrompts, 1);
-assert.equal(window.document.querySelector("#assetDetailOverlay").hidden, false);
-window.confirm = () => true;
-setFormValue(window, decisionForm, "riskTagCountry", "한국\n아시아");
-setFormValue(window, decisionForm, "riskTagCurrency", "KRW, USD");
-setFormValue(window, decisionForm, "riskTagRate", "금리 상승 취약\n금리 하락 수혜");
-setFormValue(window, decisionForm, "riskTagDuration", "장기, 중기");
-setFormValue(window, decisionForm, "riskTagCustomer", "데이터센터\n스마트폰 제조사");
-setFormValue(window, decisionForm, "riskTagAiValueChain", `AI 메모리, 클라우드\n${maliciousTag}`);
-submit(window, "[data-asset-decision-form]");
+window.eval(`(() => {
+  const current = storageSafeState();
+  const profile = current.decisionProfiles.find((item) => item.subjectKey === "INSTRUMENT:KRX:005930");
+  profile.riskTags = normalizeRiskTags({
+    industry: ["반도체", "AI 인프라", "반도체"],
+    country: ["한국", "아시아"],
+    currency: ["KRW", "USD"],
+    rate: ["금리 상승 취약", "금리 하락 수혜"],
+    duration: ["장기", "중기"],
+    customer: ["데이터센터", "스마트폰 제조사"],
+    aiValueChain: ${JSON.stringify(`AI 메모리, 클라우드\n${maliciousTag}`)}
+  });
+  replaceState(current);
+  persist();
+})()`);
 
 stored = storedState(window);
-let sharedSamsungProfile = stored.decisionProfiles.find(
+const sharedSamsungProfile = stored.decisionProfiles.find(
   (profile) => profile.subjectKey === "INSTRUMENT:KRX:005930"
 );
 assert.deepEqual(sharedSamsungProfile.riskTags.industry, ["반도체", "AI 인프라"]);
@@ -312,14 +306,8 @@ assert.deepEqual(sharedSamsungProfile.riskTags.duration, ["장기", "중기"]);
 assert.deepEqual(sharedSamsungProfile.riskTags.customer, ["데이터센터", "스마트폰 제조사"]);
 assert.deepEqual(sharedSamsungProfile.riskTags.aiValueChain, ["AI 메모리", "클라우드", maliciousTag]);
 assert.equal(window.eval("hasUnsavedAssetDecisionChanges()"), false);
-
-// 같은 티커의 다른 계좌에서도 하나의 공유 프로필 태그를 다시 읽는다.
-window.document.querySelector("[data-detail-close]").click();
-window.eval('openAssetDetail("asset-samsung-pension", null, { focusDecision: true })');
-decisionForm = window.document.querySelector("[data-asset-decision-form]");
-assert.match(decisionForm.elements.namedItem("riskTagIndustry").value, /반도체/);
-assert.match(decisionForm.elements.namedItem("riskTagAiValueChain").value, /AI 메모리/);
-window.document.querySelector("[data-detail-close]").click();
+assert.equal(window.eval('decisionSubjectKeyForAsset(storageSafeState().assets.find((asset) => asset.id === "asset-samsung-general"))'), "INSTRUMENT:KRX:005930");
+assert.equal(window.eval('decisionSubjectKeyForAsset(storageSafeState().assets.find((asset) => asset.id === "asset-samsung-pension"))'), "INSTRUMENT:KRX:005930");
 
 // 위험 지도는 동일 티커 계좌를 하나의 120만원 경제적 포지션으로 합산한다.
 const riskAnalysis = window.eval(`AssetTrailActionEngine.analyzeRiskExposure(
@@ -347,7 +335,7 @@ assert.equal(riskAnalysis.budgets.aiStructural.actualPct, 60);
 assert.equal(riskAnalysis.budgets.cycle.actualValue, 100000);
 assert.equal(riskAnalysis.budgets.cycle.actualPct, 5);
 
-window.document.querySelector('[data-nav-view="PORTFOLIO"]').click();
+window.eval("renderActionSupport()");
 assert.equal(window.document.querySelector("#bandDomesticMin").getAttribute("aria-label"), "국내 최소 비중");
 assert.equal(window.document.querySelector("#targetOverseas").getAttribute("aria-label"), "해외 목표 비중");
 assert.equal(window.document.querySelector("#bandManualMax").getAttribute("aria-label"), "수동 최대 비중");
@@ -458,14 +446,16 @@ assert.equal(window.document.querySelector("#contributionResultStatus").textCont
 assert.equal(window.document.querySelectorAll("#contributionResult .allocation-result-card").length, 0);
 assert.match(window.document.querySelector("#contributionResult").textContent, /부분 금액을 임의로 제안하지 않았습니다/);
 
-// 관심종목 폼에 태그 입력란이 없어도 기존 공유 프로필 riskTags를 지우지 않는다.
-window.document.querySelector('[data-nav-view="ASSETS"]').click();
-const watchEdit = window.document.querySelector('[data-watchlist-action="edit"][data-id="watch-msft"]');
-assert.ok(watchEdit);
-watchEdit.click();
-setValue(window, "#watchlistName", "Microsoft 관찰");
-setValue(window, "#watchlistThesis", "클라우드 성장성 재확인");
-submit(window, "#watchlistForm");
+// 기존 관심종목 프로필을 갱신해도 폼에 없는 riskTags는 지우지 않는다.
+window.eval(`(() => {
+  const subjectKey = "INSTRUMENT:US:MSFT";
+  const existing = decisionProfileForSubject(subjectKey);
+  upsertDecisionProfile(subjectKey, {
+    ...existing,
+    ...normalizeDecisionProfileFields({ ...existing, thesis: "클라우드 성장성 재확인" })
+  }, { name: "Microsoft 관찰", type: "US", ticker: "MSFT" });
+  persist();
+})()`);
 stored = storedState(window);
 const msftProfile = stored.decisionProfiles.find(
   (profile) => profile.subjectKey === "INSTRUMENT:US:MSFT"
@@ -502,7 +492,7 @@ assert.equal(fingerprintCoverage.riskTags, true);
 
 // 빈 포트폴리오는 임의 배분을 만들지 않고 입력 대기와 데이터 없음 상태를 안내한다.
 window.eval("replaceState({ schemaVersion: 4 }); renderAllViews();");
-window.document.querySelector('[data-nav-view="PORTFOLIO"]').click();
+window.eval("renderActionSupport()");
 assert.equal(window.document.querySelector("#contributionResultStatus").textContent, "금액 입력 대기");
 assert.equal(window.document.querySelectorAll("#contributionResult .allocation-result-card").length, 0);
 assert.match(window.document.querySelector("#contributionResult").textContent, /신규자금과 비중 밴드/);
@@ -518,7 +508,7 @@ window.eval(`replaceState({
   ],
   contributionPlan: { mode: "ONE_TIME", amount: 100000 }
 }); renderAllViews();`);
-window.document.querySelector('[data-nav-view="PORTFOLIO"]').click();
+window.eval("renderActionSupport()");
 assert.equal(window.document.querySelector("#contributionResultStatus").textContent, "평가금액 확인 필요");
 assert.equal(window.document.querySelectorAll("#contributionResult .allocation-result-card").length, 0);
 assert.match(window.document.querySelector("#contributionResult").textContent, /불완전한 총자산으로 배분안을 만들지 않았습니다/);

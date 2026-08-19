@@ -52,14 +52,14 @@
 - [x] 마지막 정상 가격을 유지하는 실패 안전 경로를 둔다.
 - [x] Firestore Rules 테스트를 PR 필수 CI에 포함한다.
 - [x] Actions 권한과 실행 조건을 최소화한다.
-- [ ] 강화한 Rules를 운영 Firebase 프로젝트에 배포하고 실제 규칙을 확인한다.
+- [x] 강화한 Rules를 운영 Firebase 프로젝트에 배포하고 실제 규칙을 확인한다.
 - [ ] `main` 브랜치 보호와 required check 적용을 확인한다.
 
-로컬 Firebase CLI에는 인증된 계정이 없어 운영 Rules 배포를 안전하게 실행할 수
-없다. 저장소 설정 API도 현재 연결된 GitHub 도구에 제공되지 않고 로컬 `gh` 인증이
-유효하지 않아 branch protection은 자동 적용하지 못했다. 대신 비신뢰 가격 요청은
-운영 규칙과 무관하게 앱·생성기 양쪽에서 제거했고, PR과 `main` 배포 모두 같은
-`test` 게이트를 통과하도록 워크플로를 구성했다.
+운영 Rules는 2026-08-19 12:07:59 KST에 `assettrail-6f676`에 배포했고, 활성 원문과
+저장소 파일의 UTF-8 바이트·SHA-256 일치 및 history chunk 경로를 재확인했다. 현재
+GitHub API에서는 `main` 보호 설정을 확인할 수 없어 required check 항목은 미완료로
+유지한다. 비신뢰 가격 요청은 앱·생성기 양쪽에서 제거했고, PR과 `main` 배포 모두
+같은 `test` 게이트를 통과하도록 워크플로를 구성했다.
 
 ## 5단계 — UX·접근성·성능
 

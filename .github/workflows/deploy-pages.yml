@@ -22,6 +22,12 @@ permissions: {}
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PAGES_URL: https://yjmoonn.github.io/assettrail
+  STATIC_SITE_FILES: >-
+    index.html app.js decision-engine.js action-engine.js ledger-engine.js
+    performance-engine.js broker-csv-engine.js broker-csv-adapter-standard.js
+    external-data-engine.js etf-exposure-engine.js ai-report-engine.js
+    ai-review-export-engine.js history-repository.js styles.css
+    assettrail-tokens.css firebase-config.js prices.json symbols.json .nojekyll
 
 jobs:
   test:
@@ -65,15 +71,48 @@ jobs:
           npm run test:performance
           npm run test:broker-csv
           npm run test:stage5
+          npm run test:ai-review
+          npm run test:history
+          npm run test:history-race
+          npm run test:product
           npm run test:investment
           npm run test:prices
           npm run test:price-fallback
           npm run test:symbols
           npm run test:cloud
+          npm run test:cloud-history-gc
           npm run test:cloud-conflict
           npm run test:cloud-auth-race
           npm run test:cloud-prices
           npm run test:data
+
+      - name: Verify static site runtime files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f prices.json || printf '%s\n' '{}' > prices.json
+          test -f symbols.json || printf '%s\n' '{}' > symbols.json
+          rm -rf _site
+          mkdir _site
+          cp $STATIC_SITE_FILES _site/
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+
+          const sources = ["index.html", "styles.css"]
+            .map((file) => fs.readFileSync(file, "utf8"))
+            .join("\n");
+          const refs = [
+            ...sources.matchAll(/(?:src|href)=["']([^"']+)["']/g),
+            ...sources.matchAll(/url\(["']?([^"')]+)["']?\)/g)
+          ].map((match) => match[1].split(/[?#]/, 1)[0])
+            .filter((ref) => ref && !/^(?:[a-z]+:|\/\/|#)/i.test(ref));
+          const missing = [...new Set(refs)]
+            .filter((ref) => !fs.existsSync(path.join("_site", ref.replace(/^\.\//, ""))));
+          if (missing.length) {
+            throw new Error(`Static site is missing runtime files: ${missing.join(", ")}`);
+          }
+          NODE
 
       - name: Run Firestore Rules tests
         run: npm run test:firestore
@@ -223,7 +262,7 @@ jobs:
         run: |
           rm -rf _site
           mkdir _site
-          cp index.html app.js decision-engine.js action-engine.js ledger-engine.js performance-engine.js broker-csv-engine.js broker-csv-adapter-standard.js external-data-engine.js etf-exposure-engine.js ai-report-engine.js styles.css assettrail-tokens.css firebase-config.js prices.json symbols.json .nojekyll _site/
+          cp $STATIC_SITE_FILES _site/
 
       - name: Upload static site
         uses: actions/upload-pages-artifact@v3

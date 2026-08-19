@@ -6,15 +6,15 @@
     <meta http-equiv="Cache-Control" content="no-store">
     <meta http-equiv="Pragma" content="no-cache">
     <title>자산 히스토리 & 은퇴 플래너</title>
-    <link rel="stylesheet" href="styles.css?v=20260814-cash-balance">
+    <link rel="stylesheet" href="styles.css?v=20260819-asset-history-v7">
   </head>
   <body>
     <div class="app">
       <header class="topbar">
         <div class="brand-block">
           <p class="eyebrow">AssetTrail</p>
-          <h1 id="pageTitle">나의 자산 대시보드</h1>
-          <p class="topbar-copy" id="pageSubtitle">가격, 포트폴리오, 매매일지, 은퇴 목표를 가볍게 훑어보세요.</p>
+          <h1 id="pageTitle">나의 자산</h1>
+          <p class="topbar-copy" id="pageSubtitle">현재 자산, 지난 기록 이후 변화, 은퇴 목표까지의 거리를 확인하세요.</p>
         </div>
         <div class="top-actions" aria-label="앱 상태 및 작업">
           <div class="status-cluster">
@@ -29,15 +29,11 @@
       </header>
       <div class="notice app-notice" id="appNotice" hidden></div>
       <nav class="app-nav" aria-label="AssetTrail 주요 화면">
-        <button class="app-nav-item active" type="button" data-nav-view="DASHBOARD" aria-current="page" tabindex="0"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg><span class="nav-label">대시보드</span></button>
+        <button class="app-nav-item active" type="button" data-nav-view="DASHBOARD" aria-current="page" tabindex="0"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg><span class="nav-label">홈</span></button>
         <button class="app-nav-item" type="button" data-nav-view="ASSETS" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2H5a2 2 0 0 0-2 2z"></path><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2H5"></path><circle cx="17" cy="13" r="1.4" fill="currentColor" stroke="none"></circle></svg><span class="nav-label">자산</span></button>
-        <button class="app-nav-item" type="button" data-nav-view="JOURNAL" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4a2 2 0 0 1 2-2h11a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6a2 2 0 0 1-2-2z"></path><path d="M4 4v16"></path><path d="M9 7h5M9 11h5"></path></svg><span class="nav-label">투자기록</span></button>
-        <button class="app-nav-item" type="button" data-nav-view="PORTFOLIO" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-9z"></path><path d="M12 3v9"></path><path d="M12 3a9 9 0 0 1 7.5 4"></path></svg><span class="nav-label">포트폴리오</span></button>
-        <button class="app-nav-item" type="button" data-nav-view="ANALYSIS" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"></path><path d="m16 7 3-3 3 3"></path></svg><span class="nav-label">분석</span></button>
+        <button class="app-nav-item" type="button" data-nav-view="JOURNAL" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4a2 2 0 0 1 2-2h11a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6a2 2 0 0 1-2-2z"></path><path d="M4 4v16"></path><path d="M9 7h5M9 11h5"></path></svg><span class="nav-label">기록</span></button>
         <button class="app-nav-item" type="button" data-nav-view="GOALS" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"></circle></svg><span class="nav-label">목표</span></button>
-        <button class="app-nav-item" type="button" data-nav-view="SETTINGS" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15H4.5a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 6 9.4l-.06-.06a2 2 0 1 1 2.83-2.83l.06-.06A1.65 1.65 0 0 0 11 4.6V4.5a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 2.82 1.17l.06-.06a2 2 0 1 1 2.83 2.83l-.06-.06A1.65 1.65 0 0 0 19.4 11h.1a2 2 0 0 1 0 4h-.1z"></path></svg><span class="nav-label">설정</span></button>
       </nav>
-
       <main>
         <p class="sr-only" id="viewAnnounce" role="status" aria-live="polite"></p>
         <section class="dashboard-hero" aria-label="요약 지표" data-app-section="DASHBOARD">
@@ -45,8 +41,8 @@
             <span class="hero-kicker">현재 총자산</span>
             <strong id="totalAsset" class="hero-total">₩0</strong>
             <div class="hero-change-row">
-              <span class="hero-chip" id="lastDeltaChip"><span class="hero-chip-label">직전 대비</span><strong id="lastDeltaRate">0.00%</strong><small id="lastDelta">₩0</small></span>
-              <span class="hero-chip" id="firstDeltaChip"><span class="hero-chip-label">첫 조회 대비</span><strong id="firstDeltaRate">0.00%</strong></span>
+              <span class="hero-chip" id="lastDeltaChip"><span class="hero-chip-label">직전 기록 대비 자산 증감 · 입출금 포함</span><strong id="lastDeltaRate">0.00%</strong><small id="lastDelta">₩0</small></span>
+              <span class="hero-chip" id="firstDeltaChip"><span class="hero-chip-label">첫 기록 대비 자산 증감 · 입출금 포함</span><strong id="firstDeltaRate">0.00%</strong></span>
               <small id="firstDelta" class="sr-only">₩0</small>
               <small id="assetCount" class="hero-count">0개 자산</small>
             </div>
@@ -55,7 +51,7 @@
             <div class="hero-trend-head">
               <span class="hero-trend-title">최근 12회 조회 추이</span>
               <div class="hero-actions">
-                <button class="primary-button" id="dashboardSnapshotBtn" type="button">오늘 자산 기록</button>
+                <button class="primary-button" id="dashboardSnapshotBtn" type="button">이번 달 점검 저장</button>
                 <button class="ghost-button" id="dashboardAssetBtn" type="button" data-go-view="ASSETS" data-open-asset-form="true">새 자산 등록</button>
               </div>
             </div>
@@ -66,7 +62,7 @@
           </div>
         </section>
 
-        <section class="panel dashboard-panel" data-app-section="DASHBOARD" aria-label="오늘의 투자 여정">
+        <section class="panel dashboard-panel" data-app-section="DASHBOARD" aria-label="월간 자산 점검">
           <div class="dashboard-focus">
             <article class="journey-card today-card">
               <div class="today-head">
@@ -89,18 +85,50 @@
               </div>
             </article>
           </div>
+          <article class="journey-card monthly-review-card" aria-labelledby="dashboardMonthlyReviewTitle">
+            <div class="monthly-review-head">
+              <div>
+                <span class="card-kicker">Monthly review</span>
+                <h3 id="dashboardMonthlyReviewTitle">이번 달 자산 점검</h3>
+              </div>
+              <strong class="monthly-review-label" id="dashboardMonthlyReviewLabel">점검 준비</strong>
+            </div>
+            <div class="monthly-review-progress" role="progressbar" aria-label="월간 점검 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <span id="dashboardMonthlyReviewProgress"></span>
+            </div>
+            <div class="monthly-review-grid">
+              <label class="monthly-review-conclusion">
+                <span>이번 점검 결론</span>
+                <textarea id="dashboardMonthlyConclusion" rows="2" maxlength="10000" placeholder="이번 달 변화와 다음에 확인할 내용을 짧게 적어두세요."></textarea>
+              </label>
+              <label>
+                <span>다음 점검일</span>
+                <input id="dashboardNextReviewDate" type="date">
+              </label>
+              <section aria-label="상위 1개 포지션 비중">
+                <span>Top 1</span>
+                <strong id="dashboardTop1Weight">0.0%</strong>
+                <small id="dashboardTop1Name">포지션 없음</small>
+              </section>
+              <section aria-label="상위 5개 포지션 비중">
+                <span>Top 5</span>
+                <strong id="dashboardTop5Weight">0.0%</strong>
+                <small>계좌를 합친 경제적 포지션 기준</small>
+              </section>
+            </div>
+          </article>
           <div class="dashboard-modules">
             <article class="journey-card dashboard-module">
               <div class="dashboard-module-head">
                 <h3>포트폴리오 비중</h3>
-                <button class="text-link-button" type="button" data-go-view="PORTFOLIO">포트폴리오 보기</button>
+                <button class="text-link-button" type="button" data-go-view="ASSETS">자산 보기</button>
               </div>
               <div class="composition-bars" id="dashboardComposition"></div>
             </article>
             <article class="journey-card dashboard-module">
               <div class="dashboard-module-head">
                 <h3>최근 기록</h3>
-                <button class="text-link-button" type="button" data-go-view="JOURNAL">투자 기록 보기</button>
+                <button class="text-link-button" type="button" data-go-view="JOURNAL">기록 보기</button>
               </div>
               <ul class="recent-record-list" id="dashboardRecentList"></ul>
             </article>
@@ -441,7 +469,7 @@
 
         </section>
 
-        <section class="panel decision-center-panel" data-app-section="ASSETS" aria-labelledby="decisionCenterTitle">
+        <section class="panel decision-center-panel" data-app-section="LEGACY" aria-labelledby="decisionCenterTitle" hidden>
           <div class="panel-header">
             <div>
               <h2 id="decisionCenterTitle">의사결정 센터</h2>
@@ -595,12 +623,12 @@
         <section class="panel investment-record-panel" data-app-section="JOURNAL">
           <div class="panel-header">
             <div>
-              <h2>투자 기록</h2>
-              <p>매매 판단과 매도 결과를 한 흐름으로 복기합니다.</p>
+              <h2>거래와 성과 기록</h2>
+              <p>거래·현금흐름·실현손익과 검증된 기간 성과를 한곳에서 확인합니다.</p>
             </div>
-            <div class="record-tabs" role="tablist" aria-label="투자 기록 보기">
+            <div class="record-tabs" role="tablist" aria-label="기록 종류">
               <button class="record-tab active" id="investmentJournalTab" type="button" role="tab" aria-selected="true" aria-controls="journalTabPanel" data-investment-tab="JOURNAL" tabindex="0">
-                매매일지 <span id="journalTabCount">0건</span>
+                거래 메모 <span id="journalTabCount">0건</span>
               </button>
               <button class="record-tab" id="investmentRealizedTab" type="button" role="tab" aria-selected="false" aria-controls="realizedTabPanel" data-investment-tab="REALIZED" tabindex="-1">
                 실현손익 <span id="realizedTabCount">0건</span>
@@ -628,14 +656,14 @@
                   <option value="DONE">완료</option>
                 </select>
               </label>
-              <button class="primary-button" id="toggleJournalFormBtn" type="button" aria-expanded="false">일지 작성</button>
+              <button class="primary-button" id="toggleJournalFormBtn" type="button" aria-expanded="false">메모 작성</button>
             </div>
 
             <div class="journal-form-panel" id="journalFormPanel" hidden>
               <div class="form-panel-header">
                 <div>
-                  <h3 id="journalFormTitle">매매일지 작성</h3>
-                  <p>기록은 판단 복기를 돕기 위한 용도이며 투자 추천으로 사용하지 않습니다.</p>
+                  <h3 id="journalFormTitle">거래 메모 작성</h3>
+                  <p>거래 이유와 나중에 확인할 복기를 선택해서 남길 수 있습니다.</p>
                 </div>
               </div>
               <form id="journalForm" class="journal-form">
@@ -680,7 +708,7 @@
                     <option value="WATCH">관찰</option>
                   </select>
                 </label>
-                <label>
+                <label hidden>
                   결과 상태
                   <select id="journalStatus">
                     <option value="OPEN">진행중</option>
@@ -697,18 +725,18 @@
                   <input id="journalPrice" type="text" inputmode="decimal" placeholder="0">
                 </label>
                 <label class="wide-field">
-                  투자 이유
-                  <textarea id="journalReason" rows="3" maxlength="10000" placeholder="왜 이 결정을 했는지 적어두세요."></textarea>
+                  거래 이유
+                  <textarea id="journalReason" rows="3" maxlength="10000" placeholder="필요하다면 왜 거래했는지 짧게 남겨두세요."></textarea>
                 </label>
-                <label class="wide-field">
+                <label class="wide-field" hidden>
                   리스크
                   <textarea id="journalRisk" rows="3" maxlength="10000" placeholder="틀릴 수 있는 이유, 손절 기준, 확인할 변수를 적어두세요."></textarea>
                 </label>
                 <label class="wide-field">
-                  복기 메모
-                  <textarea id="journalReview" rows="3" maxlength="10000" placeholder="나중에 결과를 보고 배운 점을 남겨두세요."></textarea>
+                  복기
+                  <textarea id="journalReview" rows="3" maxlength="10000" placeholder="나중에 확인할 점이나 배운 내용을 남겨두세요."></textarea>
                 </label>
-                <label class="wide-field">
+                <label class="wide-field" hidden>
                   태그
                   <input id="journalTags" type="text" maxlength="500" placeholder="예: AI, 배당, 장기, 리밸런싱">
                 </label>
@@ -720,7 +748,7 @@
             </div>
 
             <div class="journal-summary" id="journalSummary"></div>
-            <div class="journal-list" id="journalList" aria-label="매매일지 목록"></div>
+            <div class="journal-list" id="journalList" aria-label="거래 메모 목록"></div>
           </div>
 
           <div class="record-tab-panel transaction-ledger-panel" id="ledgerTabPanel" role="tabpanel" aria-labelledby="investmentLedgerTab" data-investment-panel="LEDGER" hidden>
@@ -986,7 +1014,60 @@
           </div>
         </section>
 
-        <section class="panel portfolio-panel" data-app-section="PORTFOLIO">
+        <section class="panel history-panel" id="historyPanel" data-app-section="JOURNAL">
+          <div class="panel-header">
+            <div>
+              <h2>조회 히스토리</h2>
+              <p>저장된 조회 시점 기준으로 총자산과 변동률을 비교합니다.</p>
+            </div>
+            <button class="ghost-button" id="clearHistoryBtn" type="button">히스토리 비우기</button>
+          </div>
+          <div class="history-toolbar">
+            <label>
+              조회 기간
+              <select id="historyRange">
+                <option value="ALL">전체</option>
+                <option value="30D">최근 30일</option>
+                <option value="90D">최근 90일</option>
+                <option value="YTD">올해</option>
+              </select>
+            </label>
+            <label>
+              조회 메모
+              <input id="snapshotNote" type="text" maxlength="10000" placeholder="예: 월말 점검">
+            </label>
+          </div>
+          <div class="history-summary" id="historySummary"></div>
+          <p class="field-help history-performance-note">
+            이 화면은 입출금을 분리하지 않은 단순 총자산 변화입니다. 투자 수익률은
+            <button class="text-link-button" id="openPerformanceFromHistoryBtn" type="button">기간 성과에서 보기</button>
+          </p>
+          <div class="history-chart-empty" id="historyChartEmpty" hidden>
+            <strong>아직 자산 이력이 없어요</strong>
+            <p>대시보드에서 현재 자산을 기록하면 날짜별 총자산 변화를 비교할 수 있습니다.</p>
+            <button class="primary-button" type="button" data-go-view="DASHBOARD">홈에서 기록 시작</button>
+          </div>
+          <p class="sr-only" id="historyChartDescription">조회 히스토리 차트 설명이 여기에 표시됩니다.</p>
+          <canvas id="historyChart" width="1100" height="320" aria-label="자산 히스토리 차트" aria-describedby="historyChartDescription"></canvas>
+          <div class="table-wrap history-table">
+            <table>
+              <caption class="sr-only">저장 시점별 총자산과 직전 기록 대비 변화 목록</caption>
+              <thead>
+                <tr>
+                  <th scope="col">조회 시각</th>
+                  <th class="number" scope="col">총자산</th>
+                  <th class="number" scope="col">직전 대비</th>
+                  <th class="number" scope="col">변동률</th>
+                  <th scope="col">메모</th>
+                  <th class="actions-col" scope="col">관리</th>
+                </tr>
+              </thead>
+              <tbody id="historyRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel portfolio-panel" data-app-section="LEGACY" hidden>
           <div class="panel-header">
             <div>
               <h2>포트폴리오 분석</h2>
@@ -1093,7 +1174,7 @@
           </section>
         </section>
 
-        <section class="analysis-workspace" data-app-section="ANALYSIS">
+        <section class="analysis-workspace" data-app-section="LEGACY" hidden>
           <section class="panel analysis-intro-panel" aria-labelledby="analysisWorkspaceTitle">
             <div class="panel-header">
               <div>
@@ -1176,10 +1257,8 @@
               <details class="analysis-data-management">
                 <summary><span>데이터 관리</span><small>별도 로컬 백업 · 복원 · 비우기</small></summary>
                 <div class="analysis-data-management-body">
-                  <p class="field-help">정규화한 Butler 실적은 이 기기의 현재 사용자 영역에만 저장되며 주 데이터 백업과 클라우드 동기화에 포함되지 않습니다.</p>
+                  <p class="field-help">정규화한 Butler 실적은 이 기기의 현재 사용자 영역에만 저장됩니다. 백업과 복원은 설정에서 관리합니다.</p>
                   <div class="panel-actions">
-                    <button class="ghost-button" id="downloadExternalDataBtn" type="button">외부 데이터 백업</button>
-                    <label class="ghost-button import-label" id="importExternalDataBtn">백업 가져오기<input id="externalDataBackupInput" type="file" accept="application/json,.json"></label>
                     <button class="ghost-button danger-quiet" id="clearExternalDataBtn" type="button">외부 데이터 비우기</button>
                   </div>
                 </div>
@@ -1193,9 +1272,7 @@
                   <h2 id="etfLookThroughTitle">ETF 실질노출</h2>
                   <p>재배포가 허용되거나 사용자가 직접 제공한 구성종목 파일만 계산합니다. ETF 내부 현금은 가용 현금과 분리합니다.</p>
                 </div>
-                <div class="panel-actions">
-                  <label class="primary-button import-label">구성 파일 가져오기<input id="etfCatalogInput" type="file" accept="application/json,.json"></label>
-                </div>
+                <p class="field-help">ETF 구성 파일 가져오기는 설정에서 관리합니다.</p>
               </div>
               <p class="field-help" id="etfCatalogStatus" role="status" aria-live="polite">ETF 구성 데이터가 없으면 ETF 금액을 불투명 노출로 남기며 추정하지 않습니다.</p>
               <div class="etf-coverage-summary" id="etfCoverageSummary"></div>
@@ -1207,7 +1284,6 @@
                   <p class="field-help">ETF 구성 데이터는 이 기기의 현재 사용자 영역에만 저장되며 파일 전체를 검증한 뒤 교체합니다.</p>
                   <div class="panel-actions">
                     <button class="ghost-button" id="downloadEtfTemplateBtn" type="button">표준 양식</button>
-                    <button class="ghost-button" id="downloadEtfCatalogBtn" type="button">구성 백업</button>
                     <button class="ghost-button danger-quiet" id="clearEtfCatalogBtn" type="button">구성 비우기</button>
                   </div>
                 </div>
@@ -1252,69 +1328,12 @@
           </div>
         </section>
 
-        <nav class="goal-mobile-tabs" data-app-section="GOALS" aria-label="목표 화면 모바일 보기">
-          <button class="ghost-button goal-mobile-tab" type="button" data-goal-mobile-panel="HISTORY" aria-pressed="true" aria-controls="historyPanel">자산 이력</button>
-          <button class="ghost-button goal-mobile-tab" type="button" data-goal-mobile-panel="RETIREMENT" aria-pressed="false" aria-controls="retirementPanel">은퇴 계획</button>
-        </nav>
 
-        <section class="panel history-panel" id="historyPanel" data-app-section="GOALS">
+        <section class="panel retirement-panel" id="retirementPanel" data-app-section="GOALS">
           <div class="panel-header">
             <div>
-              <h2>조회 히스토리</h2>
-              <p>저장된 조회 시점 기준으로 총자산과 변동률을 비교합니다.</p>
-            </div>
-            <button class="ghost-button" id="clearHistoryBtn" type="button">히스토리 비우기</button>
-          </div>
-          <div class="history-toolbar">
-            <label>
-              조회 기간
-              <select id="historyRange">
-                <option value="ALL">전체</option>
-                <option value="30D">최근 30일</option>
-                <option value="90D">최근 90일</option>
-                <option value="YTD">올해</option>
-              </select>
-            </label>
-            <label>
-              조회 메모
-              <input id="snapshotNote" type="text" maxlength="10000" placeholder="예: 월말 점검">
-            </label>
-          </div>
-          <div class="history-summary" id="historySummary"></div>
-          <p class="field-help history-performance-note">
-            이 화면은 입출금을 분리하지 않은 단순 총자산 변화입니다. 투자 수익률은
-            <button class="text-link-button" id="openPerformanceFromHistoryBtn" type="button">기간 성과에서 보기</button>
-          </p>
-          <div class="history-chart-empty" id="historyChartEmpty" hidden>
-            <strong>아직 자산 이력이 없어요</strong>
-            <p>대시보드에서 현재 자산을 기록하면 날짜별 총자산 변화를 비교할 수 있습니다.</p>
-            <button class="primary-button" type="button" data-go-view="DASHBOARD">대시보드에서 기록 시작</button>
-          </div>
-          <p class="sr-only" id="historyChartDescription">조회 히스토리 차트 설명이 여기에 표시됩니다.</p>
-          <canvas id="historyChart" width="1100" height="320" aria-label="자산 히스토리 차트" aria-describedby="historyChartDescription"></canvas>
-          <div class="table-wrap history-table">
-            <table>
-              <caption class="sr-only">저장 시점별 총자산과 직전 기록 대비 변화 목록</caption>
-              <thead>
-                <tr>
-                  <th scope="col">조회 시각</th>
-                  <th class="number" scope="col">총자산</th>
-                  <th class="number" scope="col">직전 대비</th>
-                  <th class="number" scope="col">변동률</th>
-                  <th scope="col">메모</th>
-                  <th class="actions-col" scope="col">관리</th>
-                </tr>
-              </thead>
-              <tbody id="historyRows"></tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="panel retirement-panel goal-panel-mobile-hidden" id="retirementPanel" data-app-section="GOALS">
-          <div class="panel-header">
-            <div>
-              <h2>은퇴 시뮬레이터</h2>
-              <p>은퇴 나이와 은퇴 후 월 지출을 기준으로 필요한 자산과 요구 수익률을 계산합니다.</p>
+              <h2>은퇴 목표</h2>
+              <p>하나의 기본 계획으로 필요한 자산과 현재 목표 진행률을 확인합니다.</p>
             </div>
             <button class="primary-button" id="syncAssetsBtn" type="button">현재 총자산 반영</button>
           </div>
@@ -1327,12 +1346,12 @@
             <div class="progress-track"><span id="retirementProgressBar"></span></div>
           </div>
 
-          <div class="preset-row" aria-label="은퇴 시나리오">
+          <div class="preset-row" aria-label="은퇴 시나리오" hidden>
             <button class="ghost-button" type="button" data-retirement-preset="conservative">보수적</button>
             <button class="ghost-button" type="button" data-retirement-preset="balanced">기본</button>
             <button class="ghost-button" type="button" data-retirement-preset="growth">성장형</button>
           </div>
-          <div class="scenario-toolbar">
+          <div class="scenario-toolbar" hidden>
             <label>
               시나리오명
               <input id="retirementScenarioName" type="text" maxlength="500" placeholder="예: 55세 은퇴 기본안">
@@ -1406,7 +1425,7 @@
               <small id="targetStatusDetail">입력값을 조정해보세요.</small>
             </article>
           </div>
-          <div id="retirementSensitivity" class="sensitivity-grid"></div>
+          <div id="retirementSensitivity" class="sensitivity-grid" hidden></div>
         </section>
 
         <section class="panel settings-panel" data-app-section="SETTINGS">
@@ -1437,22 +1456,46 @@
               <p>KRX/US 자산은 prices.json 기준으로 평가금액과 손익을 계산합니다.</p>
               <button class="ghost-button compact-button" id="priceRefreshBtn" type="button" title="최신 가격표 다시 불러오기">최신 가격 확인</button>
             </article>
+            <article class="settings-card ai-check-package-card">
+              <span>AI 점검</span>
+              <strong>월간 점검 패키지</strong>
+              <p>계좌명·원거래·정확한 금액을 제외한 상대 지표와 고정 분석 프롬프트를 한 Markdown 파일로 만듭니다. 파일은 자동 전송되지 않습니다.</p>
+              <div class="settings-actions">
+                <button class="primary-button" id="exportAiCheckPackageBtn" type="button">AI 점검 패키지 내보내기</button>
+              </div>
+              <p class="field-help" id="aiCheckPackageStatus" role="status" aria-live="polite">내보낸 파일을 원하는 AI 서비스에 직접 첨부해 점검할 수 있습니다.</p>
+            </article>
             <article class="settings-card settings-backup-card">
               <span>데이터</span>
               <strong>백업과 복원</strong>
-              <p>내보내기마다 포함 범위가 다릅니다. 기기 교체 전에는 아래 세 범위를 모두 확인하세요.</p>
+              <p>내보내기마다 포함 범위가 다릅니다. 기기 교체 전에는 아래 범위를 모두 확인하세요.</p>
               <ul class="backup-scope-list" aria-label="데이터 백업 포함 범위">
                 <li><span class="backup-scope-state included">포함</span><div><strong>주 데이터 JSON</strong><small>자산·거래 원장·평가점·목표·설정</small></div></li>
-                <li><span class="backup-scope-state separate">별도</span><div><strong>Butler 검증 데이터</strong><small>이 기기에만 저장 · 분석 화면에서 별도 백업</small></div></li>
-                <li><span class="backup-scope-state separate">별도</span><div><strong>ETF 구성 데이터</strong><small>이 기기에만 저장 · 분석 화면에서 별도 백업</small></div></li>
+                <li><span class="backup-scope-state separate">별도</span><div><strong>기존 Butler 검증 데이터</strong><small>이 기기에만 저장 · 아래 확장 데이터에서 별도 백업</small></div></li>
+                <li><span class="backup-scope-state separate">별도</span><div><strong>기존 ETF 구성 데이터</strong><small>이 기기에만 저장 · 아래 확장 데이터에서 별도 백업</small></div></li>
                 <li><span class="backup-scope-state excluded">미저장</span><div><strong>CSV·Butler 원문과 AI 입력</strong><small>미리보기 후 기기와 클라우드에 보관하지 않음</small></div></li>
               </ul>
               <div class="settings-actions">
                 <button class="ghost-button" id="exportBtn" type="button" title="데이터 내보내기">데이터 내보내기</button>
                 <button class="ghost-button" id="jsonImportBtn" type="button" aria-controls="importInput">주 데이터 JSON 복원</button>
-                <input class="visually-hidden-file-input" id="importInput" type="file" accept="application/json,.json" tabindex="-1" aria-hidden="true">
-                <button class="text-link-button" type="button" data-go-view="ANALYSIS">Butler·ETF 백업 확인</button>
+                <input id="importInput" type="file" accept="application/json,.json" hidden>
               </div>
+              <details class="legacy-backup-controls">
+                <summary>기존 확장 데이터 백업</summary>
+                <p class="field-help">이전에 저장한 Butler 검증 데이터와 ETF 구성 파일만 관리합니다. 주 데이터 JSON과는 별도입니다.</p>
+                <div class="settings-actions">
+                  <button class="ghost-button" id="downloadExternalDataBtn" type="button">Butler 데이터 백업</button>
+                  <button class="ghost-button" id="importExternalDataBtn" type="button" aria-controls="externalDataBackupInput">Butler 백업 복원</button>
+                  <input id="externalDataBackupInput" type="file" accept="application/json,.json" hidden>
+                  <button class="ghost-button" id="downloadEtfCatalogBtn" type="button">ETF 구성 백업</button>
+                  <button class="ghost-button" id="importEtfCatalogBtn" type="button" aria-controls="etfCatalogInput">ETF 구성 복원</button>
+                  <input id="etfCatalogInput" type="file" accept="application/json,.json" hidden>
+                </div>
+                <div class="legacy-backup-status-list">
+                  <p id="settingsExternalDataStatus" role="status" aria-live="polite">Butler 백업 작업 결과가 여기에 표시됩니다.</p>
+                  <p id="settingsEtfCatalogStatus" role="status" aria-live="polite">ETF 구성 작업 결과가 여기에 표시됩니다.</p>
+                </div>
+              </details>
             </article>
             <article class="settings-card">
               <span>거래 가져오기</span>
@@ -1637,6 +1680,8 @@
     <script src="external-data-engine.js?v=20260819-butler-import-quality"></script>
     <script src="etf-exposure-engine.js?v=20260807-stage5"></script>
     <script src="ai-report-engine.js?v=20260807-stage5"></script>
-    <script type="module" src="app.js?v=20260819-butler-import-quality"></script>
+    <script src="ai-review-export-engine.js?v=20260819-monthly-review"></script>
+    <script src="history-repository.js?v=20260819-history-v1"></script>
+    <script type="module" src="app.js?v=20260819-asset-history-v7"></script>
   </body>
 </html>

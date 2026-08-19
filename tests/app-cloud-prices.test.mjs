@@ -3,7 +3,11 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 
 const html = readFileSync("index.html", "utf8");
-const appCode = [readFileSync("ledger-engine.js", "utf8"), readFileSync("app.js", "utf8")].join("\n");
+const appCode = [
+  readFileSync("ledger-engine.js", "utf8"),
+  readFileSync("history-repository.js", "utf8"),
+  readFileSync("app.js", "utf8")
+].join("\n");
 
 const dom = new JSDOM(html, {
   pretendToBeVisual: true,
@@ -84,6 +88,7 @@ window.assetTrailFirebaseModules = {
   },
   firestore: {
     doc: (_db, ...path) => ({ path: path.join("/") }),
+    collection: (_db, ...path) => ({ path: path.join("/") }),
     getDoc: async () => ({
       exists: () => true,
       data: () => ({
@@ -101,14 +106,36 @@ window.assetTrailFirebaseModules = {
         snapshots: []
       })
     }),
+    getDocs: async () => ({ forEach() {} }),
     getFirestore: () => ({ app: "test" }),
     arrayUnion: (...values) => ({ __arrayUnion: values }),
+    runTransaction: async (_db, update) => update({
+      get: async () => ({
+        exists: () => true,
+        data: () => ({
+          assets: [{
+            id: "smr",
+            name: "SOL한국원자력SMR",
+            ticker: "0092B0",
+            type: "KRX",
+            quantity: 2,
+            averagePrice: 18000
+          }],
+          retirement: {},
+          snapshots: []
+        })
+      }),
+      set() {}
+    }),
     setDoc: async () => {}
   }
 };
 
 window.eval(appCode);
-await new Promise((resolve) => window.setTimeout(resolve, 30));
+for (let attempt = 0; attempt < 100; attempt += 1) {
+  if (window.document.querySelector("#syncStatus").textContent === "클라우드와 동기화됨") break;
+  await new Promise((resolve) => window.setTimeout(resolve, 5));
+}
 
 window.document.querySelector('[data-nav-view="ASSETS"]').click();
 const rowText = window.document.querySelector("#assetRows").textContent.replace(/\s+/g, " ").trim();
