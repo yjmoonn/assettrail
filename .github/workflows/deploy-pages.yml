@@ -265,7 +265,7 @@ jobs:
           cp $STATIC_SITE_FILES _site/
 
       - name: Upload static site
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
