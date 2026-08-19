@@ -6693,3 +6693,74 @@ h3 { font-weight: 700; }
     min-height: var(--control-touch-min);
   }
 }
+
+/* Open Design preview: compact two-row brand hierarchy */
+@media (min-width: 721px) {
+  .topbar {
+    margin-bottom: 12px;
+  }
+
+  .eyebrow {
+    font-size: 26px;
+    font-weight: 750;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+
+  .brand-mark {
+    height: 32px;
+    width: 32px;
+  }
+
+  .topbar h1 {
+    font-size: 30px;
+    font-weight: 750;
+    line-height: 1.16;
+  }
+
+  .topbar-copy {
+    margin-top: 10px;
+  }
+
+  .app-nav-item {
+    font-weight: 650;
+    position: relative;
+  }
+
+  .app-nav-item.active {
+    background: var(--brand-soft);
+    box-shadow: none;
+    color: var(--brand);
+  }
+
+  .app-nav-item.active::after {
+    background: var(--brand);
+    border-radius: 999px;
+    bottom: 2px;
+    content: "";
+    height: 2px;
+    left: 18px;
+    position: absolute;
+    right: 18px;
+  }
+}
+
+@media (max-width: 720px) {
+  .eyebrow {
+    font-size: 22px;
+    font-weight: 750;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .brand-mark {
+    height: 28px;
+    width: 28px;
+  }
+
+  .topbar h1 {
+    font-size: 24px;
+    font-weight: 750;
+    line-height: 1.2;
+  }
+}

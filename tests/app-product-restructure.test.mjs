@@ -236,7 +236,7 @@ assert.match(usageGuideCss, /\.usage-guide h3\s*\{[^}]*font-size:\s*16px[^}]*fon
 assert.match(usageGuideCss, /\.usage-guide ol\s*\{[^}]*font-size:\s*var\(--fs-body-sm\)[^}]*line-height:\s*1\.65/s);
 assert.match(usageGuideCss, /\.usage-guide-note p,[\s\S]*?\.usage-guide-more p\s*\{[^}]*font-size:\s*var\(--fs-caption\)[^}]*font-weight:\s*var\(--fw-medium\)[^}]*line-height:\s*1\.6/s);
 assert.doesNotMatch(usageGuideCss, /font-weight:\s*(?:650|750)/);
-assert.match(staticDocument.querySelector('link[rel="stylesheet"]')?.getAttribute("href") || "", /styles\.css\?v=20260819-logo-v1/);
+assert.match(staticDocument.querySelector('link[rel="stylesheet"]')?.getAttribute("href") || "", /styles\.css\?v=20260819-header-hierarchy-v1/);
 
 const historyEmpty = staticDocument.querySelector("#historyChartEmpty");
 assert.match(historyEmpty?.textContent || "", /자산 화면에서 현재 자산을 기록/);
