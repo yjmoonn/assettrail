@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-store">
     <meta http-equiv="Pragma" content="no-cache">
     <title>자산 히스토리 & 은퇴 플래너</title>
-    <link rel="stylesheet" href="styles.css?v=20260819-asset-history-v7">
+    <link rel="stylesheet" href="styles.css?v=20260819-usage-guide">
   </head>
   <body>
     <div class="app">
@@ -60,6 +60,56 @@
               <p class="hero-spark-empty" id="heroSparklineEmpty" hidden>자산 기록을 남기면 추이가 표시됩니다.</p>
             </div>
           </div>
+        </section>
+
+        <section class="usage-guide-panel" data-app-section="DASHBOARD" aria-labelledby="usageGuideTitle">
+          <details class="usage-guide">
+            <summary>
+              <span class="usage-guide-heading">
+                <strong id="usageGuideTitle">AssetTrail 사용법</strong>
+                <small>일별 자산 기록과 이번 달 점검을 나눠 사용하세요.</small>
+              </span>
+            </summary>
+            <div class="usage-guide-content">
+              <div class="usage-guide-flows">
+                <article>
+                  <span class="usage-guide-frequency">원할 때마다</span>
+                  <h3>일별 자산 변화를 기록합니다</h3>
+                  <ol>
+                    <li><strong>현재 값을 확인합니다.</strong> 주식·ETF 가격과 현금·수동 자산 금액을 확인하세요.</li>
+                    <li><strong>자산에서 조회 기록을 저장합니다.</strong> 같은 날 여러 번 저장하면 시간별 기록으로 남습니다.</li>
+                    <li><strong>기록에서 변화를 확인합니다.</strong> 조회 히스토리에서 총자산과 직전 기록 대비 증감을 봅니다.</li>
+                  </ol>
+                  <div class="usage-guide-actions">
+                    <button class="text-link-button" type="button" data-go-view="ASSETS">자산에서 기록하기</button>
+                    <button class="text-link-button" type="button" data-go-view="JOURNAL">기록 화면 열기</button>
+                  </div>
+                </article>
+                <article>
+                  <span class="usage-guide-frequency">월 1회</span>
+                  <h3>이번 달 상태를 정리합니다</h3>
+                  <ol>
+                    <li><strong>홈의 확인할 일을 점검합니다.</strong> 가격·수동 자산·기록·목표 상태를 확인하세요.</li>
+                    <li><strong>결론과 다음 점검일을 적습니다.</strong> 이번 달 변화와 다음에 확인할 내용을 짧게 남기세요.</li>
+                    <li><strong>이번 달 점검을 저장합니다.</strong> 같은 달에 다시 저장하면 일별 기록을 늘리지 않고 월간 기록을 갱신합니다.</li>
+                  </ol>
+                </article>
+              </div>
+              <aside class="usage-guide-note" aria-label="자산 변화와 투자 성과의 차이">
+                <div>
+                  <strong>숫자를 읽는 기준</strong>
+                  <p><b>조회 히스토리</b>는 입출금을 포함한 총자산 변화입니다. 입출금을 분리한 투자 결과는 검증된 평가점이 있을 때 <b>기록의 기간 성과</b>에서 확인하세요.</p>
+                </div>
+              </aside>
+              <div class="usage-guide-more">
+                <p><strong>더 활용하기</strong> 목표에서 은퇴 계획을 설정하고, 설정에서 개인정보를 줄인 AI 점검 패키지를 받을 수 있습니다. 파일은 AI 서비스로 자동 전송되지 않습니다.</p>
+                <div class="usage-guide-actions">
+                  <button class="text-link-button" type="button" data-go-view="GOALS">은퇴 목표 설정하기</button>
+                  <button class="text-link-button" type="button" data-go-view="SETTINGS">AI 점검 자료 받기</button>
+                </div>
+              </div>
+            </div>
+          </details>
         </section>
 
         <section class="panel dashboard-panel" data-app-section="DASHBOARD" aria-label="월간 자산 점검">
@@ -1044,8 +1094,8 @@
           </p>
           <div class="history-chart-empty" id="historyChartEmpty" hidden>
             <strong>아직 자산 이력이 없어요</strong>
-            <p>대시보드에서 현재 자산을 기록하면 날짜별 총자산 변화를 비교할 수 있습니다.</p>
-            <button class="primary-button" type="button" data-go-view="DASHBOARD">홈에서 기록 시작</button>
+            <p>자산 화면에서 현재 자산을 기록하면 날짜별 총자산 변화를 비교할 수 있습니다.</p>
+            <button class="primary-button" type="button" data-go-view="ASSETS">자산에서 기록 시작</button>
           </div>
           <p class="sr-only" id="historyChartDescription">조회 히스토리 차트 설명이 여기에 표시됩니다.</p>
           <canvas id="historyChart" width="1100" height="320" aria-label="자산 히스토리 차트" aria-describedby="historyChartDescription"></canvas>

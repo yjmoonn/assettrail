@@ -3103,6 +3103,168 @@ h3 { font-weight: 700; }
 .hero-sparkline { display: block; width: 100%; max-width: 100%; height: 132px; }
 .hero-spark-empty { display: grid; place-items: center; height: 132px; margin: 0; color: var(--muted); font-size: var(--fs-caption); font-weight: 600; text-align: center; }
 
+.usage-guide-panel {
+  margin-bottom: 14px;
+}
+
+.usage-guide {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+
+.usage-guide > summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  list-style: none;
+  min-height: 64px;
+  padding: 14px 20px;
+}
+
+.usage-guide > summary::-webkit-details-marker {
+  display: none;
+}
+
+.usage-guide > summary::after {
+  align-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--muted);
+  content: "⌄";
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: var(--fs-body);
+  height: 34px;
+  justify-content: center;
+  transition: transform 160ms ease;
+  width: 34px;
+}
+
+.usage-guide[open] > summary::after {
+  transform: rotate(180deg);
+}
+
+.usage-guide-heading {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.usage-guide-heading strong {
+  color: var(--ink);
+  font-size: var(--fs-body);
+}
+
+.usage-guide-heading small {
+  color: var(--muted);
+  font-size: var(--fs-caption);
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.usage-guide-content {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+}
+
+.usage-guide-flows {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.usage-guide-flows article {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.usage-guide-frequency {
+  color: var(--blue);
+  font-size: var(--fs-label);
+  font-weight: 750;
+  letter-spacing: 0.04em;
+}
+
+.usage-guide h3 {
+  color: var(--ink);
+  font-size: var(--fs-body);
+}
+
+.usage-guide ol {
+  color: var(--slate);
+  display: grid;
+  font-size: var(--fs-caption);
+  gap: 8px;
+  line-height: 1.55;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.usage-guide li strong {
+  color: var(--ink);
+}
+
+.usage-guide-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.usage-guide-note,
+.usage-guide-more {
+  align-items: center;
+  border-radius: var(--radius-md);
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 14px 16px;
+}
+
+.usage-guide-note {
+  background: var(--blue-2);
+  border: 1px solid var(--blue-100);
+}
+
+.usage-guide-more {
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.usage-guide-note > div,
+.usage-guide-more > p {
+  min-width: 0;
+}
+
+.usage-guide-note strong,
+.usage-guide-more strong {
+  color: var(--ink);
+  font-size: var(--fs-caption);
+}
+
+.usage-guide-note p,
+.usage-guide-more p {
+  color: var(--slate);
+  font-size: var(--fs-caption-sm);
+  font-weight: 600;
+  line-height: 1.5;
+  margin: 4px 0 0;
+}
+
 .dashboard-focus { display: grid; grid-template-columns: 1.7fr 1fr; gap: 14px; margin-bottom: 14px; }
 .today-card { gap: 14px; }
 .today-head { display: flex; align-items: center; justify-content: space-between; }
@@ -3128,9 +3290,16 @@ h3 { font-weight: 700; }
 @media (max-width: 900px) {
   .dashboard-hero { grid-template-columns: 1fr; }
   .hero-actions { flex-direction: row; }
+  .usage-guide-flows { grid-template-columns: 1fr; }
   .dashboard-focus { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) {
+  .usage-guide > summary { padding: 12px 14px; }
+  .usage-guide-content { padding: 14px; }
+  .usage-guide-note,
+  .usage-guide-more { align-items: flex-start; flex-direction: column; }
+  .usage-guide-actions { align-items: stretch; display: grid; width: 100%; }
+  .usage-guide-actions .text-link-button { min-height: 44px; width: 100%; }
   .today-card .dashboard-checklist,
   .goal-stats { grid-template-columns: 1fr; }
 }
