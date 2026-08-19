@@ -3309,7 +3309,7 @@ h3 { font-weight: 700; }
   .dashboard-focus { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) {
-  .usage-guide > summary { padding: 12px 14px; }
+  .usage-guide > summary { gap: 8px; padding: 12px 14px; }
   .usage-guide-content { padding: 14px; }
   .usage-guide-note,
   .usage-guide-more { align-items: flex-start; flex-direction: column; }

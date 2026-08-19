@@ -205,6 +205,7 @@ usageDestinations.forEach((button) => assert.equal(button.type, "button"));
 assert.match(css, /\.usage-guide-flows\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,/);
 assert.match(css, /@media \(max-width:\s*900px\)[\s\S]*?\.usage-guide-flows\s*\{\s*grid-template-columns:\s*1fr/);
 assert.match(css, /@media \(max-width:\s*560px\)[\s\S]*?\.usage-guide-actions \.text-link-button\s*\{[\s\S]*?min-height:\s*44px/);
+assert.match(css, /@media \(max-width:\s*560px\)[\s\S]*?\.usage-guide > summary\s*\{[^}]*gap:\s*8px/);
 const usageGuideCss = css.slice(css.indexOf(".usage-guide-panel"), css.indexOf(".dashboard-focus"));
 assert.match(usageGuideCss, /\.usage-guide-heading strong\s*\{[^}]*font-size:\s*var\(--fs-h3\)[^}]*font-weight:\s*var\(--fw-bold\)[^}]*line-height:\s*var\(--lh-h3\)/s);
 assert.match(usageGuideCss, /\.usage-guide-heading small\s*\{[^}]*font-size:\s*var\(--fs-body-sm\)[^}]*font-weight:\s*var\(--fw-semibold\)/s);
