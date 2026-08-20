@@ -1,8 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
   <title id="title">AssetTrail</title>
-  <desc id="desc">시간축과 기록점을 결합한 AT 모노그램</desc>
-  <path d="M18 106 47 20l29 86M31 66h62" fill="none" stroke="#2563eb" stroke-linecap="round" stroke-linejoin="round" stroke-width="15"/>
-  <path d="M76 20h34M93 20v86" fill="none" stroke="#2563eb" stroke-linecap="round" stroke-linejoin="round" stroke-width="15"/>
-  <circle cx="78" cy="48" r="7.5" fill="#2563eb"/>
-  <circle cx="78" cy="76" r="7.5" fill="#2563eb"/>
+  <desc id="desc">AssetTrail 블루 라운드 스퀘어 안의 Vault 심볼</desc>
+  <rect width="128" height="128" rx="31" fill="#2563EB"/>
+  <path fill="#FFFFFF" d="M64 22c5 0 10 2 13 6l27 31c5 6 5 14 0 20L77 100c-3 4-8 6-13 6s-10-2-13-6L24 79c-5-6-5-14 0-20l27-31c3-4 8-6 13-6Zm0 15-24 28 24 19 24-19-24-28Zm0 42-13-10-6 7 19 15 19-15-6-7-13 10Z"/>
 </svg>
