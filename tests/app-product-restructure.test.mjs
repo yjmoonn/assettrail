@@ -66,17 +66,24 @@ function installBrowserStubs(window, alerts) {
       generatedAt: FIXED_NOW,
       methodology: {
         distributionTreatment: "excluded",
-        priceBasis: "unadjusted_close"
+        priceBasis: "unadjusted_close",
+        valuationTiming: "LATEST_COMPLETED_SESSION"
+      },
+      finalCloseCertificate: {
+        status: "FINAL_CLOSE",
+        checkedAt: FIXED_NOW,
+        validUntil: "2026-08-20T03:00:00.000Z",
+        marketSessions: { KRX: "2026-08-19", US: "2026-08-19", FX: "2026-08-19" }
       },
       fx: {},
       prices: {
         KRX: {
-          "000660": { close: 100, date: "2026-08-19", kind: "STOCK", name: "SK하이닉스", source: "TEST" },
-          "035420": { close: 100, date: "2026-08-19", kind: "STOCK", name: "NAVER", source: "TEST" },
-          "005930": { close: 100, date: "2026-08-19", kind: "STOCK", name: "삼성전자", source: "TEST" },
-          "051910": { close: 100, date: "2026-08-19", kind: "STOCK", name: "LG화학", source: "TEST" },
-          "068270": { close: 100, date: "2026-08-19", kind: "STOCK", name: "셀트리온", source: "TEST" },
-          "207940": { close: 100, date: "2026-08-19", kind: "STOCK", name: "삼성바이오로직스", source: "TEST" }
+          "000660": { close: 100, date: "2026-08-19", kind: "STOCK", name: "SK하이닉스", sessionStatus: "FINAL_CLOSE", source: "TEST" },
+          "035420": { close: 100, date: "2026-08-19", kind: "STOCK", name: "NAVER", sessionStatus: "FINAL_CLOSE", source: "TEST" },
+          "005930": { close: 100, date: "2026-08-19", kind: "STOCK", name: "삼성전자", sessionStatus: "FINAL_CLOSE", source: "TEST" },
+          "051910": { close: 100, date: "2026-08-19", kind: "STOCK", name: "LG화학", sessionStatus: "FINAL_CLOSE", source: "TEST" },
+          "068270": { close: 100, date: "2026-08-19", kind: "STOCK", name: "셀트리온", sessionStatus: "FINAL_CLOSE", source: "TEST" },
+          "207940": { close: 100, date: "2026-08-19", kind: "STOCK", name: "삼성바이오로직스", sessionStatus: "FINAL_CLOSE", source: "TEST" }
         },
         US: {}
       },
@@ -314,17 +321,24 @@ window.eval(`${appSource}
         generatedAt: "${FIXED_NOW}",
         methodology: {
           distributionTreatment: "excluded",
-          priceBasis: "unadjusted_close"
+          priceBasis: "unadjusted_close",
+          valuationTiming: "LATEST_COMPLETED_SESSION"
+        },
+        finalCloseCertificate: {
+          status: "FINAL_CLOSE",
+          checkedAt: "${FIXED_NOW}",
+          validUntil: "2026-08-20T03:00:00.000Z",
+          marketSessions: { KRX: "2026-08-19", US: "2026-08-19", FX: "2026-08-19" }
         },
         fx: {},
         prices: {
           KRX: {
-            "000660": { close: 100, date: "2026-08-19", kind: "STOCK", name: "SK하이닉스", source: "TEST" },
-            "035420": { close: 100, date: "2026-08-19", kind: "STOCK", name: "NAVER", source: "TEST" },
-            "005930": { close: 100, date: "2026-08-19", kind: "STOCK", name: "삼성전자", source: "TEST" },
-            "051910": { close: 100, date: "2026-08-19", kind: "STOCK", name: "LG화학", source: "TEST" },
-            "068270": { close: 100, date: "2026-08-19", kind: "STOCK", name: "셀트리온", source: "TEST" },
-            "207940": { close: 100, date: "2026-08-19", kind: "STOCK", name: "삼성바이오로직스", source: "TEST" }
+            "000660": { close: 100, date: "2026-08-19", kind: "STOCK", name: "SK하이닉스", sessionStatus: "FINAL_CLOSE", source: "TEST" },
+            "035420": { close: 100, date: "2026-08-19", kind: "STOCK", name: "NAVER", sessionStatus: "FINAL_CLOSE", source: "TEST" },
+            "005930": { close: 100, date: "2026-08-19", kind: "STOCK", name: "삼성전자", sessionStatus: "FINAL_CLOSE", source: "TEST" },
+            "051910": { close: 100, date: "2026-08-19", kind: "STOCK", name: "LG화학", sessionStatus: "FINAL_CLOSE", source: "TEST" },
+            "068270": { close: 100, date: "2026-08-19", kind: "STOCK", name: "셀트리온", sessionStatus: "FINAL_CLOSE", source: "TEST" },
+            "207940": { close: 100, date: "2026-08-19", kind: "STOCK", name: "삼성바이오로직스", sessionStatus: "FINAL_CLOSE", source: "TEST" }
           },
           US: {}
         },
@@ -540,11 +554,11 @@ assert.equal(monthlyReviews[0].nextReviewAt, "2026-09-25");
 assert.equal(snapshots.at(-1).id, firstMonthly.id, "updated monthly review must move to its canonical chronological position");
 
 // v6 migration, hidden legacy state, and separate extension stores survive the restructure and monthly upsert.
-assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v6-to-v7`), legacyRaw);
+assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v6-to-v8`), legacyRaw);
 assert.equal(window.localStorage.getItem(EXTERNAL_DATA_KEY), legacyExternalRaw);
 assert.equal(window.localStorage.getItem(ETF_CATALOG_KEY), legacyEtfRaw);
 const safeState = window.__productRestructureTestApi.safeState();
-assert.equal(safeState.schemaVersion, 7);
+assert.equal(safeState.schemaVersion, 8);
 assert.equal(safeState.decisionProfiles.some((profile) => profile.id === "legacy-profile"), true);
 assert.equal(safeState.watchlist.some((item) => item.id === "legacy-watch"), true);
 assert.equal(safeState.realizedTrades.some((trade) => trade.id === "legacy-realized"), true);

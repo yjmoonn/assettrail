@@ -44,11 +44,15 @@ const inputSource = sourceBetween("function buildAiReviewInput", "function aiRev
 [
   "generatedAt",
   "asOfDate",
+  "snapshotId",
+  "snapshotCreatedAt",
+  "valuationStatus",
   "dataQuality",
   "marketPositionCount",
   "pricedPositionCount",
   "missingPriceCount",
   "portfolio",
+  "totalMarketValueKRW",
   "allocation",
   "positions",
   "concentration",
@@ -58,10 +62,30 @@ const inputSource = sourceBetween("function buildAiReviewInput", "function aiRev
   "reviewStatus"
 ].forEach((field) => assert.match(inputSource, new RegExp(`\\b${field}\\b`), `${field} mapping should exist`));
 
-const positionSource = sourceBetween("function aiReviewMarketPositions", "function aiReviewPerformance");
-["market", "ticker", "kind", "quantity", "marketValueKRW", "weightPct", "priceReturnPct", "priceAsOf", "quality"]
+const positionSource = sourceBetween("function aiReviewSnapshotPositions", "function aiReviewSnapshotConcentration");
+[
+  "assetType",
+  "market",
+  "ticker",
+  "kind",
+  "accountClass",
+  "valuationMode",
+  "quantity",
+  "appliedPrice",
+  "priceCurrency",
+  "priceAsOf",
+  "sessionStatus",
+  "fxRate",
+  "fxAsOf",
+  "fxSessionStatus",
+  "marketValueKRW",
+  "weightPct",
+  "quality"
+]
   .forEach((field) => assert.match(positionSource, new RegExp(`\\b${field}\\b`), `${field} position field should exist`));
-assert.match(positionSource, /const kind = assetKind\(asset\)/, "position kind must use the price/symbol-aware resolver");
+assert.match(positionSource, /snapshot\.valuation\.positions/, "positions must come from the latest stored valuation");
+assert.doesNotMatch(positionSource, /assetValue\(/, "snapshot valuation must not be replaced with current asset values");
+assert.doesNotMatch(positionSource, /priceForAsset\(/, "snapshot valuation must not be replaced with current prices");
 
 const markdownSource = sourceBetween("function aiReviewMarkdown", "function exportAiReviewPackage");
 assert.match(markdownSource, /```json/);
@@ -233,9 +257,102 @@ window.eval(`${appCode}
       state.snapshots = [{
         id: "sensitive-snapshot-id",
         createdAt: "2026-07-31T00:00:00.000Z",
-        total: 1,
+        total: 552785,
         note: "sensitive-snapshot-note",
-        typeTotals: {}
+        typeTotals: { KRX: 165285, US: 237500, CASH: 100000, MANUAL: 50000 },
+        source: "QUICK_SNAPSHOT",
+        nextReviewAt: null,
+        qualityIssues: [],
+        valuation: {
+          schemaVersion: "assettrail.snapshot-valuation.v1",
+          priceBookGeneratedAt: "2026-07-31T00:00:00.000Z",
+          priceBasis: "UNADJUSTED_CLOSE",
+          distributionTreatment: "EXCLUDED",
+          valuationTiming: "LATEST_COMPLETED_SESSION",
+          fx: {
+            USDKRW: {
+              rate: 1250,
+              date: "2026-07-30",
+              sessionStatus: "FINAL_CLOSE",
+              source: "SNAPSHOT_TEST"
+            }
+          },
+          positions: [
+            {
+              assetId: "sensitive-asset-id-a",
+              assetType: "KRX",
+              ticker: "005930",
+              kind: "STOCK",
+              accountClass: "PENSION",
+              valuationMode: "FINAL_CLOSE",
+              quantity: 2,
+              appliedPrice: 55000,
+              priceCurrency: "KRW",
+              priceAsOf: "2026-07-30",
+              sessionStatus: "FINAL_CLOSE",
+              marketValueKRW: 110000
+            },
+            {
+              assetId: "sensitive-asset-id-b",
+              assetType: "KRX",
+              ticker: "005930",
+              kind: "STOCK",
+              accountClass: "PENSION",
+              valuationMode: "FINAL_CLOSE",
+              quantity: 1,
+              appliedPrice: 55000,
+              priceCurrency: "KRW",
+              priceAsOf: "2026-07-30",
+              sessionStatus: "FINAL_CLOSE",
+              marketValueKRW: 55000
+            },
+            {
+              assetId: "sensitive-us-asset-id",
+              assetType: "US",
+              ticker: "MSFT",
+              kind: "STOCK",
+              accountClass: "GENERAL",
+              valuationMode: "FINAL_CLOSE",
+              quantity: 1,
+              appliedPrice: 190,
+              priceCurrency: "USD",
+              priceAsOf: "2026-07-30",
+              sessionStatus: "FINAL_CLOSE",
+              fxRate: 1250,
+              fxAsOf: "2026-07-30",
+              fxSessionStatus: "FINAL_CLOSE",
+              marketValueKRW: 237500
+            },
+            {
+              assetId: "ui-created-etf-id",
+              assetType: "KRX",
+              ticker: "069500",
+              kind: "ETF",
+              accountClass: "GENERAL",
+              valuationMode: "FINAL_CLOSE",
+              quantity: 3,
+              appliedPrice: 95,
+              priceCurrency: "KRW",
+              priceAsOf: "2026-07-30",
+              sessionStatus: "FINAL_CLOSE",
+              marketValueKRW: 285
+            },
+            {
+              assetId: "sensitive-cash-id",
+              assetType: "CASH",
+              accountClass: "GENERAL",
+              valuationMode: "MANUAL_AMOUNT",
+              marketValueKRW: 100000
+            },
+            {
+              assetId: "sensitive-manual-id",
+              assetType: "MANUAL",
+              accountClass: "PENSION",
+              valuationMode: "MANUAL_AMOUNT",
+              marketValueKRW: 50000
+            }
+          ]
+        }
       }];
       state.performanceObservations = [];
       state.portfolioTargets = { domestic: 5, overseas: 15, cash: 30, manual: 50 };
@@ -248,7 +365,7 @@ window.eval(`${appCode}
         prices: {
           KRX: {
             "005930": { close: 60000, date: "2026-08-18", kind: "STOCK", source: "TEST" },
-            "069500": { close: 100, date: "2026-08-18", kind: "ETF", source: "TEST" }
+            "069500": { close: 100, date: "2026-08-18", kind: "STOCK", source: "TEST" }
           },
           US: {
             MSFT: { close: 200, date: "2026-08-18", kind: "STOCK", source: "TEST" }
@@ -266,6 +383,18 @@ window.eval(`${appCode}
       state.snapshots = [];
       state.performanceObservations = [];
     },
+    setLegacySnapshot() {
+      state.snapshots = [{
+        id: "legacy-snapshot-id",
+        createdAt: "2026-07-30T00:00:00.000Z",
+        total: 777000,
+        note: "legacy-sensitive-note",
+        typeTotals: { KRX: 777000 },
+        source: "LEGACY_SNAPSHOT",
+        nextReviewAt: null,
+        qualityIssues: []
+      }];
+    },
     input() {
       return JSON.parse(JSON.stringify(buildAiReviewInput("2026-08-19T01:02:03.000Z")));
     }
@@ -275,7 +404,8 @@ window.eval(`${appCode}
 await new Promise((resolve) => window.setTimeout(resolve, 40));
 window.__aiReviewExportTestApi.setupPortfolio();
 
-// The app-side mapping aggregates accounts and emits only the engine's derived allowlist.
+// The app-side mapping uses the latest stored valuation, aggregates only privacy-safe account classes,
+// and never substitutes the newer in-memory price book.
 const mappedInput = window.__aiReviewExportTestApi.input();
 assert.deepEqual(Object.keys(mappedInput).sort(), [
   "asOfDate",
@@ -284,34 +414,62 @@ assert.deepEqual(Object.keys(mappedInput).sort(), [
   "goal",
   "performance",
   "portfolio",
-  "reviewStatus"
+  "reviewStatus",
+  "snapshotCreatedAt",
+  "snapshotId",
+  "valuationStatus"
 ]);
-assert.equal(mappedInput.portfolio.positions.length, 3);
+assert.equal(mappedInput.snapshotId, "sensitive-snapshot-id");
+assert.equal(mappedInput.snapshotCreatedAt, "2026-07-31T00:00:00.000Z");
+assert.equal(mappedInput.valuationStatus, "SNAPSHOT_VALUATION_AVAILABLE");
+assert.equal(mappedInput.asOfDate, "2026-07-31");
+assert.equal(mappedInput.dataQuality.status, "STALE", "an old saved price date must remain stale at export time");
+assert.equal(mappedInput.portfolio.totalMarketValueKRW, 552785);
+assert.equal(mappedInput.portfolio.positions.length, 5);
 assert.deepEqual(
-  Array.from(mappedInput.portfolio.positions, (position) => `${position.market}:${position.ticker}`),
-  ["KRX:005930", "KRX:069500", "US:MSFT"]
+  Array.from(mappedInput.portfolio.positions, (position) => (
+    `${position.assetType}:${position.ticker || ""}:${position.accountClass}`
+  )),
+  ["CASH::GENERAL", "KRX:005930:PENSION", "KRX:069500:GENERAL", "MANUAL::PENSION", "US:MSFT:GENERAL"]
 );
 assert.equal(
   mappedInput.portfolio.positions.find((position) => position.ticker === "069500")?.kind,
   "ETF",
-  "an asset created without a persisted kind must inherit ETF metadata from the price book"
+  "the saved valuation must preserve ETF metadata independently of the current price book"
 );
 mappedInput.portfolio.positions.forEach((position) => {
   assert.deepEqual(Object.keys(position).sort(), [
     "kind",
+    "accountClass",
+    "appliedPrice",
+    "assetType",
+    "fxAsOf",
+    "fxRate",
+    "fxSessionStatus",
     "market",
     "marketValueKRW",
     "priceAsOf",
+    "priceCurrency",
     "priceReturnPct",
     "quality",
     "quantity",
+    "sessionStatus",
     "ticker",
+    "valuationMode",
     "weightPct"
-  ]);
+  ].sort());
 });
 assert.equal(mappedInput.portfolio.positions.find((position) => position.ticker === "005930")?.quantity, 3);
-assert.equal(mappedInput.portfolio.positions.find((position) => position.ticker === "005930")?.marketValueKRW, 180000);
-assert.equal(mappedInput.portfolio.positions.find((position) => position.ticker === "MSFT")?.marketValueKRW, 260000);
+assert.equal(mappedInput.portfolio.positions.find((position) => position.ticker === "005930")?.appliedPrice, 55000);
+assert.equal(mappedInput.portfolio.positions.find((position) => position.ticker === "005930")?.marketValueKRW, 165000);
+assert.equal(mappedInput.portfolio.positions.find((position) => position.ticker === "MSFT")?.marketValueKRW, 237500);
+assert.equal(mappedInput.portfolio.positions.find((position) => position.ticker === "MSFT")?.fxRate, 1250);
+assert.equal(mappedInput.portfolio.positions.find((position) => position.assetType === "CASH")?.marketValueKRW, 100000);
+assert.equal(mappedInput.portfolio.positions.find((position) => position.assetType === "MANUAL")?.accountClass, "PENSION");
+assert.equal(
+  mappedInput.portfolio.positions.reduce((sum, position) => sum + position.marketValueKRW, 0),
+  mappedInput.portfolio.totalMarketValueKRW
+);
 assert.equal(mappedInput.portfolio.targetComparison.status, "DEFAULT_NOT_CONFIRMED");
 mappedInput.portfolio.targetComparison.items.forEach((row) => {
   assert.equal(row.targetPct, null, "hidden legacy targets must not be exported");
@@ -340,7 +498,7 @@ const fetchCountBeforeExport = fetchCount;
 const storageBeforeExport = window.localStorage.getItem("finance-ledger-retirement-v1");
 window.document.querySelector("#exportAiCheckPackageBtn").click();
 assert.equal(downloads.length, 1);
-assert.equal(downloads[0].filename, "assettrail-ai-review-2026-08-18.md");
+assert.equal(downloads[0].filename, "assettrail-ai-review-2026-07-31.md");
 assert.equal(downloads[0].mimeType, "text/markdown;charset=utf-8");
 assert.equal(fetchCount, fetchCountBeforeExport);
 assert.equal(window.localStorage.getItem("finance-ledger-retirement-v1"), storageBeforeExport);
@@ -362,10 +520,18 @@ assert.equal(downloadedPackage.privacy.quantitiesIncluded, true);
 assert.equal(downloadedPackage.privacy.accountNamesIncluded, false);
 assert.equal(downloadedPackage.privacy.transactionRowsIncluded, false);
 assert.equal(downloadedPackage.privacy.freeTextIncluded, false);
+assert.equal(downloadedPackage.snapshotId, "sensitive-snapshot-id");
+assert.equal(downloadedPackage.snapshotCreatedAt, "2026-07-31T00:00:00.000Z");
+assert.equal(downloadedPackage.valuationStatus, "SNAPSHOT_VALUATION_AVAILABLE");
+assert.equal(downloadedPackage.portfolio.totalMarketValueKRW, 552785);
 assert.deepEqual(
   Array.from(downloadedPackage.portfolio.positions, (position) => position.instrumentKey),
-  ["KRX:005930", "KRX:069500", "US:MSFT"]
+  ["CASH:GENERAL", "KRX:005930:PENSION", "KRX:069500:GENERAL", "MANUAL:PENSION", "US:MSFT:GENERAL"]
 );
+assert.equal(downloadedPackage.portfolio.positions.find((position) => position.ticker === "005930")?.quantity, 3);
+assert.equal(downloadedPackage.portfolio.positions.find((position) => position.ticker === "005930")?.appliedPrice, 55000);
+assert.equal(downloadedPackage.portfolio.positions.find((position) => position.ticker === "MSFT")?.fxRate, 1250);
+assert.equal(downloadedPackage.portfolio.positions.find((position) => position.assetType === "CASH")?.market, null);
 assert.equal(downloadedPackage.portfolio.targetComparison.status, "DEFAULT_NOT_CONFIRMED");
 downloadedPackage.portfolio.targetComparison.items.forEach((row) => {
   assert.equal(row.targetPct, null);
@@ -385,11 +551,35 @@ downloadedPackage.portfolio.targetComparison.items.forEach((row) => {
 ].forEach((secret) => assert.equal(markdown.includes(secret), false, `download leaked ${secret}`));
 assert.match(window.document.querySelector("#aiCheckPackageStatus").textContent, /점검 파일을 만들었습니다/);
 
-// An empty portfolio is a clear no-op: no file and a useful status message.
+// A legacy latest snapshot stays explicit and never falls back to current assets or prices.
+window.__aiReviewExportTestApi.setLegacySnapshot();
+const legacyMappedInput = window.__aiReviewExportTestApi.input();
+assert.equal(legacyMappedInput.snapshotId, "legacy-snapshot-id");
+assert.equal(legacyMappedInput.valuationStatus, "MISSING_LEGACY_SNAPSHOT_VALUATION");
+assert.equal(legacyMappedInput.portfolio.totalMarketValueKRW, 777000);
+assert.deepEqual(Array.from(legacyMappedInput.portfolio.positions), []);
+const downloadsBeforeLegacy = downloads.length;
+window.document.querySelector("#exportAiCheckPackageBtn").click();
+assert.equal(downloads.length, downloadsBeforeLegacy + 1);
+const legacyMarkdown = await downloads.at(-1).blob.text();
+const legacyFencedJson = legacyMarkdown.match(/```json\n([\s\S]+)\n```/);
+assert.ok(legacyFencedJson);
+const legacyPackage = window.JSON.parse(legacyFencedJson[1]);
+assert.equal(legacyPackage.valuationStatus, "MISSING_LEGACY_SNAPSHOT_VALUATION");
+assert.deepEqual(Array.from(legacyPackage.portfolio.positions), []);
+assert.equal(legacyPackage.dataQuality.status, "INCOMPLETE");
+assert.equal(legacyPackage.dataQuality.issues.includes("MISSING_SNAPSHOT_VALUATION"), true);
+assert.equal(legacyMarkdown.includes("MSFT"), false, "legacy package must not use current holdings as a fallback");
+assert.match(window.document.querySelector("#aiCheckPackageStatus").textContent, /조회 기록을 다시 저장/);
+
+// With no snapshot at all, export is a clear no-op and asks for the required authority record.
 window.__aiReviewExportTestApi.clearPortfolio();
 const downloadCountBeforeEmptyClick = downloads.length;
 window.document.querySelector("#exportAiCheckPackageBtn").click();
 assert.equal(downloads.length, downloadCountBeforeEmptyClick);
-assert.equal(window.document.querySelector("#aiCheckPackageStatus").textContent, "자산을 먼저 등록하세요.");
+assert.equal(
+  window.document.querySelector("#aiCheckPackageStatus").textContent,
+  "AI 점검에 사용할 최신 조회 기록을 먼저 저장하세요."
+);
 
 console.log("app AI review export tests passed");

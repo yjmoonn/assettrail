@@ -485,7 +485,7 @@ async function createHarness() {
   harness.dom.window.close();
 }
 
-// If a queued successor fails, rollback targets the immediately preceding successful generation.
+// A concurrent snapshot request is ignored while the first durable generation is still saving.
 {
   const harness = await createHarness();
   const { api, fault } = harness;
@@ -511,7 +511,8 @@ async function createHarness() {
   assert.deepEqual(plain(api.snapshotNotes()), ["first"]);
   assert.deepEqual(plain(await api.activeNotes()), ["first"]);
   assert.equal((await api.primaryPointer()).pointsToExistingBundle, true);
-  assert.equal(api.blocked(), true);
+  assert.equal(fault.calls, 1);
+  assert.equal(api.blocked(), false);
   harness.dom.window.close();
 }
 

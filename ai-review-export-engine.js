@@ -28,7 +28,14 @@
   });
   const BUCKETS = Object.freeze(["DOMESTIC", "OVERSEAS", "CASH", "MANUAL"]);
   const MARKETS = Object.freeze(["KRX", "US"]);
+  const ASSET_TYPES = Object.freeze(["KRX", "US", "CASH", "MANUAL"]);
+  const ACCOUNT_CLASSES = Object.freeze(["GENERAL", "PENSION", "SAVINGS", "UNASSIGNED"]);
   const KINDS = Object.freeze(["STOCK", "ETF", "ETN", "FUND"]);
+  const VALUATION_STATUSES = Object.freeze([
+    "SNAPSHOT_VALUATION_AVAILABLE",
+    "MISSING_LEGACY_SNAPSHOT_VALUATION",
+    "UNAVAILABLE"
+  ]);
   const TARGET_STATUSES = Object.freeze(["USER_CONFIGURED", "DEFAULT_NOT_CONFIRMED", "UNAVAILABLE"]);
   const GOAL_STATUSES = Object.freeze(["CONFIGURED", "DEFAULT_NOT_CONFIRMED", "INVALID", "UNAVAILABLE"]);
 
@@ -47,8 +54,11 @@
     "INVALID_INPUT",
     "INVALID_PERFORMANCE",
     "INVALID_POSITION",
+    "INVALID_PORTFOLIO_TOTAL",
     "INVALID_REVIEW_STATUS",
+    "INVALID_SNAPSHOT_PROVENANCE",
     "INVALID_TARGET_COMPARISON",
+    "INVALID_VALUATION_STATUS",
     "MISSING_ALLOCATION",
     "MISSING_AS_OF_DATE",
     "MISSING_CONCENTRATION",
@@ -57,10 +67,14 @@
     "MISSING_GOAL",
     "MISSING_PERFORMANCE",
     "MISSING_POSITIONS",
+    "MISSING_PORTFOLIO_TOTAL",
     "MISSING_REVIEW_STATUS",
+    "MISSING_SNAPSHOT_PROVENANCE",
+    "MISSING_SNAPSHOT_VALUATION",
     "MISSING_TARGET_COMPARISON",
     "POSITION_COUNT_MISMATCH",
     "POSITION_LIMIT_EXCEEDED",
+    "POSITION_TOTAL_MISMATCH",
     "SENSITIVE_INPUT_EXCLUDED",
     "TARGET_CURRENT_WEIGHT_MISMATCH",
     "UNSUPPORTED_INPUT_EXCLUDED",
@@ -76,9 +90,17 @@
     "MISSING_ALLOCATION",
     "INVALID_ALLOCATION",
     "MISSING_POSITIONS",
+    "MISSING_PORTFOLIO_TOTAL",
     "INVALID_POSITION",
+    "INVALID_PORTFOLIO_TOTAL",
+    "DUPLICATE_POSITION",
+    "MISSING_SNAPSHOT_PROVENANCE",
+    "MISSING_SNAPSHOT_VALUATION",
+    "INVALID_SNAPSHOT_PROVENANCE",
+    "INVALID_VALUATION_STATUS",
     "POSITION_LIMIT_EXCEEDED",
-    "POSITION_COUNT_MISMATCH"
+    "POSITION_COUNT_MISMATCH",
+    "POSITION_TOTAL_MISMATCH"
   ]);
 
   const FIXED_PROMPT = Object.freeze({
@@ -86,7 +108,12 @@
     instructions: Object.freeze([
       "첨부된 ASSETTRAIL_AI_REVIEW_V2 데이터만 근거로 사용하세요.",
       "먼저 dataQuality를 확인하고 LIMITED, STALE, INCOMPLETE, UNAVAILABLE 또는 UNKNOWN인 영역은 한계를 밝히고 결론을 유보하세요.",
-      "종목별 quantity와 marketValueKRW는 position.priceAsOf 가격 기준 값이며, 패키지 asOfDate보다 오래된 가격은 별도로 지적하세요.",
+      "snapshotId, snapshotCreatedAt, valuationStatus를 먼저 확인하고 SNAPSHOT_VALUATION_AVAILABLE인 경우에만 portfolio.positions의 평가액을 저장 시점 근거로 사용하세요.",
+      "시장 자산의 quantity, appliedPrice, priceCurrency, priceAsOf, sessionStatus와 미국 자산의 fxRate, fxAsOf, fxSessionStatus를 함께 검산하세요.",
+      "portfolio.positions의 marketValueKRW 합계가 portfolio.totalMarketValueKRW와 일치하는지 확인하세요.",
+      "CASH와 MANUAL의 marketValueKRW는 valuationMode가 MANUAL_AMOUNT인 저장 금액이며 시장가격으로 해석하지 마세요.",
+      "valuationStatus가 MISSING_LEGACY_SNAPSHOT_VALUATION 또는 UNAVAILABLE이면 현재 자산값으로 대체하거나 당시 종목별 평가액을 추정하지 마세요.",
+      "accountClass는 GENERAL, PENSION, SAVINGS, UNASSIGNED 분류일 뿐 계좌명이 아닙니다.",
       "제공된 숫자를 변경하거나 누락된 값과 외부 사실을 추정하지 마세요.",
       "사실, 해석, 확인 필요 사항을 명확히 분리하세요.",
       "각 핵심 주장 뒤에는 근거가 된 JSON 경로를 표시하세요.",
@@ -106,7 +133,18 @@
   });
 
   const INPUT_KEYS = Object.freeze({
-    top: new Set(["generatedAt", "asOfDate", "dataQuality", "portfolio", "performance", "goal", "reviewStatus"]),
+    top: new Set([
+      "generatedAt",
+      "asOfDate",
+      "snapshotId",
+      "snapshotCreatedAt",
+      "valuationStatus",
+      "dataQuality",
+      "portfolio",
+      "performance",
+      "goal",
+      "reviewStatus"
+    ]),
     dataQuality: new Set([
       "status",
       "marketPositionCount",
@@ -116,9 +154,28 @@
       "latestPriceDate",
       "performanceObservationCount"
     ]),
-    portfolio: new Set(["allocation", "positions", "concentration", "targetComparison"]),
+    portfolio: new Set(["totalMarketValueKRW", "allocation", "positions", "concentration", "targetComparison"]),
     allocation: new Set(["bucket", "weightPct"]),
-    position: new Set(["market", "ticker", "kind", "quantity", "marketValueKRW", "weightPct", "priceReturnPct", "priceAsOf", "quality"]),
+    position: new Set([
+      "assetType",
+      "market",
+      "ticker",
+      "kind",
+      "accountClass",
+      "valuationMode",
+      "quantity",
+      "appliedPrice",
+      "priceCurrency",
+      "priceAsOf",
+      "sessionStatus",
+      "fxRate",
+      "fxAsOf",
+      "fxSessionStatus",
+      "marketValueKRW",
+      "weightPct",
+      "priceReturnPct",
+      "quality"
+    ]),
     concentration: new Set(["top1Pct", "top5Pct", "hhi", "effectivePositionCount"]),
     targetComparison: new Set(["status", "items"]),
     targetItem: new Set(["bucket", "currentPct", "targetPct", "gapPctPoint"]),
@@ -141,6 +198,9 @@
       "promptVersion",
       "generatedAt",
       "asOfDate",
+      "snapshotId",
+      "snapshotCreatedAt",
+      "valuationStatus",
       "currency",
       "privacy",
       "dataQuality",
@@ -170,9 +230,29 @@
       "latestPriceDate",
       "performanceObservationCount"
     ],
-    portfolio: ["allocation", "positions", "concentration", "targetComparison"],
+    portfolio: ["totalMarketValueKRW", "allocation", "positions", "concentration", "targetComparison"],
     allocation: ["bucket", "weightPct"],
-    position: ["instrumentKey", "market", "ticker", "kind", "quantity", "marketValueKRW", "weightPct", "priceReturnPct", "priceAsOf", "quality"],
+    position: [
+      "instrumentKey",
+      "assetType",
+      "market",
+      "ticker",
+      "kind",
+      "accountClass",
+      "valuationMode",
+      "quantity",
+      "appliedPrice",
+      "priceCurrency",
+      "priceAsOf",
+      "sessionStatus",
+      "fxRate",
+      "fxAsOf",
+      "fxSessionStatus",
+      "marketValueKRW",
+      "weightPct",
+      "priceReturnPct",
+      "quality"
+    ],
     concentration: ["top1Pct", "top5Pct", "hhi", "effectivePositionCount"],
     targetComparison: ["status", "items"],
     targetItem: ["bucket", "currentPct", "targetPct", "gapPctPoint"],
@@ -202,7 +282,6 @@
     "accountnames",
     "accountnumber",
     "accountnumbers",
-    "accountclass",
     "assetid",
     "assetids",
     "eventid",
@@ -342,6 +421,31 @@
     return new Date(value).toISOString();
   }
 
+  function normalizeSnapshotId(value, issues) {
+    if (value === undefined || value === null || value === "") {
+      addIssue(issues, "MISSING_SNAPSHOT_PROVENANCE");
+      return null;
+    }
+    const normalized = typeof value === "string" ? value.trim() : "";
+    if (!/^[A-Za-z0-9._:-]{1,160}$/.test(normalized)) {
+      addIssue(issues, "INVALID_SNAPSHOT_PROVENANCE");
+      return null;
+    }
+    return normalized;
+  }
+
+  function normalizeSnapshotInstant(value, issues) {
+    if (value === undefined || value === null || value === "") {
+      addIssue(issues, "MISSING_SNAPSHOT_PROVENANCE");
+      return null;
+    }
+    if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) {
+      addIssue(issues, "INVALID_SNAPSHOT_PROVENANCE");
+      return null;
+    }
+    return new Date(value).toISOString();
+  }
+
   function normalizeNumber(value, issues, issueCode, options = {}) {
     const { min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_INFINITY, integer = false, required = true } = options;
     if (value === undefined || value === null || value === "") {
@@ -455,45 +559,165 @@
     return null;
   }
 
-  function normalizePositions(value, issues) {
+  function numbersClose(left, right) {
+    if (!Number.isFinite(left) || !Number.isFinite(right)) return false;
+    return Math.abs(left - right) <= Math.max(0.01, Math.abs(left) * 1e-9, Math.abs(right) * 1e-9);
+  }
+
+  function valuationPositionKey(position) {
+    return position.market
+      ? `${position.market}:${position.ticker}:${position.accountClass}`
+      : `${position.assetType}:${position.accountClass}`;
+  }
+
+  function normalizedPositionSortKey(position) {
+    return [
+      position.instrumentKey,
+      position.quantity,
+      position.appliedPrice,
+      position.fxRate,
+      position.marketValueKRW,
+      position.weightPct,
+      position.priceAsOf,
+      position.fxAsOf
+    ].map((value) => String(value ?? "")).join("\u0000");
+  }
+
+  function normalizePositions(value, issues, valuationStatus) {
+    const valuationAvailable = valuationStatus === "SNAPSHOT_VALUATION_AVAILABLE";
+    if (!valuationAvailable) {
+      if (Array.isArray(value) && value.length) addIssue(issues, "MISSING_SNAPSHOT_VALUATION");
+      return [];
+    }
     if (!Array.isArray(value)) addIssue(issues, "MISSING_POSITIONS");
     const rows = Array.isArray(value) ? value : [];
     if (rows.length > MAX_POSITIONS) addIssue(issues, "POSITION_LIMIT_EXCEEDED");
-    const unique = new Map();
+    const normalized = [];
+    const uniqueKeys = new Set();
     rows.slice(0, MAX_POSITIONS).forEach((row) => {
       if (!isPlainObject(row)) {
         addIssue(issues, "INVALID_POSITION");
         return;
       }
-      const market = String(row.market || "").trim().toUpperCase();
-      const ticker = normalizeTicker(market, row.ticker);
-      if (!MARKETS.includes(market) || !ticker) {
+      const assetType = String(row.assetType || row.market || "").trim().toUpperCase();
+      const market = MARKETS.includes(assetType) ? assetType : null;
+      const suppliedMarket = row.market === undefined || row.market === null || row.market === ""
+        ? market
+        : String(row.market).trim().toUpperCase();
+      const accountClass = String(row.accountClass || "").trim().toUpperCase();
+      const valuationMode = String(row.valuationMode || "").trim().toUpperCase();
+      const marketValueKRW = normalizeNumber(row.marketValueKRW, issues, "INVALID_POSITION", {
+        min: 0,
+        max: 1e18
+      });
+      const weightPct = normalizeNumber(row.weightPct, issues, "INVALID_POSITION", { min: 0, max: 100 });
+      const quality = normalizeEnum(row.quality, QUALITY, "UNKNOWN", issues, "INVALID_POSITION");
+      const priceReturnPct = normalizeNumber(row.priceReturnPct, issues, "INVALID_POSITION", {
+        min: -100,
+        max: 1000000,
+        required: false
+      });
+      if (!ASSET_TYPES.includes(assetType)
+          || suppliedMarket !== market
+          || !ACCOUNT_CLASSES.includes(accountClass)
+          || marketValueKRW === null) {
         addIssue(issues, "INVALID_POSITION");
         return;
       }
-      const instrumentKey = `${market}:${ticker}`;
-      if (unique.has(instrumentKey)) {
+
+      if (!market) {
+        if (valuationMode !== "MANUAL_AMOUNT") {
+          addIssue(issues, "INVALID_POSITION");
+          return;
+        }
+        const position = {
+          instrumentKey: "",
+          assetType,
+          market: null,
+          ticker: null,
+          kind: null,
+          accountClass,
+          valuationMode,
+          quantity: null,
+          appliedPrice: null,
+          priceCurrency: null,
+          priceAsOf: null,
+          sessionStatus: null,
+          fxRate: null,
+          fxAsOf: null,
+          fxSessionStatus: null,
+          marketValueKRW,
+          weightPct,
+          priceReturnPct,
+          quality
+        };
+        position.instrumentKey = valuationPositionKey(position);
+        if (uniqueKeys.has(position.instrumentKey)) {
+          addIssue(issues, "DUPLICATE_POSITION");
+          return;
+        }
+        uniqueKeys.add(position.instrumentKey);
+        normalized.push(position);
+        return;
+      }
+
+      const ticker = normalizeTicker(market, row.ticker);
+      const quantity = normalizeNumber(row.quantity, issues, "INVALID_POSITION", { min: 0, max: 1e15 });
+      const appliedPrice = normalizeNumber(row.appliedPrice, issues, "INVALID_POSITION", { min: 0, max: 1e15 });
+      const priceCurrency = String(row.priceCurrency || "").trim().toUpperCase();
+      const priceAsOf = normalizeOptionalDate(row.priceAsOf, issues, "INVALID_POSITION");
+      const sessionStatus = String(row.sessionStatus || "").trim().toUpperCase();
+      const fxRate = market === "US"
+        ? normalizeNumber(row.fxRate, issues, "INVALID_POSITION", { min: 0, max: 1e9 })
+        : null;
+      const fxAsOf = market === "US" ? normalizeOptionalDate(row.fxAsOf, issues, "INVALID_POSITION") : null;
+      const fxSessionStatus = market === "US" ? String(row.fxSessionStatus || "").trim().toUpperCase() : null;
+      const expectedValue = market === "US"
+        ? quantity * appliedPrice * fxRate
+        : quantity * appliedPrice;
+      if (!ticker
+          || valuationMode !== "FINAL_CLOSE"
+          || !(appliedPrice > 0)
+          || priceCurrency !== (market === "US" ? "USD" : "KRW")
+          || !priceAsOf
+          || sessionStatus !== "FINAL_CLOSE"
+          || (market === "US" && (!(fxRate > 0) || !fxAsOf || fxSessionStatus !== "FINAL_CLOSE"))
+          || !numbersClose(expectedValue, marketValueKRW)) {
+        addIssue(issues, "INVALID_POSITION");
+        return;
+      }
+      const position = {
+        instrumentKey: "",
+        assetType,
+        market,
+        ticker,
+        kind: row.kind === undefined || row.kind === null || row.kind === ""
+          ? "STOCK"
+          : normalizeEnum(row.kind, KINDS, "STOCK", issues, "INVALID_POSITION"),
+        accountClass,
+        valuationMode,
+        quantity,
+        appliedPrice,
+        priceCurrency,
+        priceAsOf,
+        sessionStatus,
+        fxRate,
+        fxAsOf,
+        fxSessionStatus,
+        marketValueKRW,
+        weightPct,
+        priceReturnPct,
+        quality
+      };
+      position.instrumentKey = valuationPositionKey(position);
+      if (uniqueKeys.has(position.instrumentKey)) {
         addIssue(issues, "DUPLICATE_POSITION");
         return;
       }
-      unique.set(instrumentKey, {
-        instrumentKey,
-        market,
-        ticker,
-        kind: normalizeEnum(row.kind, KINDS, "STOCK", issues, "INVALID_POSITION"),
-        quantity: normalizeNumber(row.quantity, issues, "INVALID_POSITION", { min: 0, max: 1e15 }),
-        marketValueKRW: normalizeNumber(row.marketValueKRW, issues, "INVALID_POSITION", { min: 0, max: 1e18 }),
-        weightPct: normalizeNumber(row.weightPct, issues, "INVALID_POSITION", { min: 0, max: 100 }),
-        priceReturnPct: normalizeNumber(row.priceReturnPct, issues, "INVALID_POSITION", {
-          min: -100,
-          max: 1000000,
-          required: false
-        }),
-        priceAsOf: normalizeOptionalDate(row.priceAsOf, issues, "INVALID_POSITION"),
-        quality: normalizeEnum(row.quality, QUALITY, "UNKNOWN", issues, "INVALID_POSITION")
-      });
+      uniqueKeys.add(position.instrumentKey);
+      normalized.push(position);
     });
-    return [...unique.values()].sort((left, right) => compareText(left.instrumentKey, right.instrumentKey));
+    return normalized.sort((left, right) => compareText(normalizedPositionSortKey(left), normalizedPositionSortKey(right)));
   }
 
   function normalizeConcentration(value, issues) {
@@ -812,18 +1036,55 @@
       "MISSING_AS_OF_DATE",
       "INVALID_AS_OF_DATE"
     );
+    const snapshotId = normalizeSnapshotId(source.snapshotId, issues);
+    const snapshotCreatedAt = normalizeSnapshotInstant(source.snapshotCreatedAt, issues);
+    let valuationStatus;
+    if (source.valuationStatus === undefined || source.valuationStatus === null || source.valuationStatus === "") {
+      valuationStatus = "UNAVAILABLE";
+      addIssue(issues, "MISSING_SNAPSHOT_VALUATION");
+    } else {
+      valuationStatus = normalizeEnum(
+        source.valuationStatus,
+        VALUATION_STATUSES,
+        "UNAVAILABLE",
+        issues,
+        "INVALID_VALUATION_STATUS"
+      );
+      if (valuationStatus !== "SNAPSHOT_VALUATION_AVAILABLE") {
+        addIssue(issues, "MISSING_SNAPSHOT_VALUATION");
+      }
+    }
+    if (generatedAt && snapshotCreatedAt && snapshotCreatedAt > generatedAt) {
+      addIssue(issues, "INVALID_SNAPSHOT_PROVENANCE");
+    }
     const dataQuality = normalizeDataQuality(source.dataQuality, issues);
     const portfolioSource = isPlainObject(source.portfolio) ? source.portfolio : {};
     if (!isPlainObject(source.portfolio)) {
+      addIssue(issues, "MISSING_PORTFOLIO_TOTAL");
       addIssue(issues, "MISSING_ALLOCATION");
       addIssue(issues, "MISSING_POSITIONS");
       addIssue(issues, "MISSING_CONCENTRATION");
       addIssue(issues, "MISSING_TARGET_COMPARISON");
     }
+    const totalMarketValueKRW = normalizeNumber(
+      portfolioSource.totalMarketValueKRW,
+      issues,
+      portfolioSource.totalMarketValueKRW === undefined || portfolioSource.totalMarketValueKRW === null
+        ? "MISSING_PORTFOLIO_TOTAL"
+        : "INVALID_PORTFOLIO_TOTAL",
+      { min: 0, max: 1e18 }
+    );
     const allocation = normalizeAllocation(portfolioSource.allocation, issues);
-    const positions = normalizePositions(portfolioSource.positions, issues);
-    if (dataQuality.marketPositionCount !== null && dataQuality.marketPositionCount !== positions.length) {
+    const positions = normalizePositions(portfolioSource.positions, issues, valuationStatus);
+    const marketPositionCount = positions.filter((position) => position.market !== null).length;
+    if (valuationStatus === "SNAPSHOT_VALUATION_AVAILABLE"
+        && dataQuality.marketPositionCount !== null
+        && dataQuality.marketPositionCount !== marketPositionCount) {
       addIssue(issues, "POSITION_COUNT_MISMATCH");
+    }
+    if (valuationStatus === "SNAPSHOT_VALUATION_AVAILABLE" && totalMarketValueKRW !== null) {
+      const positionTotal = positions.reduce((sum, position) => sum + position.marketValueKRW, 0);
+      if (!numbersClose(positionTotal, totalMarketValueKRW)) addIssue(issues, "POSITION_TOTAL_MISMATCH");
     }
     const concentration = normalizeConcentration(portfolioSource.concentration, issues);
     const targetComparison = normalizeTargetComparison(portfolioSource.targetComparison, allocation, issues);
@@ -842,6 +1103,9 @@
       promptVersion: PROMPT_SCHEMA,
       generatedAt,
       asOfDate,
+      snapshotId,
+      snapshotCreatedAt,
+      valuationStatus,
       currency: CURRENCY,
       privacy: {
         absoluteAmountsIncluded: true,
@@ -853,7 +1117,7 @@
         storageWritePerformed: false
       },
       dataQuality,
-      portfolio: { allocation, positions, concentration, targetComparison },
+      portfolio: { totalMarketValueKRW, allocation, positions, concentration, targetComparison },
       performance,
       goal,
       reviewStatus,
@@ -899,6 +1163,26 @@
     if (reviewPackage.asOfDate !== null && !validDateKey(reviewPackage.asOfDate)) fail("INVALID_AS_OF_DATE");
     if (reviewPackage.generatedAt && reviewPackage.asOfDate
         && reviewPackage.asOfDate > reviewPackage.generatedAt.slice(0, 10)) fail("FUTURE_AS_OF_DATE");
+    if (reviewPackage.snapshotId !== null
+        && (typeof reviewPackage.snapshotId !== "string"
+          || !/^[A-Za-z0-9._:-]{1,160}$/.test(reviewPackage.snapshotId))) {
+      fail("INVALID_SNAPSHOT_PROVENANCE");
+    }
+    if (reviewPackage.snapshotCreatedAt !== null
+        && (typeof reviewPackage.snapshotCreatedAt !== "string"
+          || !Number.isFinite(Date.parse(reviewPackage.snapshotCreatedAt))
+          || new Date(reviewPackage.snapshotCreatedAt).toISOString() !== reviewPackage.snapshotCreatedAt)) {
+      fail("INVALID_SNAPSHOT_PROVENANCE");
+    }
+    if (!VALUATION_STATUSES.includes(reviewPackage.valuationStatus)) fail("INVALID_VALUATION_STATUS");
+    if (reviewPackage.valuationStatus === "SNAPSHOT_VALUATION_AVAILABLE"
+        && (!reviewPackage.snapshotId || !reviewPackage.snapshotCreatedAt)) {
+      fail("INVALID_SNAPSHOT_PROVENANCE");
+    }
+    if (reviewPackage.generatedAt && reviewPackage.snapshotCreatedAt
+        && reviewPackage.snapshotCreatedAt > reviewPackage.generatedAt) {
+      fail("INVALID_SNAPSHOT_PROVENANCE");
+    }
 
     if (!exactKeys(reviewPackage.privacy, OUTPUT_KEYS.privacy)
         || reviewPackage.privacy.absoluteAmountsIncluded !== true
@@ -944,11 +1228,18 @@
       if (quality.issues.some((code) => CRITICAL_ISSUES.has(code)) && quality.status !== "INCOMPLETE") {
         fail("INVALID_DATA_QUALITY_STATUS");
       }
+      if (reviewPackage.valuationStatus !== "SNAPSHOT_VALUATION_AVAILABLE"
+          && !declaredIssues.has("MISSING_SNAPSHOT_VALUATION")) {
+        fail("INVALID_VALUATION_STATUS");
+      }
     }
 
     const portfolio = reviewPackage.portfolio;
     if (!exactKeys(portfolio, OUTPUT_KEYS.portfolio)) fail("INVALID_PORTFOLIO");
     else {
+      if (!validNullableNumber(portfolio.totalMarketValueKRW, { min: 0, max: 1e18 })) {
+        fail("INVALID_PORTFOLIO_TOTAL");
+      }
       if (!Array.isArray(portfolio.allocation) || portfolio.allocation.length !== BUCKETS.length) {
         fail("INVALID_ALLOCATION");
       } else {
@@ -967,29 +1258,97 @@
       if (!Array.isArray(portfolio.positions) || portfolio.positions.length > MAX_POSITIONS) {
         fail("INVALID_POSITIONS");
       } else {
+        const instrumentKeys = new Set();
         portfolio.positions.forEach((row, index) => {
-          const ticker = normalizeTicker(row?.market, row?.ticker);
-          if (!exactKeys(row, OUTPUT_KEYS.position)
-              || !MARKETS.includes(row?.market)
+          const isMarket = MARKETS.includes(row?.assetType);
+          const ticker = isMarket ? normalizeTicker(row?.assetType, row?.ticker) : null;
+          const expectedKey = isMarket
+            ? `${row?.assetType}:${ticker}:${row?.accountClass}`
+            : `${row?.assetType}:${row?.accountClass}`;
+          const commonInvalid = !exactKeys(row, OUTPUT_KEYS.position)
+            || !ASSET_TYPES.includes(row?.assetType)
+            || !ACCOUNT_CLASSES.includes(row?.accountClass)
+            || row?.instrumentKey !== expectedKey
+            || !validNullableNumber(row?.marketValueKRW, { min: 0, max: 1e18 })
+            || row?.marketValueKRW === null
+            || !validNullableNumber(row?.weightPct, { min: 0, max: 100 })
+            || !validNullableNumber(row?.priceReturnPct, { min: -100, max: 1000000 })
+            || !QUALITY.includes(row?.quality);
+          let modeInvalid = false;
+          if (isMarket) {
+            modeInvalid = row?.market !== row.assetType
               || !ticker
-              || row?.instrumentKey !== `${row?.market}:${ticker}`
               || !KINDS.includes(row?.kind)
+              || row?.valuationMode !== "FINAL_CLOSE"
               || !validNullableNumber(row?.quantity, { min: 0, max: 1e15 })
-              || !validNullableNumber(row?.marketValueKRW, { min: 0, max: 1e18 })
-              || !validNullableNumber(row?.weightPct, { min: 0, max: 100 })
-              || !validNullableNumber(row?.priceReturnPct, { min: -100, max: 1000000 })
-              || (row?.priceAsOf !== null && !validDateKey(row?.priceAsOf))
-              || !QUALITY.includes(row?.quality)) fail("INVALID_POSITIONS");
+              || row?.quantity === null
+              || !validNullableNumber(row?.appliedPrice, { min: 0, max: 1e15 })
+              || !(row?.appliedPrice > 0)
+              || row?.priceCurrency !== (row.assetType === "US" ? "USD" : "KRW")
+              || !validDateKey(row?.priceAsOf)
+              || row?.sessionStatus !== "FINAL_CLOSE";
+            if (row?.assetType === "US") {
+              modeInvalid = modeInvalid
+                || !validNullableNumber(row?.fxRate, { min: 0, max: 1e9 })
+                || !(row?.fxRate > 0)
+                || !validDateKey(row?.fxAsOf)
+                || row?.fxSessionStatus !== "FINAL_CLOSE";
+            } else {
+              modeInvalid = modeInvalid
+                || row?.fxRate !== null
+                || row?.fxAsOf !== null
+                || row?.fxSessionStatus !== null;
+            }
+            const expectedValue = row?.assetType === "US"
+              ? row?.quantity * row?.appliedPrice * row?.fxRate
+              : row?.quantity * row?.appliedPrice;
+            if (!numbersClose(expectedValue, row?.marketValueKRW)) modeInvalid = true;
+          } else {
+            modeInvalid = row?.market !== null
+              || row?.ticker !== null
+              || row?.kind !== null
+              || row?.valuationMode !== "MANUAL_AMOUNT"
+              || row?.quantity !== null
+              || row?.appliedPrice !== null
+              || row?.priceCurrency !== null
+              || row?.priceAsOf !== null
+              || row?.sessionStatus !== null
+              || row?.fxRate !== null
+              || row?.fxAsOf !== null
+              || row?.fxSessionStatus !== null;
+          }
+          if (commonInvalid || modeInvalid) fail("INVALID_POSITIONS");
+          if (instrumentKeys.has(row?.instrumentKey)) fail("DUPLICATE_POSITION");
+          else instrumentKeys.add(row?.instrumentKey);
           if (reviewPackage.asOfDate && row?.priceAsOf && row.priceAsOf > reviewPackage.asOfDate) {
             fail("FUTURE_POSITION_PRICE_DATE");
           }
-          if (index > 0 && compareText(portfolio.positions[index - 1]?.instrumentKey, row?.instrumentKey) >= 0) {
+          if (index > 0
+              && compareText(
+                normalizedPositionSortKey(portfolio.positions[index - 1]),
+                normalizedPositionSortKey(row)
+              ) >= 0) {
             fail("NON_CANONICAL_POSITION_ORDER");
           }
         });
-        if (quality?.marketPositionCount !== null && quality?.marketPositionCount !== portfolio.positions.length
+        const actualMarketPositionCount = portfolio.positions.filter((position) => position?.market !== null).length;
+        if (reviewPackage.valuationStatus === "SNAPSHOT_VALUATION_AVAILABLE"
+            && quality?.marketPositionCount !== null
+            && quality?.marketPositionCount !== actualMarketPositionCount
             && !declaredIssues.has("POSITION_COUNT_MISMATCH")) {
           fail("POSITION_COUNT_MISMATCH");
+        }
+        if (reviewPackage.valuationStatus !== "SNAPSHOT_VALUATION_AVAILABLE" && portfolio.positions.length) {
+          fail("POSITIONS_WITHOUT_SNAPSHOT_VALUATION");
+        }
+        if (reviewPackage.valuationStatus === "SNAPSHOT_VALUATION_AVAILABLE"
+            && portfolio.totalMarketValueKRW !== null
+            && !numbersClose(
+              portfolio.positions.reduce((sum, position) => sum + Number(position?.marketValueKRW || 0), 0),
+              portfolio.totalMarketValueKRW
+            )
+            && !declaredIssues.has("POSITION_TOTAL_MISMATCH")) {
+          fail("POSITION_TOTAL_MISMATCH");
         }
       }
 

@@ -12,6 +12,90 @@ const appCode = [
 const STORAGE_KEY = "finance-ledger-retirement-v1";
 const PORTABLE_IMPORT_MAX_BYTES = 32 * 1024 * 1024;
 const MAX_PORTABLE_HISTORY_FIXTURE_BYTES = 16_106_941;
+const SNAPSHOT_VALUATION_FIXTURE = {
+  schemaVersion: "assettrail.snapshot-valuation.v1",
+  priceBookGeneratedAt: "2026-09-07T03:28:00.000Z",
+  priceBasis: "UNADJUSTED_CLOSE",
+  distributionTreatment: "EXCLUDED",
+  valuationTiming: "LATEST_COMPLETED_SESSION",
+  fx: {
+    USDKRW: {
+      rate: 1346.21,
+      date: "2026-09-07",
+      sessionStatus: "FINAL_CLOSE",
+      source: "TEST_USDKRW"
+    }
+  },
+  positions: [
+    {
+      assetId: "historical-krx",
+      assetType: "KRX",
+      ticker: "005930",
+      accountClass: "GENERAL",
+      valuationMode: "FINAL_CLOSE",
+      quantity: 3,
+      appliedPrice: 60000,
+      priceCurrency: "KRW",
+      priceAsOf: "2026-09-07",
+      sessionStatus: "FINAL_CLOSE",
+      marketValueKRW: 180000
+    },
+    {
+      assetId: "historical-us",
+      assetType: "US",
+      ticker: "NVDA",
+      accountClass: "PENSION",
+      valuationMode: "FINAL_CLOSE",
+      quantity: 10,
+      appliedPrice: 230.36,
+      priceCurrency: "USD",
+      priceAsOf: "2026-09-04",
+      sessionStatus: "FINAL_CLOSE",
+      fxRate: 1346.21,
+      fxAsOf: "2026-09-07",
+      fxSessionStatus: "FINAL_CLOSE",
+      marketValueKRW: 3101129.356
+    },
+    {
+      assetId: "historical-cash",
+      assetType: "CASH",
+      accountClass: "PENSION",
+      valuationMode: "MANUAL_AMOUNT",
+      marketValueKRW: 12000
+    },
+    {
+      assetId: "historical-manual",
+      assetType: "MANUAL",
+      accountClass: "SAVINGS",
+      valuationMode: "MANUAL_AMOUNT",
+      marketValueKRW: 11700000
+    }
+  ]
+};
+const MANUAL_ONLY_SNAPSHOT_VALUATION_FIXTURE = {
+  schemaVersion: "assettrail.snapshot-valuation.v1",
+  priceBookGeneratedAt: null,
+  priceBasis: "NOT_APPLICABLE",
+  distributionTreatment: "NOT_APPLICABLE",
+  valuationTiming: "MANUAL_AMOUNT_ONLY",
+  fx: {},
+  positions: [
+    {
+      assetId: "historical-cash-only",
+      assetType: "CASH",
+      accountClass: "GENERAL",
+      valuationMode: "MANUAL_AMOUNT",
+      marketValueKRW: 1000000
+    },
+    {
+      assetId: "historical-manual-only",
+      assetType: "MANUAL",
+      accountClass: "PENSION",
+      valuationMode: "MANUAL_AMOUNT",
+      marketValueKRW: 2500000
+    }
+  ]
+};
 
 function installBrowserStubs(window, { alerts = [], downloads = [], downloadBlobs = [] } = {}) {
   window.HTMLCanvasElement.prototype.getContext = () => ({
@@ -158,13 +242,13 @@ function evalAppWithLedgerCloudTestApi(window) {
 
 for (const protectedRaw of [
   JSON.stringify({
-    schemaVersion: 8,
+    schemaVersion: 9,
     futureOnlyData: { mustRemain: true },
     assets: [],
     snapshots: []
   }),
   JSON.stringify({
-    schemaVersion: 7,
+    schemaVersion: 8,
     assets: [],
     events: [],
     historyMeta: {
@@ -203,7 +287,7 @@ for (const protectedRaw of [
   dom.window.close();
 }
 
-// A present but oversized v7 history pointer is invalid, not a signal to fall
+// A present but oversized v8 history pointer is invalid, not a signal to fall
 // back to flat arrays. Reject it before any remote history chunk read.
 {
   const dom = makeDom();
@@ -231,7 +315,7 @@ for (const protectedRaw of [
   ]) {
     let historyChunkReads = 0;
     const cloudData = {
-      schemaVersion: 7,
+      schemaVersion: 8,
       snapshots: [],
       performanceObservations: [],
       historyMeta: {
@@ -255,6 +339,151 @@ for (const protectedRaw of [
   dom.window.close();
 }
 
+// A v7 primary that already externalized history must read and verify its
+// referenced bundle before the primary is promoted to v8. The history schema
+// itself is unchanged, so the verified generation remains active.
+{
+  const dom = makeDom();
+  const { window } = dom;
+  installBrowserStubs(window);
+  window.firebaseConfig = {};
+  window.eval(historyRepositoryCode);
+  const adapter = window.AssetTrailHistoryRepository.createMemoryHistoryAdapter();
+  const historicalSnapshot = {
+    id: "externalized-v7-snapshot",
+    createdAt: "2026-09-07T03:30:00.000Z",
+    total: 14993129.356,
+    note: "v7 외부 히스토리",
+    typeTotals: { KRX: 180000, US: 3101129.356, CASH: 12000, MANUAL: 11700000 },
+    source: "QUICK_SNAPSHOT",
+    nextReviewAt: null,
+    qualityIssues: [],
+    valuation: SNAPSHOT_VALUATION_FIXTURE
+  };
+  const historicalPerformance = {
+    id: "externalized-v7-performance",
+    date: "2026-09-07",
+    capturedAt: "2026-09-07T03:31:00.000Z",
+    cutoff: "END_OF_DAY_POST_FLOW",
+    source: "USER_SNAPSHOT",
+    snapshotId: historicalSnapshot.id,
+    navKRW: 14993129.356,
+    marketValueKRW: 3281129.356,
+    cashKRW: 12000,
+    manualValueKRW: 11700000,
+    unsettledKRW: 0,
+    usMarketValueNative: 2303.6,
+    usMarketValueKRW: 3101129.356,
+    usdKrw: 1346.21,
+    usdKrwDate: "2026-09-07",
+    typeTotals: { KRX: 180000, US: 3101129.356, CASH: 12000, MANUAL: 11700000 },
+    cumulative: {
+      externalFlowKRW: 0,
+      depositsKRW: 0,
+      withdrawalsKRW: 0,
+      dividendsKRW: 0,
+      interestKRW: 0,
+      feesKRW: 0,
+      taxesKRW: 0,
+      fxDifferenceKRW: 0
+    },
+    benchmarkLevels: {},
+    priceBasis: "UNADJUSTED_CLOSE",
+    distributionTreatment: "EXCLUDED",
+    ledgerAsOfFingerprint: "ledger-v1:test",
+    priceFingerprint: "performance-price-v1:test",
+    markFingerprint: "performance-mark-v1:test",
+    completeness: "COMPLETE",
+    issueCodes: []
+  };
+  const bundle = window.eval(`AssetTrailHistoryRepository.createHistoryBundle(
+    ${JSON.stringify({ snapshots: [historicalSnapshot], performanceObservations: [historicalPerformance] })},
+    { historyId: "history-v7-externalized", updatedAt: "2026-09-07T03:32:00.000Z" }
+  )`);
+  await adapter.writeBundle(STORAGE_KEY, bundle);
+  await adapter.setActiveHistoryId(STORAGE_KEY, bundle.manifest.historyId);
+  window.assetTrailHistoryAdapterFactory = () => adapter;
+  const { historyId, ...historyManifest } = bundle.manifest;
+  const v7Raw = JSON.stringify({
+    schemaVersion: 7,
+    assets: [],
+    events: [],
+    ledgerMeta: {
+      activeLedgerId: "ledger-v7-externalized",
+      baselineDate: null,
+      migratedAt: null,
+      migratedFromSchema: 6
+    },
+    historyMeta: { ...historyManifest, activeHistoryId: historyId },
+    retirement: {}
+  });
+  window.localStorage.setItem(STORAGE_KEY, v7Raw);
+
+  window.eval(appCode);
+  await waitForApp(window, 50);
+
+  const migratedPrimary = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
+  assert.equal(migratedPrimary.schemaVersion, 8);
+  assert.equal(migratedPrimary.snapshots, undefined);
+  assert.equal(migratedPrimary.performanceObservations, undefined);
+  assert.equal(migratedPrimary.historyMeta.activeHistoryId, historyId);
+  assert.equal(migratedPrimary.historyMeta.contentFingerprint, bundle.manifest.contentFingerprint);
+  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v7-to-v8`), v7Raw);
+  const portable = JSON.parse(window.eval("serializeStateFile(storageSafeState())"));
+  assert.equal(portable.snapshots[0].id, historicalSnapshot.id);
+  assert.deepEqual(portable.snapshots[0].valuation, SNAPSHOT_VALUATION_FIXTURE);
+  assert.equal(portable.performanceObservations[0].id, historicalPerformance.id);
+  assert.equal(await adapter.getActiveHistoryId(STORAGE_KEY), historyId);
+  dom.window.close();
+}
+
+// If the v7 primary points to a missing generation, keep the byte-identical
+// primary and block writes instead of replacing it with an empty v8 history.
+{
+  const dom = makeDom();
+  const { window } = dom;
+  installBrowserStubs(window);
+  window.firebaseConfig = {};
+  window.eval(historyRepositoryCode);
+  const repository = window.AssetTrailHistoryRepository;
+  const missingBundle = window.eval(`AssetTrailHistoryRepository.createHistoryBundle({
+    snapshots: [{
+      id: "missing-v7-snapshot",
+      createdAt: "2026-09-07T03:30:00.000Z",
+      total: 1
+    }],
+    performanceObservations: []
+  }, {
+    historyId: "history-v7-missing",
+    updatedAt: "2026-09-07T03:32:00.000Z"
+  })`);
+  const { historyId, ...historyManifest } = missingBundle.manifest;
+  const v7Raw = JSON.stringify({
+    schemaVersion: 7,
+    assets: [],
+    events: [],
+    ledgerMeta: {
+      activeLedgerId: "ledger-v7-missing",
+      baselineDate: null,
+      migratedAt: null,
+      migratedFromSchema: 6
+    },
+    historyMeta: { ...historyManifest, activeHistoryId: historyId },
+    retirement: {}
+  });
+  window.localStorage.setItem(STORAGE_KEY, v7Raw);
+  window.assetTrailHistoryAdapterFactory = () => repository.createMemoryHistoryAdapter();
+
+  window.eval(appCode);
+  await waitForApp(window, 50);
+
+  assert.equal(window.localStorage.getItem(STORAGE_KEY), v7Raw);
+  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v7-to-v8`), v7Raw);
+  assert.equal(window.eval("persist()"), false);
+  assert.match(window.document.querySelector("#appNotice").textContent, /장기 기록 저장소를 검증하지 못해|자동 저장을 중단/);
+  dom.window.close();
+}
+
 {
   const dom = makeDom();
   const { window } = dom;
@@ -268,7 +497,7 @@ for (const protectedRaw of [
   )`);
   const { historyId, ...manifest } = JSON.parse(JSON.stringify(originalBundle.manifest));
   const originalRaw = JSON.stringify({
-    schemaVersion: 7,
+    schemaVersion: 8,
     assets: [],
     events: [],
     historyMeta: { ...manifest, activeHistoryId: historyId },
@@ -372,7 +601,7 @@ for (const protectedRaw of [
   await waitForApp(window);
 
   const migrated = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
-  assert.equal(migrated.schemaVersion, 7);
+  assert.equal(migrated.schemaVersion, 8);
   assert.equal(migrated.assets[0].updatedAt, "2026-07-29T12:00:00.000Z");
   assert.equal(migrated.assets[0].investmentRole, undefined);
   assert.equal(migrated.decisionProfiles.length, 1);
@@ -396,6 +625,7 @@ for (const protectedRaw of [
     ["createdAt", "id", "nextReviewAt", "note", "qualityIssues", "source", "total", "typeTotals"]
   );
   assert.equal(migrated.snapshots[0].assets, undefined);
+  assert.equal(migrated.snapshots[0].valuation, undefined, "legacy snapshots must not gain reconstructed valuation details");
   assert.deepEqual(migrated.snapshots[0].typeTotals, { CASH: 3000000 });
 
   const firstAutomaticBackupBytes = Buffer.byteLength(
@@ -404,7 +634,7 @@ for (const protectedRaw of [
   );
   await dispatchImport(window, jsonFile(window, migrated, "round-trip-v2.json"));
   const roundTripped = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
-  assert.equal(roundTripped.schemaVersion, 7);
+  assert.equal(roundTripped.schemaVersion, 8);
   assert.equal(roundTripped.assets[0].id, "legacy-cash");
   assert.equal(roundTripped.snapshots[0].id, "legacy-snapshot");
   assert.equal(roundTripped.decisionProfiles[0].nextReviewAt, "2026-08-31");
@@ -442,6 +672,136 @@ for (const protectedRaw of [
   assert.doesNotMatch(window.document.querySelector("#appNotice").textContent, /새 데이터를 가져왔습니다/);
   storagePrototype.setItem = originalSetItem;
   assert.equal(alerts.length, 1);
+  dom.window.close();
+}
+
+// Optional v1 snapshot valuation evidence survives the v7 -> v8 migration,
+// portable normalization, and import validation without consulting current assets.
+{
+  const dom = makeDom();
+  const { window } = dom;
+  installBrowserStubs(window);
+  window.firebaseConfig = {};
+  const v7Raw = JSON.stringify({
+    schemaVersion: 7,
+    assets: [],
+    events: [],
+    ledgerMeta: {
+      activeLedgerId: "ledger-snapshot-valuation",
+      baselineDate: null,
+      migratedAt: null,
+      migratedFromSchema: 6
+    },
+    snapshots: [{
+      id: "snapshot-with-valuation",
+      createdAt: "2026-09-07T03:30:00.000Z",
+      total: 14993129.356,
+      note: "확정 종가 평가",
+      typeTotals: {
+        KRX: 180000,
+        US: 3101129.356,
+        CASH: 12000,
+        MANUAL: 11700000
+      },
+      source: "QUICK_SNAPSHOT",
+      nextReviewAt: null,
+      qualityIssues: [],
+      valuation: SNAPSHOT_VALUATION_FIXTURE
+    }],
+    performanceObservations: [],
+    retirement: {}
+  });
+  window.localStorage.setItem(STORAGE_KEY, v7Raw);
+
+  window.eval(appCode);
+  await waitForApp(window);
+
+  const migrated = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
+  assert.equal(migrated.schemaVersion, 8);
+  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v7-to-v8`), v7Raw);
+  assert.deepEqual(migrated.snapshots[0].valuation, SNAPSHOT_VALUATION_FIXTURE);
+
+  const portable = JSON.parse(window.eval("serializeStateFile(storageSafeState())"));
+  assert.deepEqual(portable.snapshots[0].valuation, SNAPSHOT_VALUATION_FIXTURE);
+  window.__snapshotValuationPortable = portable;
+  const importedValuation = JSON.parse(window.eval(
+    "JSON.stringify(validateImportPayload(window.__snapshotValuationPortable).snapshots[0].valuation)"
+  ));
+  assert.deepEqual(importedValuation, SNAPSHOT_VALUATION_FIXTURE);
+  delete window.__snapshotValuationPortable;
+
+  const manualOnlyPortable = JSON.parse(window.eval("serializeStateFile(storageSafeState())"));
+  manualOnlyPortable.snapshots = [{
+    id: "snapshot-with-manual-only-valuation",
+    createdAt: "2026-09-07T04:00:00.000Z",
+    total: 3500000,
+    note: "현금·수동평가 전용",
+    typeTotals: { CASH: 1000000, MANUAL: 2500000 },
+    source: "QUICK_SNAPSHOT",
+    nextReviewAt: null,
+    qualityIssues: [],
+    valuation: MANUAL_ONLY_SNAPSHOT_VALUATION_FIXTURE
+  }];
+  manualOnlyPortable.performanceObservations = [];
+  window.__manualOnlyValuationPortable = JSON.parse(JSON.stringify(manualOnlyPortable));
+  const importedManualOnly = JSON.parse(window.eval(
+    "JSON.stringify(validateImportPayload(window.__manualOnlyValuationPortable))"
+  ));
+  assert.deepEqual(importedManualOnly.snapshots[0].valuation, MANUAL_ONLY_SNAPSHOT_VALUATION_FIXTURE);
+  assert.equal(
+    importedManualOnly.snapshots[0].valuation.positions
+      .reduce((sum, position) => sum + position.marketValueKRW, 0),
+    importedManualOnly.snapshots[0].total
+  );
+  assert.deepEqual(
+    importedManualOnly.snapshots[0].valuation.positions.map((position) => position.accountClass),
+    ["GENERAL", "PENSION"]
+  );
+
+  const marketWithManualOnlyMetadata = JSON.parse(JSON.stringify(portable));
+  Object.assign(marketWithManualOnlyMetadata.snapshots[0].valuation, {
+    priceBookGeneratedAt: null,
+    priceBasis: "NOT_APPLICABLE",
+    distributionTreatment: "NOT_APPLICABLE",
+    valuationTiming: "MANUAL_AMOUNT_ONLY",
+    fx: {}
+  });
+  window.__marketWithManualOnlyMetadata = marketWithManualOnlyMetadata;
+  assert.throws(
+    () => window.eval("validateImportPayload(window.__marketWithManualOnlyMetadata)"),
+    /종목별 평가 근거가 올바르지 않습니다/
+  );
+
+  const manualOnlyWithMarketMetadata = JSON.parse(JSON.stringify(manualOnlyPortable));
+  Object.assign(manualOnlyWithMarketMetadata.snapshots[0].valuation, {
+    priceBookGeneratedAt: "2026-09-07T03:28:00.000Z",
+    priceBasis: "UNADJUSTED_CLOSE",
+    distributionTreatment: "EXCLUDED",
+    valuationTiming: "LATEST_COMPLETED_SESSION"
+  });
+  window.__manualOnlyWithMarketMetadata = manualOnlyWithMarketMetadata;
+  assert.throws(
+    () => window.eval("validateImportPayload(window.__manualOnlyWithMarketMetadata)"),
+    /종목별 평가 근거가 올바르지 않습니다/
+  );
+  delete window.__manualOnlyValuationPortable;
+  delete window.__marketWithManualOnlyMetadata;
+  delete window.__manualOnlyWithMarketMetadata;
+
+  const oversizedValuationPortable = JSON.parse(JSON.stringify(portable));
+  oversizedValuationPortable.snapshots[0].valuation.positions = Array.from({ length: 501 }, (_, index) => ({
+    assetId: `historical-manual-${index}`,
+    assetType: "MANUAL",
+    accountClass: "GENERAL",
+    valuationMode: "MANUAL_AMOUNT",
+    marketValueKRW: 1
+  }));
+  window.__oversizedValuationPortable = oversizedValuationPortable;
+  assert.throws(
+    () => window.eval("validateImportPayload(window.__oversizedValuationPortable)"),
+    /500/
+  );
+  delete window.__oversizedValuationPortable;
   dom.window.close();
 }
 
@@ -590,7 +950,7 @@ for (const protectedRaw of [
   const storagePrototype = Object.getPrototypeOf(window.localStorage);
   const originalSetItem = storagePrototype.setItem;
   storagePrototype.setItem = function setItemWithMigrationFailure(key, value) {
-    if (key === STORAGE_KEY && JSON.parse(String(value)).schemaVersion === 7) {
+    if (key === STORAGE_KEY && JSON.parse(String(value)).schemaVersion === 8) {
       throw new window.DOMException("quota", "QuotaExceededError");
     }
     return originalSetItem.call(this, key, value);
@@ -600,7 +960,7 @@ for (const protectedRaw of [
   await waitForApp(window);
 
   assert.equal(window.localStorage.getItem(STORAGE_KEY), legacyRaw, "failed migration must keep the active v4 payload");
-  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v4-to-v7`), legacyRaw);
+  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v4-to-v8`), legacyRaw);
   assert.equal(window.eval("persist()"), false);
   assert.match(window.document.querySelector("#appNotice").textContent, /자동 저장을 중단|보호/);
   window.document.querySelector("#assetForm").dispatchEvent(
@@ -1095,7 +1455,7 @@ for (const protectedRaw of [
   installBrowserStubs(window, { alerts, downloads });
   window.firebaseConfig = {};
   const futureRaw = JSON.stringify({
-    schemaVersion: 8,
+    schemaVersion: 9,
     futureOnlyData: { mustRemain: true },
     assets: [],
     snapshots: []
@@ -1166,7 +1526,7 @@ for (const protectedRaw of [
   const recovered = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
   assert.equal(downloads.length, 1);
   assert.match(downloads[0], /^finance-ledger-recovery-before-import-/);
-  assert.equal(recovered.schemaVersion, 7);
+  assert.equal(recovered.schemaVersion, 8);
   assert.equal(recovered.assets[0].id, "recovered-cash");
   assert.equal(recovered.watchlist[0].ticker, "MSFT");
   assert.equal(recovered.decisionProfiles[0].subjectKey, "INSTRUMENT:US:MSFT");
@@ -1265,7 +1625,7 @@ for (const protectedRaw of [
   await waitForApp(window, 50);
   const primaryTransactionWrites = () => transactionWrites.filter((write) => write.path === "users/alice/financeData/primary");
   assert.equal(primaryTransactionWrites().length, 1, "legacy remote state must be promoted immediately after download");
-  assert.equal(primaryTransactionWrites()[0].data.schemaVersion, 7);
+  assert.equal(primaryTransactionWrites()[0].data.schemaVersion, 8);
   assert.equal(primaryTransactionWrites()[0].data.revision, 5);
   assert.equal(primaryTransactionWrites()[0].data.meta.cloudRevision, 5);
   assert.equal(primaryTransactionWrites()[0].options.merge, false);
@@ -1292,7 +1652,7 @@ for (const protectedRaw of [
   addCash("추가 현금", 2000000);
   await waitForApp(window, 50);
   assert.equal(primaryTransactionWrites().length, 2);
-  assert.equal(primaryTransactionWrites()[1].data.schemaVersion, 7);
+  assert.equal(primaryTransactionWrites()[1].data.schemaVersion, 8);
   assert.equal(primaryTransactionWrites()[1].data.revision, 6);
   assert.equal(primaryTransactionWrites()[1].data.meta.cloudRevision, 6);
   assert.equal(primaryTransactionWrites()[1].options.merge, false);

@@ -9,19 +9,19 @@
 | `npm run check:js` | Node로 의사결정·행동·원장·성과·CSV·외부 데이터·ETF·AI 내보내기·히스토리 엔진/어댑터와 `app.js` 문법 확인 |
 | `npm run test:decision` | 경제적 포지션 합산, Top 1·Top 5·HHI, 검토일과 경고 경계값 검증 |
 | `npm run test:action` | 원 단위 신규자금 배분 제약, 불가능 상태, 위험 태그 합산과 위험예산 검증 |
-| `npm run test:action-app` | 기존 행동 지원 데이터·계산과 v7 저장 호환 회귀 검증 |
+| `npm run test:action-app` | 기존 행동 지원 데이터·계산과 v8 저장 호환 회귀 검증 |
 | `npm run test:ledger` | 이벤트 스키마·기초잔액·CASH 원화 정산·잔액 맞추기·부족금 자동입금·정정/취소·원장 UI와 참조 정합성 검증 |
 | `npm run test:performance` | TWR·XIRR 기준값, 현금흐름 경계, 가치변화 브리지, 벤치마크, 낙폭·변동성과 기간 성과 UI 검증 |
 | `npm run test:broker-csv` | 표준 CSV v1 파싱·매핑·중복·부분 오류·크기 한도·백업 후 증분 반영과 원문 비저장 검증 |
 | `npm run test:external-data` | Butler TSV 파싱, 확정치/컨센서스 분리, 미래 조회 시각·확정치 거부, 출처·revision·크기 한도와 원문 비저장 검증 |
 | `npm run test:etf` | ETF 카탈로그 미래 조회 시각·출처·재배포·구조 검증, `instrumentKind` 중첩·ID 충돌, 직접/간접 중복노출, 순환·미매핑 항등식 검증 |
 | `npm run test:ai` | 상대지표 근거 envelope, 결정론 보고서, 수동 handoff와 AI 응답 거부 계약 검증 |
-| `npm run test:ai-review` | `ASSETTRAIL_AI_REVIEW_V2` 종목별 수량·원화 평가액·allowlist·고정 프롬프트·`generatedAt` 제외 안정 digest·민감정보 제외와 설정 Markdown 내보내기 검증 |
-| `npm run test:history` | 월별 chunk·digest·평면 배열 round-trip, 변조·과대 chunk 거부와 IndexedDB 어댑터 계약 검증 |
+| `npm run test:ai-review` | `ASSETTRAIL_AI_REVIEW_V2`가 최신 저장 조회 기록의 종목별 수량·종가·환율·원화 평가액과 CASH·MANUAL만 사용하고 레거시 기록을 현재값으로 대체하지 않는지, allowlist·고정 프롬프트·`generatedAt` 제외 안정 digest·민감정보 제외와 설정 Markdown 내보내기 검증 |
+| `npm run test:history` | 월별 chunk·digest·평면 배열 round-trip, nested snapshot valuation 보존, 변조·256KiB 초과 거부와 IndexedDB 어댑터 계약 검증 |
 | `npm run test:history-race` | 로컬 history 저장 실패·되돌리기·계정 전환과 동기화 중 편집 경합의 원자성·사용자 격리 검증 |
 | `npm run test:product` | 홈/자산/기록/목표+설정 IA, 월간 점검 같은 달 갱신, Top 1·Top 5와 레거시 화면 비노출·데이터 보존 검증 |
 | `npm run test:stage5` | 일몰한 외부 데이터·ETF·기존 AI 엔진의 저장 호환, 로컬 격리 및 US 티커 운영 CLI 회귀 검증 |
-| `npm run test:investment` | 기존 의사결정·관심종목 데이터가 v7 마이그레이션과 백업에서 보존되고 레거시 편집 화면은 노출되지 않는지 검증 |
+| `npm run test:investment` | 기존 의사결정·관심종목 데이터가 v8 마이그레이션과 백업에서 보존되고 레거시 편집 화면은 노출되지 않는지 검증 |
 | `npm run test:prices` | 포트폴리오 가격 계산, 가격 방법론과 KOSPI·S&P 500 metadata 처리 검증 |
 | `npm run test:price-fallback` | 가격 데이터가 없거나 오래된 경우의 fallback 상태 검증 |
 | `npm run test:symbols` | 분리된 종목 디렉터리의 지연 로딩과 실패 격리 검증 |
@@ -30,8 +30,8 @@
 | `npm run test:cloud-conflict` | 원장·history fingerprint와 revision 충돌, 강제 업로드 백업과 미지원 스키마 차단 검증 |
 | `npm run test:cloud-auth-race` | 충돌 선택 중 사용자 전환 시 이전 사용자의 지연된 pull·저장이 새 사용자 상태에 섞이지 않는지 검증 |
 | `npm run test:cloud-prices` | 클라우드 자산에 정적 가격표를 적용하는 동작 검증 |
-| `npm run test:data` | v7 저장 스키마·v6 이전·성과 평가점, 기초잔액 이전·백업·대량 세대 교체, 가져오기·용량·revision 방어 검증 |
-| `npm run test:price-requests` | Python 가격 생성·실거래일 품질 게이트와 벤치마크 방법론 계약 검증 |
+| `npm run test:data` | v8 저장 스키마·v7 이전·선택적 snapshot valuation v1 왕복, 성과 평가점, 기초잔액 이전·백업·대량 세대 교체, 가져오기·용량·revision 방어 검증 |
+| `npm run test:price-requests` | Python 가격 생성, KRX 동적 종료 상태·XNYS 휴장/조기폐장·Yahoo FX 거래기간/rollover·독립 완료 세션·시장별 인증 만료와 벤치마크 방법론 계약 검증 |
 | `npm run test:firestore` | Firebase Emulator로 Firestore Rules 검증 |
 | `npm test` | 전체 검증을 순서대로 실행 |
 
@@ -99,7 +99,7 @@ firebase emulators:exec --only firestore "node tests/firestore-rules.test.mjs"
 | AI 월간 점검 Markdown·개인정보 최소화 | `npm run test:ai-review`, `npm run test:product` |
 | 기존 AI 근거·결정론 보고서 호환 | `npm run test:ai`, `npm run test:stage5` |
 | US 가격 대상 운영 CLI | `npm run test:stage5`, `npm run test:price-requests` |
-| v7 저장 스키마·IndexedDB·history chunk | `npm run test:history`, `npm run test:history-race`, `npm run test:data`, `npm run test:cloud`, `npm run test:cloud-history-gc`, `npm run test:cloud-conflict`, `npm run test:firestore` |
+| v8 저장 스키마·snapshot valuation·IndexedDB·history chunk | `npm run test:history`, `npm run test:history-race`, `npm run test:data`, `npm run test:cloud`, `npm run test:cloud-history-gc`, `npm run test:cloud-conflict`, `npm run test:firestore` |
 | 포트폴리오 계산 또는 가격 표시 | `npm run check:js`, `npm run test:prices`, `npm run test:price-fallback` |
 | `scripts/generate_prices.py`, 벤치마크 metadata, `tickers.json`, `requirements.txt` | `npm run test:price-requests`, `npm run test:prices`, `npm run test:performance` |
 | Firebase Auth 또는 Firestore 동기화 | `npm run test:cloud`, `npm run test:cloud-prices`, `npm run test:firestore` |
@@ -257,7 +257,7 @@ firebase emulators:exec --only firestore "node tests/firestore-rules.test.mjs"
   미매핑·미보고·미지원 버킷까지 전체 평가액 항등식이 맞는가
 - 카탈로그가 없는 ETF의 직접 금액도 미지원 ETF 원금에 포함되고, 중첩 확장 25,000단계
   도달 시 남은 금액을 `UNSUPPORTED`로 보존하며 기준일 14일 초과를 오래됨으로 표시하는가
-- 기업 스냅샷과 ETF 카탈로그가 주 v7 상태·Firestore·클라우드 fingerprint에 섞이지
+- 기업 스냅샷과 ETF 카탈로그가 주 v8 상태·Firestore·클라우드 fingerprint에 섞이지
   않고 활성 사용자별 로컬 키로 격리되는가
 - 분석 저장소 손상 시 원문이 자동으로 덮어써지지 않고 백업·비우기가 가능하며, 사용자
   전환 시 Butler 입력·AI 입력·검증 결과 DOM이 지워지는가

@@ -27,6 +27,9 @@ function fixture() {
   return {
     generatedAt: "2026-08-19T01:02:03.000Z",
     asOfDate: "2026-08-19",
+    snapshotId: "mew9v5-abc123",
+    snapshotCreatedAt: "2026-08-19T00:59:00.000Z",
+    valuationStatus: "SNAPSHOT_VALUATION_AVAILABLE",
     dataQuality: {
       status: "VERIFIED",
       marketPositionCount: 2,
@@ -37,6 +40,7 @@ function fixture() {
       performanceObservationCount: 8
     },
     portfolio: {
+      totalMarketValueKRW: 70000000,
       allocation: [
         { bucket: "DOMESTIC", weightPct: 50 },
         { bucket: "OVERSEAS", weightPct: 30 },
@@ -45,25 +49,83 @@ function fixture() {
       ],
       positions: [
         {
+          assetType: "US",
           market: "US",
           ticker: "MSFT",
           kind: "STOCK",
+          accountClass: "GENERAL",
+          valuationMode: "FINAL_CLOSE",
           quantity: 10,
+          appliedPrice: 2000,
+          priceCurrency: "USD",
+          priceAsOf: "2026-08-18",
+          sessionStatus: "FINAL_CLOSE",
+          fxRate: 1500,
+          fxAsOf: "2026-08-18",
+          fxSessionStatus: "FINAL_CLOSE",
           marketValueKRW: 30000000,
           weightPct: 30,
           priceReturnPct: 4.2,
-          priceAsOf: "2026-08-18",
           quality: "VERIFIED"
         },
         {
+          assetType: "KRX",
           market: "KRX",
           ticker: "005930",
           kind: "STOCK",
+          accountClass: "PENSION",
+          valuationMode: "FINAL_CLOSE",
           quantity: 100,
+          appliedPrice: 200000,
+          priceCurrency: "KRW",
+          priceAsOf: "2026-08-18",
+          sessionStatus: "FINAL_CLOSE",
+          fxRate: null,
+          fxAsOf: null,
+          fxSessionStatus: null,
           marketValueKRW: 20000000,
           weightPct: 20,
           priceReturnPct: -3.1,
-          priceAsOf: "2026-08-18",
+          quality: "VERIFIED"
+        },
+        {
+          assetType: "CASH",
+          market: null,
+          ticker: null,
+          kind: null,
+          accountClass: "GENERAL",
+          valuationMode: "MANUAL_AMOUNT",
+          quantity: null,
+          appliedPrice: null,
+          priceCurrency: null,
+          priceAsOf: null,
+          sessionStatus: null,
+          fxRate: null,
+          fxAsOf: null,
+          fxSessionStatus: null,
+          marketValueKRW: 10000000,
+          weightPct: 10,
+          priceReturnPct: null,
+          quality: "VERIFIED"
+        },
+        {
+          assetType: "MANUAL",
+          market: null,
+          ticker: null,
+          kind: null,
+          accountClass: "SAVINGS",
+          valuationMode: "MANUAL_AMOUNT",
+          quantity: null,
+          appliedPrice: null,
+          priceCurrency: null,
+          priceAsOf: null,
+          sessionStatus: null,
+          fxRate: null,
+          fxAsOf: null,
+          fxSessionStatus: null,
+          marketValueKRW: 10000000,
+          weightPct: 10,
+          priceReturnPct: null,
           quality: "VERIFIED"
         }
       ],
@@ -120,10 +182,45 @@ assert.equal(reviewPackage.privacy.networkRequestPerformed, false);
 assert.equal(reviewPackage.privacy.storageWritePerformed, false);
 assert.equal(reviewPackage.dataQuality.status, "VERIFIED");
 assert.deepEqual(reviewPackage.dataQuality.issues, []);
-assert.equal(reviewPackage.portfolio.positions[0].instrumentKey, "KRX:005930");
-assert.equal(reviewPackage.portfolio.positions[0].quantity, 100);
-assert.equal(reviewPackage.portfolio.positions[0].marketValueKRW, 20000000);
-assert.equal(reviewPackage.portfolio.positions[1].instrumentKey, "US:MSFT");
+assert.equal(reviewPackage.snapshotId, "mew9v5-abc123");
+assert.equal(reviewPackage.snapshotCreatedAt, "2026-08-19T00:59:00.000Z");
+assert.equal(reviewPackage.valuationStatus, "SNAPSHOT_VALUATION_AVAILABLE");
+assert.equal(reviewPackage.portfolio.totalMarketValueKRW, 70000000);
+assert.equal(reviewPackage.portfolio.positions.find((row) => row.ticker === "005930")?.instrumentKey, "KRX:005930:PENSION");
+assert.equal(reviewPackage.portfolio.positions.find((row) => row.ticker === "005930")?.quantity, 100);
+assert.equal(reviewPackage.portfolio.positions.find((row) => row.ticker === "005930")?.appliedPrice, 200000);
+assert.equal(reviewPackage.portfolio.positions.find((row) => row.ticker === "005930")?.marketValueKRW, 20000000);
+assert.equal(reviewPackage.portfolio.positions.find((row) => row.ticker === "MSFT")?.instrumentKey, "US:MSFT:GENERAL");
+assert.equal(reviewPackage.portfolio.positions.find((row) => row.assetType === "CASH")?.instrumentKey, "CASH:GENERAL");
+assert.equal(reviewPackage.portfolio.positions.find((row) => row.assetType === "MANUAL")?.accountClass, "SAVINGS");
+assert.deepEqual(
+  Object.keys(reviewPackage.portfolio.positions.find((row) => row.assetType === "CASH")).sort(),
+  [
+    "accountClass",
+    "appliedPrice",
+    "assetType",
+    "fxAsOf",
+    "fxRate",
+    "fxSessionStatus",
+    "instrumentKey",
+    "kind",
+    "market",
+    "marketValueKRW",
+    "priceAsOf",
+    "priceCurrency",
+    "priceReturnPct",
+    "quality",
+    "quantity",
+    "sessionStatus",
+    "ticker",
+    "valuationMode",
+    "weightPct"
+  ]
+);
+assert.equal(
+  reviewPackage.portfolio.positions.reduce((sum, row) => sum + row.marketValueKRW, 0),
+  reviewPackage.portfolio.totalMarketValueKRW
+);
 assert.deepEqual(reviewPackage.analysisPrompt, engine.getFixedPrompt());
 assert.match(reviewPackage.analysisPrompt.instructions.join(" "), /JSON 경로/);
 assert.match(reviewPackage.analysisPrompt.instructions.join(" "), /매수나 매도/);
@@ -160,7 +257,7 @@ sensitive.portfolio.positions[0] = {
   account: "private-pension-account",
   assetId: "private-asset-id",
   quantity: 987654,
-  marketValueKRW: 876543210,
+  marketValueKRW: 2962962000000,
   averagePrice: 123456,
   currentPrice: 234567,
   amount: 999999999,
@@ -168,6 +265,7 @@ sensitive.portfolio.positions[0] = {
   thesis: "private-thesis",
   transactions: [{ id: "private-transaction", amount: 777777 }]
 };
+sensitive.portfolio.totalMarketValueKRW = 2963002000000;
 const sanitized = engine.buildReviewPackage(sensitive);
 const serialized = JSON.stringify(sanitized);
 [
@@ -185,7 +283,7 @@ const serialized = JSON.stringify(sanitized);
   "777777"
 ].forEach((secret) => assert.equal(serialized.includes(secret), false, `sensitive value leaked: ${secret}`));
 assert.equal(sanitized.portfolio.positions.find((position) => position.ticker === "MSFT")?.quantity, 987654);
-assert.equal(sanitized.portfolio.positions.find((position) => position.ticker === "MSFT")?.marketValueKRW, 876543210);
+assert.equal(sanitized.portfolio.positions.find((position) => position.ticker === "MSFT")?.marketValueKRW, 2962962000000);
 assert.equal(sanitized.dataQuality.issues.includes("SENSITIVE_INPUT_EXCLUDED"), true);
 assert.equal(sanitized.dataQuality.issues.includes("UNSUPPORTED_INPUT_EXCLUDED"), true);
 assert.equal(engine.validateReviewPackage(sanitized).ok, true);
@@ -232,6 +330,41 @@ assert.equal(incomplete.dataQuality.issues.includes("VERIFIED_PERFORMANCE_MISSIN
 assert.equal(incomplete.performance.twrPct, null);
 assert.equal(engine.validateReviewPackage(incomplete).ok, true);
 
+// Snapshot valuation does not persist instrument kind or cost return; safe fallbacks stay valid.
+const minimalSnapshotMarketInput = fixture();
+delete minimalSnapshotMarketInput.portfolio.positions[0].kind;
+minimalSnapshotMarketInput.portfolio.positions[0].priceReturnPct = null;
+const minimalSnapshotMarket = engine.buildReviewPackage(minimalSnapshotMarketInput);
+assert.equal(minimalSnapshotMarket.portfolio.positions.find((row) => row.ticker === "MSFT")?.kind, "STOCK");
+assert.equal(minimalSnapshotMarket.portfolio.positions.find((row) => row.ticker === "MSFT")?.priceReturnPct, null);
+assert.equal(minimalSnapshotMarket.dataQuality.issues.includes("INVALID_POSITION"), false);
+assert.equal(engine.validateReviewPackage(minimalSnapshotMarket).ok, true);
+
+const duplicateInput = fixture();
+duplicateInput.portfolio.positions.push(structuredClone(duplicateInput.portfolio.positions[0]));
+const duplicate = engine.buildReviewPackage(duplicateInput);
+assert.equal(duplicate.dataQuality.status, "INCOMPLETE");
+assert.equal(duplicate.dataQuality.issues.includes("DUPLICATE_POSITION"), true);
+assert.equal(duplicate.portfolio.positions.filter((row) => row.instrumentKey === "US:MSFT:GENERAL").length, 1);
+assert.equal(engine.validateReviewPackage(duplicate).ok, true);
+
+// A legacy snapshot without valuation remains explicit and never falls back to supplied current positions.
+const legacyInput = fixture();
+legacyInput.valuationStatus = "MISSING_LEGACY_SNAPSHOT_VALUATION";
+const legacyCurrentValues = structuredClone(legacyInput.portfolio.positions);
+legacyInput.portfolio.positions = legacyCurrentValues;
+const legacy = engine.buildReviewPackage(legacyInput);
+assert.equal(legacy.snapshotId, legacyInput.snapshotId);
+assert.equal(legacy.snapshotCreatedAt, legacyInput.snapshotCreatedAt);
+assert.equal(legacy.valuationStatus, "MISSING_LEGACY_SNAPSHOT_VALUATION");
+assert.deepEqual(legacy.portfolio.positions, []);
+assert.equal(legacy.portfolio.totalMarketValueKRW, 70000000);
+assert.equal(legacy.dataQuality.status, "INCOMPLETE");
+assert.equal(legacy.dataQuality.issues.includes("MISSING_SNAPSHOT_VALUATION"), true);
+assert.equal(JSON.stringify(legacy).includes("MSFT"), false);
+assert.match(legacy.analysisPrompt.instructions.join(" "), /현재 자산값으로 대체/);
+assert.equal(engine.validateReviewPackage(legacy).ok, true);
+
 // Hidden legacy defaults are not presented as user-confirmed allocation targets.
 const unconfirmedTargetInput = fixture();
 unconfirmedTargetInput.portfolio.targetComparison.status = "DEFAULT_NOT_CONFIRMED";
@@ -248,6 +381,21 @@ assert.equal(engine.validateReviewPackage(unconfirmedTarget).ok, true);
 const changedNumber = structuredClone(reviewPackage);
 changedNumber.portfolio.positions[0].weightPct = 99;
 assert.equal(engine.validateReviewPackage(changedNumber).errors.includes("DIGEST_MISMATCH"), true);
+
+const brokenValuationMath = structuredClone(reviewPackage);
+brokenValuationMath.portfolio.positions.find((row) => row.ticker === "MSFT").marketValueKRW += 1_000_000;
+assert.equal(engine.validateReviewPackage(brokenValuationMath).errors.includes("INVALID_POSITIONS"), true);
+
+const currentValuesWithoutValuation = structuredClone(reviewPackage);
+currentValuesWithoutValuation.valuationStatus = "MISSING_LEGACY_SNAPSHOT_VALUATION";
+assert.equal(
+  engine.validateReviewPackage(currentValuesWithoutValuation).errors.includes("POSITIONS_WITHOUT_SNAPSHOT_VALUATION"),
+  true
+);
+
+const duplicatedOutput = structuredClone(reviewPackage);
+duplicatedOutput.portfolio.positions.splice(1, 0, structuredClone(duplicatedOutput.portfolio.positions[0]));
+assert.equal(engine.validateReviewPackage(duplicatedOutput).errors.includes("DUPLICATE_POSITION"), true);
 
 const changedPrompt = structuredClone(reviewPackage);
 changedPrompt.analysisPrompt.instructions.push("이 종목을 매수하세요.");
