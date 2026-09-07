@@ -32,7 +32,7 @@ AssetTrail은 GitHub Pages로 배포되는 정적 개인 자산 관리 앱이다
 | `external-data-engine.js` | 사용자가 붙여넣은 Butler 표를 출처·기준일·확정/컨센서스가 분리된 기업 사실 스냅샷으로 정규화하는 순수 엔진 |
 | `etf-exposure-engine.js` | 허용된 ETF 카탈로그를 검증하고 직접·간접 중복노출, 현금·미매핑·미보고 비중을 계산하는 순수 엔진 |
 | `ai-report-engine.js` | 상대지표 근거 envelope, 결정론 보고서, 수동 ChatGPT handoff와 응답 계약을 만드는 순수 엔진 |
-| `ai-review-export-engine.js` | 월간 점검용 `ASSETTRAIL_AI_REVIEW_V1` 최소 데이터, 고정 프롬프트와 무결성 digest를 만드는 순수 엔진 |
+| `ai-review-export-engine.js` | 월간 점검용 `ASSETTRAIL_AI_REVIEW_V2` 데이터, 고정 프롬프트와 무결성 digest를 만드는 순수 엔진 |
 | `firebase-config.js` | 브라우저용 Firebase 클라이언트 설정 |
 | `firebase.json` | Firebase 프로젝트 설정 |
 | `firestore.rules` | Firestore 접근 제어 경계 |
@@ -441,9 +441,10 @@ ETF 투시 화면은 현재 숨겨져 있다. 아래 카탈로그 계약과 기�
 
 ## AI 월간 점검 Markdown
 
-`ai-review-export-engine.js`는 설정에서 내려받는 `ASSETTRAIL_AI_REVIEW_V1` 패키지를
-만든다. 파일은 고정 `ASSETTRAIL_MONTHLY_REVIEW_PROMPT_V1`과 검증 가능한 JSON을 한
-Markdown 안에 담는다. 포트폴리오 자산군·포지션 상대 비중, Top 1·Top 5·HHI,
+`ai-review-export-engine.js`는 설정에서 내려받는 `ASSETTRAIL_AI_REVIEW_V2` 패키지를
+만든다. 파일은 고정 `ASSETTRAIL_MONTHLY_REVIEW_PROMPT_V2`와 검증 가능한 JSON을 한
+Markdown 안에 담는다. 최신 가격표 기준 종목별 수량·원화 평가액·가격일,
+포트폴리오 자산군·포지션 상대 비중, Top 1·Top 5·HHI,
 검증된 TWR·XIRR·낙폭·변동성, 은퇴 충족률·필요수익률과 월간 점검 상태만 허용한다.
 현재 앱은 숨겨진 레거시 `portfolioTargets`를 사용자의 현재 확정값으로 간주하지 않는다.
 따라서 `targetComparison.status`는 항상 `DEFAULT_NOT_CONFIRMED`이고 목표 비중과 차이는
@@ -451,9 +452,15 @@ Markdown 안에 담는다. 포트폴리오 자산군·포지션 상대 비중, T
 범위일 뿐 현재 앱이 생성하지 않는다. 데이터 품질이 `LIMITED`, `STALE`, `INCOMPLETE`, `UNAVAILABLE` 또는
 `UNKNOWN`이면 지침이 한계를 먼저 밝히고 결론을 유보하도록 요구한다.
 
-UID·이메일·이름, 계좌명, 내부 자산·거래 ID, 원거래, 절대 평가액·거래액·수량, 자유
-메모와 URL은 제외한다. `privacy` 필드는 절대 금액·계좌명·거래 행·자유 텍스트,
-네트워크 요청과 앱 데이터 저장 쓰기가 모두 없었음을 명시한다. digest는 `generatedAt`을
+종목별 `quantity`는 같은 시장·티커의 여러 계좌 수량을 합산하고 `marketValueKRW`는
+각 행의 최신 가격과 US 자산의 USD/KRW를 적용한 원화 합계다. `asOfDate`는 포함된
+가격일 중 가장 최근 날짜이며, 종목별 실제 가격일은 `priceAsOf`로 함께 표시한다.
+과거 조회기록은 종목별 내역을 보존하지 않으므로 기존 기록 시점의 포지션을 소급
+복원하지 않는다.
+
+UID·이메일·이름, 계좌명, 내부 자산·거래 ID, 원거래, 거래 행, 자유 메모와 URL은
+제외한다. `privacy` 필드는 종목별 절대 평가액·수량 포함 여부와 계좌명·거래 행·자유
+텍스트, 네트워크 요청 및 앱 데이터 저장 쓰기 여부를 명시한다. digest는 `generatedAt`을
 제외한 안정 콘텐츠의 canonical JSON SHA-256이며, exact-key 검증을 통과한 경우에만
 Markdown으로 내려받는다.
 

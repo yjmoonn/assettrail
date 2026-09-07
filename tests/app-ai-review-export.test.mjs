@@ -59,7 +59,7 @@ const inputSource = sourceBetween("function buildAiReviewInput", "function aiRev
 ].forEach((field) => assert.match(inputSource, new RegExp(`\\b${field}\\b`), `${field} mapping should exist`));
 
 const positionSource = sourceBetween("function aiReviewMarketPositions", "function aiReviewPerformance");
-["market", "ticker", "kind", "weightPct", "priceReturnPct", "priceAsOf", "quality"]
+["market", "ticker", "kind", "quantity", "marketValueKRW", "weightPct", "priceReturnPct", "priceAsOf", "quality"]
   .forEach((field) => assert.match(positionSource, new RegExp(`\\b${field}\\b`), `${field} position field should exist`));
 assert.match(positionSource, /const kind = assetKind\(asset\)/, "position kind must use the price/symbol-aware resolver");
 
@@ -300,13 +300,18 @@ mappedInput.portfolio.positions.forEach((position) => {
   assert.deepEqual(Object.keys(position).sort(), [
     "kind",
     "market",
+    "marketValueKRW",
     "priceAsOf",
     "priceReturnPct",
     "quality",
+    "quantity",
     "ticker",
     "weightPct"
   ]);
 });
+assert.equal(mappedInput.portfolio.positions.find((position) => position.ticker === "005930")?.quantity, 3);
+assert.equal(mappedInput.portfolio.positions.find((position) => position.ticker === "005930")?.marketValueKRW, 180000);
+assert.equal(mappedInput.portfolio.positions.find((position) => position.ticker === "MSFT")?.marketValueKRW, 260000);
 assert.equal(mappedInput.portfolio.targetComparison.status, "DEFAULT_NOT_CONFIRMED");
 mappedInput.portfolio.targetComparison.items.forEach((row) => {
   assert.equal(row.targetPct, null, "hidden legacy targets must not be exported");
@@ -344,15 +349,16 @@ const markdown = await downloads[0].blob.text();
 assert.match(markdown, /^# AssetTrail AI 월간 점검 패키지/m);
 const fencedJson = markdown.match(/```json\n([\s\S]+)\n```/);
 assert.ok(fencedJson);
-assert.match(markdown, /"schemaVersion": "ASSETTRAIL_AI_REVIEW_V1"/);
-assert.match(markdown, /"promptVersion": "ASSETTRAIL_MONTHLY_REVIEW_PROMPT_V1"/);
+assert.match(markdown, /"schemaVersion": "ASSETTRAIL_AI_REVIEW_V2"/);
+assert.match(markdown, /"promptVersion": "ASSETTRAIL_MONTHLY_REVIEW_PROMPT_V2"/);
 assert.match(markdown, /개인 자산 현황을 월간 점검하는 도우미/);
 assert.match(markdown, /각 핵심 주장 뒤에는 근거가 된 JSON 경로를 표시하세요/);
 assert.match(markdown, /"networkRequestPerformed": false/);
 assert.match(markdown, /"storageWritePerformed": false/);
 const downloadedPackage = window.JSON.parse(fencedJson[1]);
 assert.equal(window.AssetTrailAiReviewExportEngine.validateReviewPackage(downloadedPackage).ok, true);
-assert.equal(downloadedPackage.privacy.absoluteAmountsIncluded, false);
+assert.equal(downloadedPackage.privacy.absoluteAmountsIncluded, true);
+assert.equal(downloadedPackage.privacy.quantitiesIncluded, true);
 assert.equal(downloadedPackage.privacy.accountNamesIncluded, false);
 assert.equal(downloadedPackage.privacy.transactionRowsIncluded, false);
 assert.equal(downloadedPackage.privacy.freeTextIncluded, false);

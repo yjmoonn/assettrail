@@ -16,7 +16,7 @@
 | `npm run test:external-data` | Butler TSV 파싱, 확정치/컨센서스 분리, 미래 조회 시각·확정치 거부, 출처·revision·크기 한도와 원문 비저장 검증 |
 | `npm run test:etf` | ETF 카탈로그 미래 조회 시각·출처·재배포·구조 검증, `instrumentKind` 중첩·ID 충돌, 직접/간접 중복노출, 순환·미매핑 항등식 검증 |
 | `npm run test:ai` | 상대지표 근거 envelope, 결정론 보고서, 수동 handoff와 AI 응답 거부 계약 검증 |
-| `npm run test:ai-review` | `ASSETTRAIL_AI_REVIEW_V1` allowlist·고정 프롬프트·`generatedAt` 제외 안정 digest·민감정보 제외와 설정 Markdown 내보내기 검증 |
+| `npm run test:ai-review` | `ASSETTRAIL_AI_REVIEW_V2` 종목별 수량·원화 평가액·allowlist·고정 프롬프트·`generatedAt` 제외 안정 digest·민감정보 제외와 설정 Markdown 내보내기 검증 |
 | `npm run test:history` | 월별 chunk·digest·평면 배열 round-trip, 변조·과대 chunk 거부와 IndexedDB 어댑터 계약 검증 |
 | `npm run test:history-race` | 로컬 history 저장 실패·되돌리기·계정 전환과 동기화 중 편집 경합의 원자성·사용자 격리 검증 |
 | `npm run test:product` | 홈/자산/기록/목표+설정 IA, 월간 점검 같은 달 갱신, Top 1·Top 5와 레거시 화면 비노출·데이터 보존 검증 |

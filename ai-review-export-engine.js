@@ -5,8 +5,8 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function createAiReviewExportEngine() {
   "use strict";
 
-  const REVIEW_SCHEMA = "ASSETTRAIL_AI_REVIEW_V1";
-  const PROMPT_SCHEMA = "ASSETTRAIL_MONTHLY_REVIEW_PROMPT_V1";
+  const REVIEW_SCHEMA = "ASSETTRAIL_AI_REVIEW_V2";
+  const PROMPT_SCHEMA = "ASSETTRAIL_MONTHLY_REVIEW_PROMPT_V2";
   const CURRENCY = "KRW";
   const MAX_POSITIONS = 1000;
 
@@ -84,8 +84,9 @@
   const FIXED_PROMPT = Object.freeze({
     role: "개인 자산 현황을 월간 점검하는 도우미",
     instructions: Object.freeze([
-      "첨부된 ASSETTRAIL_AI_REVIEW_V1 데이터만 근거로 사용하세요.",
+      "첨부된 ASSETTRAIL_AI_REVIEW_V2 데이터만 근거로 사용하세요.",
       "먼저 dataQuality를 확인하고 LIMITED, STALE, INCOMPLETE, UNAVAILABLE 또는 UNKNOWN인 영역은 한계를 밝히고 결론을 유보하세요.",
+      "종목별 quantity와 marketValueKRW는 position.priceAsOf 가격 기준 값이며, 패키지 asOfDate보다 오래된 가격은 별도로 지적하세요.",
       "제공된 숫자를 변경하거나 누락된 값과 외부 사실을 추정하지 마세요.",
       "사실, 해석, 확인 필요 사항을 명확히 분리하세요.",
       "각 핵심 주장 뒤에는 근거가 된 JSON 경로를 표시하세요.",
@@ -117,7 +118,7 @@
     ]),
     portfolio: new Set(["allocation", "positions", "concentration", "targetComparison"]),
     allocation: new Set(["bucket", "weightPct"]),
-    position: new Set(["market", "ticker", "kind", "weightPct", "priceReturnPct", "priceAsOf", "quality"]),
+    position: new Set(["market", "ticker", "kind", "quantity", "marketValueKRW", "weightPct", "priceReturnPct", "priceAsOf", "quality"]),
     concentration: new Set(["top1Pct", "top5Pct", "hhi", "effectivePositionCount"]),
     targetComparison: new Set(["status", "items"]),
     targetItem: new Set(["bucket", "currentPct", "targetPct", "gapPctPoint"]),
@@ -152,6 +153,7 @@
     ],
     privacy: [
       "absoluteAmountsIncluded",
+      "quantitiesIncluded",
       "accountNamesIncluded",
       "transactionRowsIncluded",
       "freeTextIncluded",
@@ -170,7 +172,7 @@
     ],
     portfolio: ["allocation", "positions", "concentration", "targetComparison"],
     allocation: ["bucket", "weightPct"],
-    position: ["instrumentKey", "market", "ticker", "kind", "weightPct", "priceReturnPct", "priceAsOf", "quality"],
+    position: ["instrumentKey", "market", "ticker", "kind", "quantity", "marketValueKRW", "weightPct", "priceReturnPct", "priceAsOf", "quality"],
     concentration: ["top1Pct", "top5Pct", "hhi", "effectivePositionCount"],
     targetComparison: ["status", "items"],
     targetItem: ["bucket", "currentPct", "targetPct", "gapPctPoint"],
@@ -210,11 +212,9 @@
     "balance",
     "balances",
     "nav",
-    "marketvalue",
     "marketvalues",
     "cashflow",
     "cashflows",
-    "quantity",
     "quantities",
     "shares",
     "averageprice",
@@ -481,6 +481,8 @@
         market,
         ticker,
         kind: normalizeEnum(row.kind, KINDS, "STOCK", issues, "INVALID_POSITION"),
+        quantity: normalizeNumber(row.quantity, issues, "INVALID_POSITION", { min: 0, max: 1e15 }),
+        marketValueKRW: normalizeNumber(row.marketValueKRW, issues, "INVALID_POSITION", { min: 0, max: 1e18 }),
         weightPct: normalizeNumber(row.weightPct, issues, "INVALID_POSITION", { min: 0, max: 100 }),
         priceReturnPct: normalizeNumber(row.priceReturnPct, issues, "INVALID_POSITION", {
           min: -100,
@@ -842,7 +844,8 @@
       asOfDate,
       currency: CURRENCY,
       privacy: {
-        absoluteAmountsIncluded: false,
+        absoluteAmountsIncluded: true,
+        quantitiesIncluded: true,
         accountNamesIncluded: false,
         transactionRowsIncluded: false,
         freeTextIncluded: false,
@@ -898,7 +901,15 @@
         && reviewPackage.asOfDate > reviewPackage.generatedAt.slice(0, 10)) fail("FUTURE_AS_OF_DATE");
 
     if (!exactKeys(reviewPackage.privacy, OUTPUT_KEYS.privacy)
-        || Object.values(reviewPackage.privacy).some((value) => value !== false)) {
+        || reviewPackage.privacy.absoluteAmountsIncluded !== true
+        || reviewPackage.privacy.quantitiesIncluded !== true
+        || [
+          reviewPackage.privacy.accountNamesIncluded,
+          reviewPackage.privacy.transactionRowsIncluded,
+          reviewPackage.privacy.freeTextIncluded,
+          reviewPackage.privacy.networkRequestPerformed,
+          reviewPackage.privacy.storageWritePerformed
+        ].some((value) => value !== false)) {
       fail("INVALID_PRIVACY_CONTRACT");
     }
 
@@ -963,6 +974,8 @@
               || !ticker
               || row?.instrumentKey !== `${row?.market}:${ticker}`
               || !KINDS.includes(row?.kind)
+              || !validNullableNumber(row?.quantity, { min: 0, max: 1e15 })
+              || !validNullableNumber(row?.marketValueKRW, { min: 0, max: 1e18 })
               || !validNullableNumber(row?.weightPct, { min: 0, max: 100 })
               || !validNullableNumber(row?.priceReturnPct, { min: -100, max: 1000000 })
               || (row?.priceAsOf !== null && !validDateKey(row?.priceAsOf))

@@ -482,7 +482,12 @@ assert.equal(window.document.activeElement, realizedTab);
 assert.equal(window.document.querySelector("#realizedTabPanel").hidden, false);
 assert.match(window.document.querySelector("#realizedTabPanel > .field-help").textContent, /환차손익은 포함하지 않습니다/);
 assert.match(window.document.querySelector("#realizedSummary").textContent, /누적 실현손익\s+₩24,500/);
-assert.match(window.document.querySelector("#realizedChart").getAttribute("aria-label"), /2026년 월별 실현손익 차트.*8월 ₩24,500/);
+const todayYear = today.slice(0, 4);
+const todayMonth = Number(today.slice(5, 7));
+assert.match(
+  window.document.querySelector("#realizedChart").getAttribute("aria-label"),
+  new RegExp(`${todayYear}년 월별 실현손익 차트.*${todayMonth}월 ₩24,500`)
+);
 assert.match(window.document.querySelector("#realizedRows").textContent, /Apple Inc\./);
 assert.match(window.document.querySelector("#realizedRows").textContent, /\+₩24,500/);
 assert.match(window.document.querySelector("#realizedRows").textContent, /환차손익 제외/);
