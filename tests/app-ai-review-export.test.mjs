@@ -38,6 +38,8 @@ const reviewEngineScriptIndex = scriptSources.findIndex((src) => src.startsWith(
 const appScriptIndex = scriptSources.findIndex((src) => src.startsWith("app.js"));
 assert.ok(reviewEngineScriptIndex >= 0);
 assert.ok(appScriptIndex > reviewEngineScriptIndex);
+assert.equal(scriptSources[reviewEngineScriptIndex], "ai-review-export-engine.js?v=20260907-snapshot-valuation-v2");
+assert.equal(scriptSources[appScriptIndex], "app.js?v=20260907-final-close-v8");
 
 // buildAiReviewInput maps existing deterministic calculations into the engine allowlist contract.
 const inputSource = sourceBetween("function buildAiReviewInput", "function aiReviewMarkdown");
