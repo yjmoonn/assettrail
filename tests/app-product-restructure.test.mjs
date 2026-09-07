@@ -554,11 +554,11 @@ assert.equal(monthlyReviews[0].nextReviewAt, "2026-09-25");
 assert.equal(snapshots.at(-1).id, firstMonthly.id, "updated monthly review must move to its canonical chronological position");
 
 // v6 migration, hidden legacy state, and separate extension stores survive the restructure and monthly upsert.
-assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v6-to-v8`), legacyRaw);
+assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v6-to-v9`), legacyRaw);
 assert.equal(window.localStorage.getItem(EXTERNAL_DATA_KEY), legacyExternalRaw);
 assert.equal(window.localStorage.getItem(ETF_CATALOG_KEY), legacyEtfRaw);
 const safeState = window.__productRestructureTestApi.safeState();
-assert.equal(safeState.schemaVersion, 8);
+assert.equal(safeState.schemaVersion, 9);
 assert.equal(safeState.decisionProfiles.some((profile) => profile.id === "legacy-profile"), true);
 assert.equal(safeState.watchlist.some((item) => item.id === "legacy-watch"), true);
 assert.equal(safeState.realizedTrades.some((trade) => trade.id === "legacy-realized"), true);

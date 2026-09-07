@@ -32,7 +32,7 @@ AssetTrail은 GitHub Pages로 배포되는 정적 개인 자산 관리 앱이다
 | `external-data-engine.js` | 사용자가 붙여넣은 Butler 표를 출처·기준일·확정/컨센서스가 분리된 기업 사실 스냅샷으로 정규화하는 순수 엔진 |
 | `etf-exposure-engine.js` | 허용된 ETF 카탈로그를 검증하고 직접·간접 중복노출, 현금·미매핑·미보고 비중을 계산하는 순수 엔진 |
 | `ai-report-engine.js` | 상대지표 근거 envelope, 결정론 보고서, 수동 ChatGPT handoff와 응답 계약을 만드는 순수 엔진 |
-| `ai-review-export-engine.js` | 월간 점검용 `ASSETTRAIL_AI_REVIEW_V2` 데이터, 고정 프롬프트와 무결성 digest를 만드는 순수 엔진 |
+| `ai-review-export-engine.js` | 월간 점검용 `ASSETTRAIL_AI_REVIEW_V3` 데이터, 고정 프롬프트와 무결성 digest를 만드는 순수 엔진 |
 | `firebase-config.js` | 브라우저용 Firebase 클라이언트 설정 |
 | `firebase.json` | Firebase 프로젝트 설정 |
 | `firestore.rules` | Firestore 접근 제어 경계 |
@@ -76,13 +76,13 @@ AssetTrail은 로그아웃 상태의 로컬 사용과 로그인 상태의 클라
 가리키는 세대의 하위 컬렉션에서 이벤트를 읽는다. 이 구조는 이벤트 증가가 주 문서의
 900KB 안전 한도를 소진하지 않게 한다.
 
-저장 데이터는 현재 `schemaVersion: 8`을 사용한다. 버전이 없거나 v1~v7인 기존 데이터는
-검증 가능한 원본 백업을 먼저 만든 뒤 v8으로 마이그레이션한다. 기존 자산마다 원장
+저장 데이터는 현재 `schemaVersion: 9`를 사용한다. 버전이 없거나 v1~v8인 기존 데이터는
+검증 가능한 원본 백업을 먼저 만든 뒤 v9로 마이그레이션한다. 기존 자산마다 원장
 기준일의 `OPENING_BALANCE`를 만들며 매수 시점과 과거 환율을 추정하지 않는다. v5→v6은
 빈 `performanceObservations`를 추가할 뿐 과거 `snapshots`를 수익률 평가점으로 복제하지
 않고, v6→v7은 IndexedDB를 사용할 수 있으면 두 평면 배열을 검증한 새 히스토리 세대로
 옮긴 뒤에만 v7 주 상태의 `historyMeta` 포인터를 저장한다. IndexedDB 미지원 환경은
-검증된 v8 평면 배열 호환 저장을 유지한다. 로컬 마이그레이션 백업은 별도 키에 쓴 뒤 다시 읽어
+검증된 v9 평면 배열 호환 저장을 유지한다. 로컬 마이그레이션 백업은 별도 키에 쓴 뒤 다시 읽어
 일치 여부를 확인하고, 클라우드 스키마 이전 또는 강제 충돌 업로드 전에는 변경 불가능한
 `primary/backups/{backupId}` 사본을 남긴다. 이전에 실패하면 원래 상태와 활성 세대를
 유지하고 새 기록 저장·동기화를 중단한다.
@@ -96,7 +96,7 @@ AssetTrail은 로그아웃 상태의 로컬 사용과 로그인 상태의 클라
 티커 변경으로 이전 `subjectKey`의 마지막 참조가 사라질 때만 이전 판단과 그 충돌
 원본을 대상의 `migrationConflicts`로 옮겨 비교 가능하게 한다. 다른 계좌나 관심종목이
 이전 `subjectKey`를 계속 사용하면 두 종목의 판단을 그대로 분리해 둔다.
-구버전 앱이 v8 데이터를 읽고 새 필드나 원장·히스토리 하위 컬렉션을 제거한 채 다시 쓰지 못하도록
+구버전 앱이 v9 데이터를 읽고 새 필드나 원장·히스토리 하위 컬렉션을 제거한 채 다시 쓰지 못하도록
 미지원 미래 버전 보호를 유지하며, 로컬 또는 원격 문서가 현재 앱보다 새 버전이면 자동 pull과
 push를 모두 중단한다. 클라우드 문서는 단조 증가하는
 `revision`을 함께 저장하며, 다른 기기에서 더 최신 revision을 발견하면 자동
@@ -104,11 +104,13 @@ push를 모두 중단한다. 클라우드 문서는 단조 증가하는
 결정하기 중 하나를 선택하고, 앞의 두 작업 전에 현재 기기 JSON 백업을 받는다.
 
 조회 히스토리 스냅샷은 `id`, `createdAt`, `total`, `note`, `typeTotals`, 월간 점검 출처와
-다음 점검일·품질 이슈를 저장한다. v8에서 새로 저장하는 기록은
-`assettrail.snapshot-valuation.v1`에 저장 시점의 평가 대상 자산별 내역을 함께 보존한다.
+다음 점검일·품질 이슈를 저장한다. v9에서 새로 저장하는 기록은
+`assettrail.snapshot-valuation.v2`에 저장 시점의 평가 대상 자산별 내역을 함께 보존한다.
 시장 자산은 수량·확정 종가·가격 통화와 기준일·US 적용 환율과 원화 평가액을, CASH·MANUAL은
-수동 평가액을 담는다. 계좌명과 자산명은 중복 저장하지 않고 저장 당시의 유효 계좌분류를
-보존한다. 시장 자산이 없는 기록은 `priceBookGeneratedAt: null`, `MANUAL_AMOUNT_ONLY`와
+수동 평가액을 담는다. 계좌별 평가 근거를 재현할 수 있도록 저장 당시 사용자가 입력한
+`accountName`과 유효 계좌분류를 각 포지션에 보존하되 자산명은 중복 저장하지 않는다.
+`AUTO` 계좌분류는 ISA를 일반계좌와 분리해 저장한다. 시장 자산이 없는 기록은
+`priceBookGeneratedAt: null`, `MANUAL_AMOUNT_ONLY`와
 `NOT_APPLICABLE` 방법론으로 가격표를 사용하지 않았음을 명시한다. 기존 기록에는 현재
 가격으로 이 필드를 소급 생성하지 않는다. 같은 달의
 `MONTHLY_REVIEW`는 기존 기록을 갱신하고, 빠른 조회 기록은 별도 `QUICK_SNAPSHOT`으로
@@ -136,13 +138,13 @@ content fingerprint를 검증한다.
 CSV·클라우드 충돌 전 자동 백업은 같은 compact JSON 직렬화를 사용하고, portable JSON
 가져오기 파일은 브라우저 메모리 방어를 위해 32MiB 이하로 제한한다. 분리 세대가 아직 없는 신규·v6
 데이터에서 IndexedDB를 사용할 수 없으면 같은 평면 배열을 로컬 주 상태에 두는 명시적
-호환 모드로 전환한다. v7→v8 전환도 기존 `historyMeta`가 가리키는 세대를 먼저 읽어
-검증한 뒤 주 상태만 승격한다. 기존 v7·v8 세대를 읽지 못하면 원본 포인터를
+호환 모드로 전환한다. v7→v8과 v8→v9 전환도 기존 `historyMeta`가 가리키는 세대를 먼저
+읽어 검증한 뒤 주 상태만 승격한다. 기존 v7·v8 세대를 읽지 못하면 원본 포인터를
 보호하고 변경·동기화·전체 내보내기를 중단한다.
 
 사용자별 Firestore 경계는 제품 요구사항이다. 포트폴리오 데이터는 해당 로그인 사용자만 읽고 쓸 수 있어야 한다.
 
-기존 기업 스냅샷과 ETF 카탈로그는 v8 사용자 주 문서와 분리한다. 현재
+기존 기업 스냅샷과 ETF 카탈로그는 v9 사용자 주 문서와 분리한다. 현재
 `activeStorageKey`에 각각 `:external-data-v1`, `:etf-catalog-v1` 접미사를 붙인
 브라우저 로컬 저장소를 사용하므로 로그인 사용자가 바뀌면 저장 경계도 함께 전환된다.
 기업 저장소는 정규화 스냅샷 최대 60개·약 750KB, ETF 카탈로그는 약 2MB로 제한한다.
@@ -177,6 +179,9 @@ CSV·클라우드 충돌 전 자동 백업은 같은 compact JSON 직렬화를 �
 | `quantity` | 시장가격 자산의 수량 |
 | `averagePrice` | 평단가. `US` 값은 달러 기준 |
 | `amount` | `CASH`, `MANUAL`의 수동 평가금액 |
+
+`accountClass: AUTO`는 계좌명·자산명·메모의 키워드로 `ISA`, `PENSION`, `SAVINGS`,
+`GENERAL`, `UNASSIGNED` 중 하나를 정한다. ISA 키워드는 일반계좌 판정보다 먼저 적용한다.
 
 같은 티커라도 계좌가 다르면 별도 자산 행으로 관리한다.
 
@@ -263,8 +268,8 @@ manifest를 검증한 뒤 마지막 transaction에서 `activeLedgerId`를 원자
 
 JSON 가져오기는 이벤트 자체뿐 아니라 자산·CASH·실현손익·매매일지의 양방향 참조와
 최종 잔액을 검증한 뒤에만 현재 상태를 교체한다. 강제 충돌 업로드는 원격 주 문서를
-변경 불가능한 백업으로 남긴 뒤 진행한다. 스키마 v8과 원장·성과·히스토리·snapshot
-valuation 필드를 모르는 이전 앱은 v8 주 문서를 감지하면 읽기·쓰기를 중단한다.
+변경 불가능한 백업으로 남긴 뒤 진행한다. 스키마 v9와 원장·성과·히스토리·snapshot
+valuation 필드를 모르는 이전 앱은 v9 주 문서를 감지하면 읽기·쓰기를 중단한다.
 
 ## 증권사 CSV 증분 가져오기
 
@@ -450,10 +455,11 @@ ETF 투시 화면은 현재 숨겨져 있다. 아래 카탈로그 계약과 기�
 
 ## AI 월간 점검 Markdown
 
-`ai-review-export-engine.js`는 설정에서 내려받는 `ASSETTRAIL_AI_REVIEW_V2` 패키지를
-만든다. 파일은 고정 `ASSETTRAIL_MONTHLY_REVIEW_PROMPT_V2`와 검증 가능한 JSON을 한
-Markdown 안에 담는다. 가장 최근에 저장한 조회 기록의 종목별 수량·확정 종가·가격일·
-환율·원화 평가액·계좌분류와 CASH·MANUAL 저장액, 포트폴리오 자산군·포지션 상대 비중,
+`ai-review-export-engine.js`는 설정에서 내려받는 `ASSETTRAIL_AI_REVIEW_V3` 패키지를
+만든다. 파일은 고정 `ASSETTRAIL_MONTHLY_REVIEW_PROMPT_V3`와 검증 가능한 JSON을 한
+Markdown 안에 담는다. 가장 최근에 저장한 조회 기록의 계좌별 종목 수량·확정 종가·
+가격일·환율·원화 평가액·계좌분류·저장 당시 `accountName`과 CASH·MANUAL 저장액,
+포트폴리오 자산군·포지션 상대 비중,
 Top 1·Top 5·HHI,
 검증된 TWR·XIRR·낙폭·변동성, 은퇴 충족률·필요수익률과 월간 점검 상태만 허용한다.
 현재 앱은 숨겨진 레거시 `portfolioTargets`를 사용자의 현재 확정값으로 간주하지 않는다.
@@ -462,15 +468,24 @@ Top 1·Top 5·HHI,
 범위일 뿐 현재 앱이 생성하지 않는다. 데이터 품질이 `LIMITED`, `STALE`, `INCOMPLETE`, `UNAVAILABLE` 또는
 `UNKNOWN`이면 지침이 한계를 먼저 밝히고 결론을 유보하도록 요구한다.
 
-종목별 `quantity`는 같은 시장·티커·`accountClass`의 저장 행을 합산하고
-`marketValueKRW`는 조회 기록에 저장된 행별 평가액의 합계다. `asOfDate`는 조회 기록
+종목별 `quantity`는 같은 계좌명·시장·티커·`accountClass`의 저장 행만 합산하고
+`marketValueKRW`는 해당 계좌의 조회 기록에 저장된 행별 평가액 합계다. 같은 종목이라도
+계좌가 다르면 별도 포지션으로 내보낸다. `instrumentKey`는 시장·티커 기준 기초자산을,
+`positionKey`는 `instrumentKey`·`accountClass`·`accountName`을 결합한 계좌별 포지션을
+식별한다. `asOfDate`는 조회 기록
 저장일, 종목별 실제 가격일은 `priceAsOf`다. `snapshotId`, `snapshotCreatedAt`,
-`valuationStatus`로 근거 기록을 식별한다. 종목별 내역이 없는 과거 조회 기록은 현재
-자산이나 가격표로 대체하지 않고 `MISSING_LEGACY_SNAPSHOT_VALUATION`으로 표시한다.
+`valuationStatus`로 근거 기록을 식별한다. 계좌명이 없는
+`assettrail.snapshot-valuation.v1`은 현재 자산과 결합해 이름을 추정하지 않고
+`MISSING_SNAPSHOT_ACCOUNT_NAMES`로 표시해 계좌별 판단을 유보하고 재저장을 안내한다.
+종목별 내역이 없는 더 오래된
+조회 기록도 현재 자산이나 가격표로 대체하지 않고
+`MISSING_LEGACY_SNAPSHOT_VALUATION`으로 표시한다.
 
-UID·이메일·이름, 계좌명, 내부 자산·거래 ID, 원거래, 거래 행, 자유 메모와 URL은
-제외한다. `privacy` 필드는 종목별 절대 평가액·수량 포함 여부와 계좌명·거래 행·자유
-텍스트, 네트워크 요청 및 앱 데이터 저장 쓰기 여부를 명시한다. digest는 `generatedAt`을
+계좌별 진단에 필요한 `accountName`은 포함한다. UID·이메일, 자산명, 내부 자산·거래 ID,
+원거래, 거래 행, 자유 메모와 URL은 제외한다. 사용자가 계좌명에 계좌번호·이메일 등
+민감정보를 입력했다면 자산에서 계좌명을 수정하고 조회 기록을 다시 저장한 뒤 외부 AI에
+첨부해야 한다. `privacy` 필드는 종목별 절대 평가액·수량·계좌명 포함 여부와 거래 행·
+자유 텍스트, 네트워크 요청 및 앱 데이터 저장 쓰기 여부를 명시한다. digest는 `generatedAt`을
 제외한 안정 콘텐츠의 canonical JSON SHA-256이며, exact-key 검증을 통과한 경우에만
 Markdown으로 내려받는다.
 
