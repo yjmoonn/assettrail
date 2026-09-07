@@ -46,7 +46,7 @@
   },
   "homepage": "https://github.com/yjmoonn/assettrail#readme",
   "devDependencies": {
-    "@firebase/rules-unit-testing": "^5.0.1",
+    "@firebase/rules-unit-testing": "^5.0.2",
     "fake-indexeddb": "^6.2.5",
     "firebase": "^12.13.0",
     "firebase-tools": "^15.25.0",
