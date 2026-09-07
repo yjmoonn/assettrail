@@ -199,9 +199,45 @@ const v6 = {
 
 // Input ordering does not change the manifest or chunk layout, and flat data
 // survives a chunks round trip exactly after canonical normalization.
+const nestedSnapshotValuation = {
+  schemaVersion: "assettrail.snapshot-valuation.v1",
+  priceBookGeneratedAt: "2026-02-02T06:30:00.000Z",
+  priceBasis: "UNADJUSTED_CLOSE",
+  distributionTreatment: "EXCLUDED",
+  valuationTiming: "LATEST_COMPLETED_SESSION",
+  fx: {
+    USDKRW: {
+      rate: 1300,
+      date: "2026-02-02",
+      sessionStatus: "FINAL_CLOSE",
+      source: "TEST_USDKRW"
+    }
+  },
+  positions: [{
+    assetId: "asset-us",
+    assetType: "US",
+    ticker: "NVDA",
+    accountClass: "PENSION",
+    valuationMode: "FINAL_CLOSE",
+    quantity: 2,
+    appliedPrice: 100,
+    priceCurrency: "USD",
+    priceAsOf: "2026-02-02",
+    sessionStatus: "FINAL_CLOSE",
+    fxRate: 1300,
+    fxAsOf: "2026-02-02",
+    fxSessionStatus: "FINAL_CLOSE",
+    marketValueKRW: 260000
+  }]
+};
 const roundTripInput = {
   snapshots: [
-    snapshot("s-feb", "2026-02-02T01:00:00Z", { note: "둘" }),
+    snapshot("s-feb", "2026-02-02T01:00:00Z", {
+      note: "둘",
+      total: 260000,
+      typeTotals: { US: 260000 },
+      valuation: nestedSnapshotValuation
+    }),
     snapshot("s-jan", "2026-01-01T01:00:00Z", { note: "하나" })
   ],
   performanceObservations: [
@@ -224,10 +260,26 @@ const roundTripBundle = repository.createHistoryBundle(roundTripInput, {
     updatedAt: "2026-08-19T00:00:00Z"
   });
   assert.deepEqual(reversed, roundTripBundle);
-  assert.deepEqual(repository.restoreHistory(roundTripBundle), repository.normalizeHistory(roundTripInput));
+  const restored = repository.restoreHistory(roundTripBundle);
+  assert.deepEqual(restored, repository.normalizeHistory(roundTripInput));
+  assert.deepEqual(
+    restored.snapshots.find((item) => item.id === "s-feb").valuation,
+    nestedSnapshotValuation,
+    "nested snapshot valuation evidence must survive the flat -> chunk -> flat round trip"
+  );
   assert.equal(repository.validateHistoryBundle(roundTripBundle).ok, true);
   assert.match(roundTripBundle.manifest.contentFingerprint, /^history-v1:[a-f0-9]{64}$/);
   roundTripBundle.chunks.forEach((chunk) => assert.match(chunk.digest, /^history-chunk-v1:[a-f0-9]{64}$/));
+
+  const tamperedValuationBundle = clone(roundTripBundle);
+  const valuationChunk = tamperedValuationBundle.chunks.find((chunk) => (
+    chunk.kind === "SNAPSHOT" && chunk.items.some((item) => item.id === "s-feb")
+  ));
+  valuationChunk.items.find((item) => item.id === "s-feb")
+    .valuation.positions[0].marketValueKRW += 1;
+  const tamperedValidation = repository.validateHistoryBundle(tamperedValuationBundle);
+  assert.equal(tamperedValidation.ok, false);
+  assert.equal(tamperedValidation.errors[0].code, "CHUNK_DIGEST_MISMATCH");
 }
 
 // The documented maximum survives a full flat -> chunks -> flat round trip

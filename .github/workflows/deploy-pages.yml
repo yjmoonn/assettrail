@@ -2,7 +2,18 @@ name: Deploy GitHub Pages
 
 on:
   schedule:
-    - cron: "30 21 * * *"
+    # 02:20/03:20 KST cover XNYS early closes across daylight/standard time.
+    - cron: "20 17 * * 1-5"
+    - cron: "20 18 * * 1-5"
+    # 05:20/06:20 KST cover normal XNYS closes across daylight/standard time.
+    - cron: "20 20 * * *"
+    - cron: "20 21 * * *"
+    # Yahoo KRW=X closes at 23:59 London time; cover both UTC offsets.
+    - cron: "20 23 * * 1-5"
+    - cron: "20 0 * * 2-6"
+    # 15:45 KST follows a normal KRX close; 16:40 covers delayed special sessions.
+    - cron: "45 6 * * 1-5"
+    - cron: "40 7 * * 1-5"
   push:
     branches:
       - main

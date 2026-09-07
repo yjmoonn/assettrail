@@ -18,6 +18,17 @@ const dom = new JSDOM(html, {
 const { window } = dom;
 const writes = [];
 const firestoreDocs = new Map();
+const FIXED_NOW = "2026-05-19T01:00:00.000Z";
+const RealDate = window.Date;
+window.Date = class FixedDate extends RealDate {
+  constructor(...args) {
+    super(...(args.length ? args : [FIXED_NOW]));
+  }
+
+  static now() {
+    return new RealDate(FIXED_NOW).getTime();
+  }
+};
 
 window.HTMLCanvasElement.prototype.getContext = () => ({
   arc() {},
@@ -51,10 +62,22 @@ window.fetch = async () => ({
   ok: true,
   json: async () => ({
     generatedAt: "2026-05-19T00:00:00.000Z",
+    methodology: {
+      priceBasis: "unadjusted_close",
+      distributionTreatment: "excluded",
+      valuationTiming: "LATEST_COMPLETED_SESSION"
+    },
+    finalCloseCertificate: {
+      status: "FINAL_CLOSE",
+      checkedAt: "2026-05-19T00:00:00.000Z",
+      validUntil: "2026-05-20T00:00:00.000Z",
+      marketSessions: { KRX: "2026-05-18", US: "2026-05-18", FX: "2026-05-18" }
+    },
     fx: {
       USDKRW: {
         date: "2026-05-18",
         rate: 1300,
+        sessionStatus: "FINAL_CLOSE",
         source: "yfinance KRW=X"
       }
     },
@@ -63,6 +86,7 @@ window.fetch = async () => ({
         "005930": {
           close: 74000,
           date: "2026-05-18",
+          sessionStatus: "FINAL_CLOSE",
           source: "KRX"
         }
       },
@@ -70,6 +94,7 @@ window.fetch = async () => ({
         TSLA: {
           close: 250,
           date: "2026-05-18",
+          sessionStatus: "FINAL_CLOSE",
           source: "yfinance"
         }
       }
@@ -282,7 +307,7 @@ await new Promise((resolve) => window.setTimeout(resolve, 10));
 const lastWrite = writes.filter((write) => write.path === "users/alice/financeData/primary").at(-1);
 assert.equal(lastWrite.options.merge, false);
 assert.equal(lastWrite.path, "users/alice/financeData/primary");
-assert.equal(lastWrite.data.schemaVersion, 7);
+assert.equal(lastWrite.data.schemaVersion, 8);
 assert.equal(lastWrite.data.revision >= 1, true);
 assert.equal(lastWrite.data.meta.cloudRevision, lastWrite.data.revision);
 assert.equal(lastWrite.data.assets.length, 2);
@@ -309,12 +334,19 @@ assert.equal(storedSnapshot.total, 872000);
 assert.equal(storedSnapshot.assets, undefined);
 assert.deepEqual(
   Object.keys(storedSnapshot).sort(),
-  ["createdAt", "id", "nextReviewAt", "note", "qualityIssues", "source", "total", "typeTotals"]
+  ["createdAt", "id", "nextReviewAt", "note", "qualityIssues", "source", "total", "typeTotals", "valuation"]
 );
+assert.equal(storedSnapshot.valuation.positions.length, 2);
+const krxValuation = storedSnapshot.valuation.positions.find((position) => position.assetType === "KRX");
+const usValuation = storedSnapshot.valuation.positions.find((position) => position.assetType === "US");
+assert.equal(krxValuation.marketValueKRW, 3 * 74000);
+assert.equal(usValuation.marketValueKRW, 2 * 250 * 1300);
+assert.equal(usValuation.fxRate, 1300);
+assert.equal(storedSnapshot.valuation.fx.USDKRW.rate, 1300);
 assert.equal(lastWrite.data.retirement.monthlySpend, 4200000);
 assert.match(lastWrite.data.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
 const userLocalState = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1:user:alice"));
-assert.equal(userLocalState.schemaVersion, 7);
+assert.equal(userLocalState.schemaVersion, 8);
 assert.equal(userLocalState.assets.length, 2);
 assert.equal(userLocalState.assets[0].ticker, "005930");
 

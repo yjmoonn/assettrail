@@ -62,7 +62,7 @@ AssetTrail은 로그아웃 상태의 로컬 사용과 로그인 상태의 클라
 | `ledgerMeta` | 활성 원장 세대, 기준일, 이벤트 개수와 고정 fingerprint |
 | `decisionProfiles` | UI는 일몰했지만 마이그레이션·백업 호환을 위해 보존하는 기존 투자 판단 데이터 |
 | `watchlist` | UI는 일몰했지만 보존하는 기존 관심종목 목록 |
-| `historyMeta` | v7 활성 히스토리 세대, 개수, chunk 수와 내용 fingerprint |
+| `historyMeta` | v7부터 사용하는 활성 히스토리 세대, 개수, chunk 수와 내용 fingerprint |
 | `realizedTrades` | 매도 처리로 생성된 실현손익 기록 |
 | `tradeJournalEntries` | 매수, 매도, 리밸런싱, 관찰 판단 매매일지 |
 | `retirement` | 은퇴 시뮬레이터 설정 |
@@ -76,13 +76,13 @@ AssetTrail은 로그아웃 상태의 로컬 사용과 로그인 상태의 클라
 가리키는 세대의 하위 컬렉션에서 이벤트를 읽는다. 이 구조는 이벤트 증가가 주 문서의
 900KB 안전 한도를 소진하지 않게 한다.
 
-저장 데이터는 현재 `schemaVersion: 7`을 사용한다. 버전이 없거나 v1~v6인 기존 데이터는
-검증 가능한 원본 백업을 먼저 만든 뒤 v7으로 마이그레이션한다. 기존 자산마다 원장
+저장 데이터는 현재 `schemaVersion: 8`을 사용한다. 버전이 없거나 v1~v7인 기존 데이터는
+검증 가능한 원본 백업을 먼저 만든 뒤 v8으로 마이그레이션한다. 기존 자산마다 원장
 기준일의 `OPENING_BALANCE`를 만들며 매수 시점과 과거 환율을 추정하지 않는다. v5→v6은
 빈 `performanceObservations`를 추가할 뿐 과거 `snapshots`를 수익률 평가점으로 복제하지
 않고, v6→v7은 IndexedDB를 사용할 수 있으면 두 평면 배열을 검증한 새 히스토리 세대로
 옮긴 뒤에만 v7 주 상태의 `historyMeta` 포인터를 저장한다. IndexedDB 미지원 환경은
-검증된 v7 평면 배열 호환 저장을 유지한다. 로컬 마이그레이션 백업은 별도 키에 쓴 뒤 다시 읽어
+검증된 v8 평면 배열 호환 저장을 유지한다. 로컬 마이그레이션 백업은 별도 키에 쓴 뒤 다시 읽어
 일치 여부를 확인하고, 클라우드 스키마 이전 또는 강제 충돌 업로드 전에는 변경 불가능한
 `primary/backups/{backupId}` 사본을 남긴다. 이전에 실패하면 원래 상태와 활성 세대를
 유지하고 새 기록 저장·동기화를 중단한다.
@@ -96,15 +96,21 @@ AssetTrail은 로그아웃 상태의 로컬 사용과 로그인 상태의 클라
 티커 변경으로 이전 `subjectKey`의 마지막 참조가 사라질 때만 이전 판단과 그 충돌
 원본을 대상의 `migrationConflicts`로 옮겨 비교 가능하게 한다. 다른 계좌나 관심종목이
 이전 `subjectKey`를 계속 사용하면 두 종목의 판단을 그대로 분리해 둔다.
-구버전 앱이 v7 데이터를 읽고 새 필드나 원장·히스토리 하위 컬렉션을 제거한 채 다시 쓰지 못하도록
+구버전 앱이 v8 데이터를 읽고 새 필드나 원장·히스토리 하위 컬렉션을 제거한 채 다시 쓰지 못하도록
 미지원 미래 버전 보호를 유지하며, 로컬 또는 원격 문서가 현재 앱보다 새 버전이면 자동 pull과
 push를 모두 중단한다. 클라우드 문서는 단조 증가하는
 `revision`을 함께 저장하며, 다른 기기에서 더 최신 revision을 발견하면 자동
 덮어쓰기를 멈춘다. 사용자는 클라우드 가져오기, 이 기기 데이터 올리기, 나중에
 결정하기 중 하나를 선택하고, 앞의 두 작업 전에 현재 기기 JSON 백업을 받는다.
 
-조회 히스토리 스냅샷은 자산 전체를 복제하지 않고 `id`, `createdAt`, `total`, `note`,
-`typeTotals`, 월간 점검 출처와 다음 점검일·품질 이슈만 저장한다. 같은 달의
+조회 히스토리 스냅샷은 `id`, `createdAt`, `total`, `note`, `typeTotals`, 월간 점검 출처와
+다음 점검일·품질 이슈를 저장한다. v8에서 새로 저장하는 기록은
+`assettrail.snapshot-valuation.v1`에 저장 시점의 평가 대상 자산별 내역을 함께 보존한다.
+시장 자산은 수량·확정 종가·가격 통화와 기준일·US 적용 환율과 원화 평가액을, CASH·MANUAL은
+수동 평가액을 담는다. 계좌명과 자산명은 중복 저장하지 않고 저장 당시의 유효 계좌분류를
+보존한다. 시장 자산이 없는 기록은 `priceBookGeneratedAt: null`, `MANUAL_AMOUNT_ONLY`와
+`NOT_APPLICABLE` 방법론으로 가격표를 사용하지 않았음을 명시한다. 기존 기록에는 현재
+가격으로 이 필드를 소급 생성하지 않는다. 같은 달의
 `MONTHLY_REVIEW`는 기존 기록을 갱신하고, 빠른 조회 기록은 별도 `QUICK_SNAPSHOT`으로
 추가한다. `performanceObservations`는 조회 기록과 별개로 날짜별 NAV, 시장·현금·
 수동평가·미결제 금액, 누적 입출금·배당·이자·비용, USD/KRW와 벤치마크 수준,
@@ -116,7 +122,9 @@ v7 장기 이력은 주 상태 문서에서 분리한다. 로컬에서는 Indexe
 `users/{uid}/financeData/primary/histories/{historyId}/chunks/{chunkId}`를 사용한다.
 성과 평가점은 날짜 기준 월별 chunk 하나에 최대 31개, 조회 스냅샷은 생성 월 기준
 chunk 하나에 최대 50개·256KiB를 넣는다. 스냅샷 chunk가 한도를 넘으면 ID의 SHA-256
-prefix로 안정적으로 shard한다. 각 chunk digest와 전체 content fingerprint를 검증한다.
+prefix로 안정적으로 shard한다. 평가내역은 스냅샷당 최대 500개이며 단일 스냅샷 자체가
+  220KiB 안전 한도를 넘으면 잘라 저장하지 않고 저장 전에 실패시킨다. 각 chunk digest와 전체
+content fingerprint를 검증한다.
 로컬 IndexedDB와 Firestore 모두 새 세대를 쓴 뒤 다시 읽어 검증하고, 마지막에 주 상태의
 `historyMeta` 포인터만 전환한다. Firestore에서는 사용자 본인만 읽고 제한된 chunk
 스키마를 만족한 생성·갱신을 할 수 있다. 일반 저장이 성공하면 백업이 참조하지 않는
@@ -128,12 +136,13 @@ prefix로 안정적으로 shard한다. 각 chunk digest와 전체 content finger
 CSV·클라우드 충돌 전 자동 백업은 같은 compact JSON 직렬화를 사용하고, portable JSON
 가져오기 파일은 브라우저 메모리 방어를 위해 32MiB 이하로 제한한다. 분리 세대가 아직 없는 신규·v6
 데이터에서 IndexedDB를 사용할 수 없으면 같은 평면 배열을 로컬 주 상태에 두는 명시적
-호환 모드로 전환한다. 기존 v7 `historyMeta`가 가리키는 세대를 읽지 못하면 원본 포인터를
+호환 모드로 전환한다. v7→v8 전환도 기존 `historyMeta`가 가리키는 세대를 먼저 읽어
+검증한 뒤 주 상태만 승격한다. 기존 v7·v8 세대를 읽지 못하면 원본 포인터를
 보호하고 변경·동기화·전체 내보내기를 중단한다.
 
 사용자별 Firestore 경계는 제품 요구사항이다. 포트폴리오 데이터는 해당 로그인 사용자만 읽고 쓸 수 있어야 한다.
 
-기존 기업 스냅샷과 ETF 카탈로그는 v7 사용자 주 문서와 분리한다. 현재
+기존 기업 스냅샷과 ETF 카탈로그는 v8 사용자 주 문서와 분리한다. 현재
 `activeStorageKey`에 각각 `:external-data-v1`, `:etf-catalog-v1` 접미사를 붙인
 브라우저 로컬 저장소를 사용하므로 로그인 사용자가 바뀌면 저장 경계도 함께 전환된다.
 기업 저장소는 정규화 스냅샷 최대 60개·약 750KB, ETF 카탈로그는 약 2MB로 제한한다.
@@ -254,8 +263,8 @@ manifest를 검증한 뒤 마지막 transaction에서 `activeLedgerId`를 원자
 
 JSON 가져오기는 이벤트 자체뿐 아니라 자산·CASH·실현손익·매매일지의 양방향 참조와
 최종 잔액을 검증한 뒤에만 현재 상태를 교체한다. 강제 충돌 업로드는 원격 주 문서를
-변경 불가능한 백업으로 남긴 뒤 진행한다. 스키마 v7과 원장·성과·히스토리 필드를 모르는
-이전 앱은 v7 주 문서를 감지하면 읽기·쓰기를 중단한다.
+변경 불가능한 백업으로 남긴 뒤 진행한다. 스키마 v8과 원장·성과·히스토리·snapshot
+valuation 필드를 모르는 이전 앱은 v8 주 문서를 감지하면 읽기·쓰기를 중단한다.
 
 ## 증권사 CSV 증분 가져오기
 
@@ -443,8 +452,9 @@ ETF 투시 화면은 현재 숨겨져 있다. 아래 카탈로그 계약과 기�
 
 `ai-review-export-engine.js`는 설정에서 내려받는 `ASSETTRAIL_AI_REVIEW_V2` 패키지를
 만든다. 파일은 고정 `ASSETTRAIL_MONTHLY_REVIEW_PROMPT_V2`와 검증 가능한 JSON을 한
-Markdown 안에 담는다. 최신 가격표 기준 종목별 수량·원화 평가액·가격일,
-포트폴리오 자산군·포지션 상대 비중, Top 1·Top 5·HHI,
+Markdown 안에 담는다. 가장 최근에 저장한 조회 기록의 종목별 수량·확정 종가·가격일·
+환율·원화 평가액·계좌분류와 CASH·MANUAL 저장액, 포트폴리오 자산군·포지션 상대 비중,
+Top 1·Top 5·HHI,
 검증된 TWR·XIRR·낙폭·변동성, 은퇴 충족률·필요수익률과 월간 점검 상태만 허용한다.
 현재 앱은 숨겨진 레거시 `portfolioTargets`를 사용자의 현재 확정값으로 간주하지 않는다.
 따라서 `targetComparison.status`는 항상 `DEFAULT_NOT_CONFIRMED`이고 목표 비중과 차이는
@@ -452,11 +462,11 @@ Markdown 안에 담는다. 최신 가격표 기준 종목별 수량·원화 평�
 범위일 뿐 현재 앱이 생성하지 않는다. 데이터 품질이 `LIMITED`, `STALE`, `INCOMPLETE`, `UNAVAILABLE` 또는
 `UNKNOWN`이면 지침이 한계를 먼저 밝히고 결론을 유보하도록 요구한다.
 
-종목별 `quantity`는 같은 시장·티커의 여러 계좌 수량을 합산하고 `marketValueKRW`는
-각 행의 최신 가격과 US 자산의 USD/KRW를 적용한 원화 합계다. `asOfDate`는 포함된
-가격일 중 가장 최근 날짜이며, 종목별 실제 가격일은 `priceAsOf`로 함께 표시한다.
-과거 조회기록은 종목별 내역을 보존하지 않으므로 기존 기록 시점의 포지션을 소급
-복원하지 않는다.
+종목별 `quantity`는 같은 시장·티커·`accountClass`의 저장 행을 합산하고
+`marketValueKRW`는 조회 기록에 저장된 행별 평가액의 합계다. `asOfDate`는 조회 기록
+저장일, 종목별 실제 가격일은 `priceAsOf`다. `snapshotId`, `snapshotCreatedAt`,
+`valuationStatus`로 근거 기록을 식별한다. 종목별 내역이 없는 과거 조회 기록은 현재
+자산이나 가격표로 대체하지 않고 `MISSING_LEGACY_SNAPSHOT_VALUATION`으로 표시한다.
 
 UID·이메일·이름, 계좌명, 내부 자산·거래 ID, 원거래, 거래 행, 자유 메모와 URL은
 제외한다. `privacy` 필드는 종목별 절대 평가액·수량 포함 여부와 계좌명·거래 행·자유

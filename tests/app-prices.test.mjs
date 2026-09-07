@@ -12,6 +12,17 @@ const dom = new JSDOM(html, {
 });
 
 const { window } = dom;
+const FIXED_NOW = "2026-05-19T01:00:00.000Z";
+const RealDate = window.Date;
+window.Date = class FixedDate extends RealDate {
+  constructor(...args) {
+    super(...(args.length ? args : [FIXED_NOW]));
+  }
+
+  static now() {
+    return new RealDate(FIXED_NOW).getTime();
+  }
+};
 
 window.HTMLCanvasElement.prototype.getContext = () => ({
   arc() {},
@@ -46,10 +57,22 @@ window.fetch = async () => ({
   ok: true,
   json: async () => ({
     generatedAt: "2026-05-19T00:00:00.000Z",
+    methodology: {
+      priceBasis: "unadjusted_close",
+      distributionTreatment: "excluded",
+      valuationTiming: "LATEST_COMPLETED_SESSION"
+    },
+    finalCloseCertificate: {
+      status: "FINAL_CLOSE",
+      checkedAt: "2026-05-19T00:00:00.000Z",
+      validUntil: "2026-05-20T00:00:00.000Z",
+      marketSessions: { KRX: "2026-05-19", US: "2026-05-18", FX: "2026-05-18" }
+    },
     fx: {
       USDKRW: {
         date: "2026-05-18",
         rate: 1300,
+        sessionStatus: "FINAL_CLOSE",
         source: "yfinance KRW=X"
       }
     },
@@ -60,6 +83,7 @@ window.fetch = async () => ({
           date: "2026-05-18",
           kind: "STOCK",
           name: "삼성전자",
+          sessionStatus: "FINAL_CLOSE",
           source: "KRX"
         },
         "0092B0": {
@@ -67,6 +91,7 @@ window.fetch = async () => ({
           date: "2026-05-19",
           kind: "ETF",
           name: "SOL 한국원자력SMR",
+          sessionStatus: "FINAL_CLOSE",
           source: "KRX ETF"
         }
       },
@@ -76,6 +101,7 @@ window.fetch = async () => ({
           date: "2026-05-18",
           kind: "STOCK",
           name: "Apple Inc.",
+          sessionStatus: "FINAL_CLOSE",
           source: "yfinance"
         }
       }
@@ -163,6 +189,14 @@ function expectAlert(action, pattern) {
     window.alert = originalAlert;
   }
   assert.match(message, pattern);
+}
+
+async function waitUntil(testWindow, predicate, message) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => testWindow.setTimeout(resolve, 5));
+  }
+  assert.fail(message);
 }
 
 assert.equal(window.document.querySelector("#assetFormPanel").hidden, true);
@@ -360,11 +394,67 @@ assert.match(window.document.querySelector("#historySummary").textContent, /기�
 assert.match(window.document.querySelector("#historySummary").textContent, /1회/);
 assert.match(window.document.querySelector("#appNotice").textContent, /조회 기록을 저장했습니다/);
 const savedAfterSnapshot = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
-assert.equal(savedAfterSnapshot.schemaVersion, 7);
+assert.equal(savedAfterSnapshot.schemaVersion, 8);
 assert.equal(savedAfterSnapshot.snapshots[0].assets, undefined);
 assert.deepEqual(
   Object.keys(savedAfterSnapshot.snapshots[0]).sort(),
-  ["createdAt", "id", "nextReviewAt", "note", "qualityIssues", "source", "total", "typeTotals"]
+  ["createdAt", "id", "nextReviewAt", "note", "qualityIssues", "source", "total", "typeTotals", "valuation"]
+);
+const savedValuation = savedAfterSnapshot.snapshots[0].valuation;
+assert.equal(savedValuation.schemaVersion, "assettrail.snapshot-valuation.v1");
+assert.equal(savedValuation.priceBookGeneratedAt, "2026-05-19T00:00:00.000Z");
+assert.equal(savedValuation.priceBasis, "UNADJUSTED_CLOSE");
+assert.equal(savedValuation.distributionTreatment, "EXCLUDED");
+assert.equal(savedValuation.valuationTiming, "LATEST_COMPLETED_SESSION");
+assert.equal(savedValuation.positions.length, 9);
+assert.equal(
+  savedValuation.positions.reduce((sum, position) => sum + position.marketValueKRW, 0),
+  savedAfterSnapshot.snapshots[0].total
+);
+assert.deepEqual(
+  savedValuation.positions.find((position) => position.ticker === "005930" && position.quantity === 15),
+  {
+    assetId: saved.assets.find((asset) => asset.ticker === "005930" && asset.account === "삼성증권").id,
+    assetType: "KRX",
+    accountClass: "GENERAL",
+    valuationMode: "FINAL_CLOSE",
+    marketValueKRW: 1110000,
+    ticker: "005930",
+    kind: "STOCK",
+    quantity: 15,
+    appliedPrice: 74000,
+    priceCurrency: "KRW",
+    priceAsOf: "2026-05-18",
+    sessionStatus: "FINAL_CLOSE"
+  }
+);
+assert.deepEqual(
+  savedValuation.positions.find((position) => position.ticker === "AAPL"),
+  {
+    assetId: saved.assets.find((asset) => asset.ticker === "AAPL").id,
+    assetType: "US",
+    accountClass: "UNASSIGNED",
+    valuationMode: "FINAL_CLOSE",
+    marketValueKRW: 494000,
+    ticker: "AAPL",
+    kind: "STOCK",
+    quantity: 2,
+    appliedPrice: 190,
+    priceCurrency: "USD",
+    priceAsOf: "2026-05-18",
+    sessionStatus: "FINAL_CLOSE",
+    fxRate: 1300,
+    fxAsOf: "2026-05-18",
+    fxSessionStatus: "FINAL_CLOSE"
+  }
+);
+assert.equal(
+  savedValuation.positions.find((position) => position.ticker === "0092B0").accountClass,
+  "PENSION"
+);
+assert.equal(
+  savedValuation.positions.find((position) => position.assetType === "MANUAL" && position.marketValueKRW === 500000).accountClass,
+  "PENSION"
 );
 
 window.document.querySelector('[data-nav-view="GOALS"]').click();
@@ -507,16 +597,31 @@ submitAsset();
 const snapshotsBeforeMissingPrice = JSON.parse(
   window.localStorage.getItem("finance-ledger-retirement-v1")
 ).snapshots.length;
-expectAlert(
-  () => window.document.querySelector("#snapshotBtn").click(),
-  /가격이 없는 보유 자산.*US:MSFT.*조회 기록을 저장하지 않았습니다/
-);
+let missingPriceAlert = "";
+const originalAlert = window.alert;
+window.alert = (message) => {
+  missingPriceAlert = String(message);
+};
+window.document.querySelector("#snapshotBtn").click();
+await waitUntil(window, () => Boolean(missingPriceAlert), "가격 누락 저장 차단 경고가 표시되지 않았습니다.");
+window.alert = originalAlert;
+assert.match(missingPriceAlert, /가격이 없는 보유 자산.*US:MSFT.*조회 기록을 저장하지 않았습니다/);
 assert.equal(
   JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1")).snapshots.length,
   snapshotsBeforeMissingPrice
 );
 
-function installSnapshotGuardStubs(testWindow) {
+function installSnapshotGuardStubs(testWindow, now = "2026-07-30T01:00:00.000Z") {
+  const ScenarioRealDate = testWindow.Date;
+  testWindow.Date = class FixedDate extends ScenarioRealDate {
+    constructor(...args) {
+      super(...(args.length ? args : [now]));
+    }
+
+    static now() {
+      return new ScenarioRealDate(now).getTime();
+    }
+  };
   testWindow.HTMLCanvasElement.prototype.getContext = () => ({
     arc() {},
     beginPath() {},
@@ -547,7 +652,7 @@ async function runSnapshotGuardScenario({ assets, priceData, failPrices = false 
   const scenarioDom = new JSDOM(html, {
     pretendToBeVisual: true,
     runScripts: "outside-only",
-    url: "http://localhost/"
+    url: "https://yjmoonn.github.io/assettrail/"
   });
   const scenarioWindow = scenarioDom.window;
   const alerts = [];
@@ -568,9 +673,18 @@ async function runSnapshotGuardScenario({ assets, priceData, failPrices = false 
       });
 
   scenarioWindow.eval(appCode);
-  await new Promise((resolve) => scenarioWindow.setTimeout(resolve, 20));
+  await waitUntil(
+    scenarioWindow,
+    () => !["가격 확인중"].includes(scenarioWindow.document.querySelector("#priceStatus").textContent),
+    "가격표 초기화가 완료되지 않았습니다."
+  );
   scenarioWindow.document.querySelector("#snapshotBtn").click();
-  await new Promise((resolve) => scenarioWindow.setTimeout(resolve, 30));
+  await waitUntil(
+    scenarioWindow,
+    () => alerts.length > 0
+      || JSON.parse(scenarioWindow.localStorage.getItem("finance-ledger-retirement-v1")).snapshots.length > 0,
+    "조회 기록 저장 또는 차단이 완료되지 않았습니다."
+  );
 
   const stored = JSON.parse(scenarioWindow.localStorage.getItem("finance-ledger-retirement-v1"));
   const notice = scenarioWindow.document.querySelector("#appNotice").textContent;
@@ -589,7 +703,7 @@ const noAssetsGuard = await runSnapshotGuardScenario({
 assert.match(noAssetsGuard.alerts[0], /자산을 먼저 등록/);
 assert.equal(noAssetsGuard.stored.snapshots.length, 0);
 
-const unloadedPriceGuard = await runSnapshotGuardScenario({
+const cashOnlyWithoutPrices = await runSnapshotGuardScenario({
   assets: [
     {
       id: "cash-only",
@@ -601,8 +715,88 @@ const unloadedPriceGuard = await runSnapshotGuardScenario({
   priceData: null,
   failPrices: true
 });
-assert.match(unloadedPriceGuard.alerts[0], /가격표를 아직 불러오지 못했습니다/);
-assert.equal(unloadedPriceGuard.stored.snapshots.length, 0);
+assert.equal(cashOnlyWithoutPrices.alerts.length, 0);
+assert.equal(cashOnlyWithoutPrices.stored.snapshots.length, 1);
+const cashOnlySnapshot = cashOnlyWithoutPrices.stored.snapshots[0];
+assert.equal(cashOnlySnapshot.total, 1000000);
+assert.deepEqual(cashOnlySnapshot.typeTotals, { CASH: 1000000 });
+assert.deepEqual(cashOnlySnapshot.valuation, {
+  schemaVersion: "assettrail.snapshot-valuation.v1",
+  priceBookGeneratedAt: null,
+  priceBasis: "NOT_APPLICABLE",
+  distributionTreatment: "NOT_APPLICABLE",
+  valuationTiming: "MANUAL_AMOUNT_ONLY",
+  fx: {},
+  positions: [{
+    assetId: "cash-only",
+    assetType: "CASH",
+    accountClass: "UNASSIGNED",
+    valuationMode: "MANUAL_AMOUNT",
+    marketValueKRW: 1000000
+  }]
+});
+assert.equal(
+  cashOnlySnapshot.valuation.positions.reduce((sum, position) => sum + position.marketValueKRW, 0),
+  cashOnlySnapshot.total
+);
+
+const manualOnlyWithoutPrices = await runSnapshotGuardScenario({
+  assets: [
+    {
+      id: "manual-only",
+      name: "IRP 대체자산",
+      account: "개인형퇴직연금",
+      type: "MANUAL",
+      amount: 2500000
+    }
+  ],
+  priceData: null,
+  failPrices: true
+});
+assert.equal(manualOnlyWithoutPrices.alerts.length, 0);
+assert.equal(manualOnlyWithoutPrices.stored.snapshots.length, 1);
+const manualOnlySnapshot = manualOnlyWithoutPrices.stored.snapshots[0];
+assert.equal(manualOnlySnapshot.total, 2500000);
+assert.deepEqual(manualOnlySnapshot.typeTotals, { MANUAL: 2500000 });
+assert.equal(manualOnlySnapshot.valuation.valuationTiming, "MANUAL_AMOUNT_ONLY");
+assert.equal(manualOnlySnapshot.valuation.priceBookGeneratedAt, null);
+assert.deepEqual(manualOnlySnapshot.valuation.fx, {});
+assert.deepEqual(manualOnlySnapshot.valuation.positions, [{
+  assetId: "manual-only",
+  assetType: "MANUAL",
+  accountClass: "PENSION",
+  valuationMode: "MANUAL_AMOUNT",
+  marketValueKRW: 2500000
+}]);
+
+const zeroQuantityMarketWithoutPrices = await runSnapshotGuardScenario({
+  assets: [
+    {
+      id: "zero-market",
+      name: "수량이 없는 삼성전자",
+      ticker: "005930",
+      type: "KRX",
+      quantity: 0,
+      averagePrice: 70000
+    }
+  ],
+  priceData: null,
+  failPrices: true
+});
+assert.equal(zeroQuantityMarketWithoutPrices.alerts.length, 0);
+assert.equal(zeroQuantityMarketWithoutPrices.stored.snapshots.length, 1);
+const zeroQuantityMarketSnapshot = zeroQuantityMarketWithoutPrices.stored.snapshots[0];
+assert.equal(zeroQuantityMarketSnapshot.total, 0);
+assert.deepEqual(zeroQuantityMarketSnapshot.typeTotals, { KRX: 0 });
+assert.deepEqual(zeroQuantityMarketSnapshot.valuation, {
+  schemaVersion: "assettrail.snapshot-valuation.v1",
+  priceBookGeneratedAt: null,
+  priceBasis: "NOT_APPLICABLE",
+  distributionTreatment: "NOT_APPLICABLE",
+  valuationTiming: "MANUAL_AMOUNT_ONLY",
+  fx: {},
+  positions: []
+});
 
 const missingFxGuard = await runSnapshotGuardScenario({
   assets: [
@@ -617,10 +811,17 @@ const missingFxGuard = await runSnapshotGuardScenario({
   ],
   priceData: {
     generatedAt: "2026-07-30T00:00:00.000Z",
+    methodology: { valuationTiming: "LATEST_COMPLETED_SESSION" },
+    finalCloseCertificate: {
+      status: "FINAL_CLOSE",
+      checkedAt: "2026-07-30T00:00:00.000Z",
+      validUntil: "2026-07-31T00:00:00.000Z",
+      marketSessions: { KRX: "2026-07-30", US: "2026-07-30", FX: "2026-07-30" }
+    },
     prices: {
       KRX: {},
       US: {
-        AAPL: { close: 190, date: "2026-07-30", name: "Apple Inc." }
+        AAPL: { close: 190, date: "2026-07-30", name: "Apple Inc.", sessionStatus: "FINAL_CLOSE" }
       }
     }
   }
@@ -628,7 +829,7 @@ const missingFxGuard = await runSnapshotGuardScenario({
 assert.match(missingFxGuard.alerts[0], /USD\/KRW 환율이 없습니다/);
 assert.equal(missingFxGuard.stored.snapshots.length, 0);
 
-const staleCloseWarning = await runSnapshotGuardScenario({
+const staleCloseGuard = await runSnapshotGuardScenario({
   assets: [
     {
       id: "krx-stale-close",
@@ -640,21 +841,26 @@ const staleCloseWarning = await runSnapshotGuardScenario({
     }
   ],
   priceData: {
-    generatedAt: "2099-07-30T00:00:00.000Z",
-    fx: { USDKRW: { date: "2099-07-30", rate: 1300 } },
+    generatedAt: "2026-07-30T00:00:00.000Z",
+    methodology: { valuationTiming: "LATEST_COMPLETED_SESSION" },
+    finalCloseCertificate: {
+      status: "FINAL_CLOSE",
+      checkedAt: "2026-07-30T00:00:00.000Z",
+      validUntil: "2026-07-31T00:00:00.000Z",
+      marketSessions: { KRX: "2026-07-30", US: "2026-07-30", FX: "2026-07-30" }
+    },
     prices: {
       KRX: {
-        "005930": { close: 74000, date: "2000-01-01", name: "오래된 종가" }
+        "005930": { close: 74000, date: "2026-07-24", name: "오래된 종가", sessionStatus: "FINAL_CLOSE" }
       },
       US: {}
     }
   }
 });
-assert.equal(staleCloseWarning.alerts.length, 0);
-assert.equal(staleCloseWarning.stored.snapshots.length, 1);
-assert.match(staleCloseWarning.notice, /보유 종목 종가 1개가 최대 .*일 전 기준/);
+assert.match(staleCloseGuard.alerts[0], /평일 기준 최대 4일 전이라 오래되었습니다/);
+assert.equal(staleCloseGuard.stored.snapshots.length, 0);
 
-const undatedCloseWarning = await runSnapshotGuardScenario({
+const undatedCloseGuard = await runSnapshotGuardScenario({
   assets: [
     {
       id: "krx-undated-close",
@@ -666,19 +872,360 @@ const undatedCloseWarning = await runSnapshotGuardScenario({
     }
   ],
   priceData: {
-    generatedAt: "2099-07-30T00:00:00.000Z",
-    fx: { USDKRW: { date: "2099-07-30", rate: 1300 } },
+    generatedAt: "2026-07-30T00:00:00.000Z",
+    methodology: { valuationTiming: "LATEST_COMPLETED_SESSION" },
+    finalCloseCertificate: {
+      status: "FINAL_CLOSE",
+      checkedAt: "2026-07-30T00:00:00.000Z",
+      validUntil: "2026-07-31T00:00:00.000Z",
+      marketSessions: { KRX: "2026-07-30", US: "2026-07-30", FX: "2026-07-30" }
+    },
     prices: {
       KRX: {
-        "005930": { close: 74000, name: "기준일 없는 종가" }
+        "005930": { close: 74000, name: "기준일 없는 종가", sessionStatus: "FINAL_CLOSE" }
       },
       US: {}
     }
   }
 });
-assert.equal(undatedCloseWarning.alerts.length, 0);
-assert.equal(undatedCloseWarning.stored.snapshots.length, 1);
-assert.match(undatedCloseWarning.notice, /종가 1개의 기준일을 확인할 수 없습니다/);
+assert.match(undatedCloseGuard.alerts[0], /종가 1개의 기준일을 확인할 수 없습니다/);
+assert.equal(undatedCloseGuard.stored.snapshots.length, 0);
+
+function finalCloseManifest(close = 100, certificate = {}) {
+  return {
+    generatedAt: "2026-07-30T00:00:00.000Z",
+    methodology: {
+      distributionTreatment: "excluded",
+      priceBasis: "unadjusted_close",
+      valuationTiming: "LATEST_COMPLETED_SESSION"
+    },
+    finalCloseCertificate: {
+      status: "FINAL_CLOSE",
+      checkedAt: "2026-07-30T00:00:00.000Z",
+      validUntil: "2026-07-31T00:00:00.000Z",
+      marketSessions: { KRX: "2026-07-30", US: "2026-07-30", FX: "2026-07-30" },
+      ...certificate
+    },
+    fx: {
+      USDKRW: { date: "2026-07-30", rate: 1300, sessionStatus: "FINAL_CLOSE", source: "test" }
+    },
+    prices: {
+      KRX: {
+        "005930": {
+          close,
+          date: "2026-07-30",
+          name: "삼성전자",
+          sessionStatus: "FINAL_CLOSE",
+          source: "test"
+        }
+      },
+      US: {}
+    },
+    errors: []
+  };
+}
+
+const expiredCertificateGuard = await runSnapshotGuardScenario({
+  assets: [{
+    id: "expired-certificate",
+    name: "삼성전자",
+    ticker: "005930",
+    type: "KRX",
+    quantity: 1,
+    averagePrice: 90
+  }],
+  priceData: finalCloseManifest(100, { validUntil: "2026-07-30T00:30:00.000Z" })
+});
+assert.match(expiredCertificateGuard.alerts[0], /KRX 시장 최신 확정 종가 인증이 만료되었습니다/);
+assert.equal(expiredCertificateGuard.stored.snapshots.length, 0);
+
+const exactCutoffGuard = await runSnapshotGuardScenario({
+  assets: [{
+    id: "exact-certificate-cutoff",
+    name: "삼성전자",
+    ticker: "005930",
+    type: "KRX",
+    quantity: 1,
+    averagePrice: 90
+  }],
+  priceData: finalCloseManifest(100, { validUntil: "2026-07-30T01:00:00.000Z" })
+});
+assert.match(exactCutoffGuard.alerts[0], /KRX 시장 최신 확정 종가 인증이 만료되었습니다/);
+assert.equal(exactCutoffGuard.stored.snapshots.length, 0);
+
+const unheldMarketExpiryIgnored = await runSnapshotGuardScenario({
+  assets: [{
+    id: "krx-only-market-certificate",
+    name: "삼성전자",
+    ticker: "005930",
+    type: "KRX",
+    quantity: 1,
+    averagePrice: 90
+  }],
+  priceData: finalCloseManifest(100, {
+    validUntil: "2026-07-30T00:30:00.000Z",
+    validUntilByMarket: {
+      KRX: "2026-07-31T00:00:00.000Z",
+      US: "2026-07-30T00:30:00.000Z",
+      FX: "2026-07-30T00:30:00.000Z"
+    }
+  })
+});
+assert.equal(unheldMarketExpiryIgnored.alerts.length, 0);
+assert.equal(unheldMarketExpiryIgnored.stored.snapshots.length, 1);
+
+const usCertificateWithExpiredFx = finalCloseManifest(100, {
+  validUntilByMarket: {
+    KRX: "2026-07-31T00:00:00.000Z",
+    US: "2026-07-31T00:00:00.000Z",
+    FX: "2026-07-30T00:30:00.000Z"
+  }
+});
+usCertificateWithExpiredFx.prices.KRX = {};
+usCertificateWithExpiredFx.prices.US = {
+  AAPL: {
+    close: 190,
+    date: "2026-07-30",
+    name: "Apple Inc.",
+    sessionStatus: "FINAL_CLOSE",
+    source: "test"
+  }
+};
+const requiredFxExpiryGuard = await runSnapshotGuardScenario({
+  assets: [{
+    id: "us-requires-fx-certificate",
+    name: "Apple Inc.",
+    ticker: "AAPL",
+    type: "US",
+    quantity: 1,
+    averagePrice: 180
+  }],
+  priceData: usCertificateWithExpiredFx
+});
+assert.match(requiredFxExpiryGuard.alerts[0], /FX 시장 최신 확정 종가 인증이 만료되었습니다/);
+assert.equal(requiredFxExpiryGuard.stored.snapshots.length, 0);
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
+async function createSnapshotRefreshHarness(refreshFetch) {
+  const scenarioDom = new JSDOM(html, {
+    pretendToBeVisual: true,
+    runScripts: "outside-only",
+    url: "https://yjmoonn.github.io/assettrail/"
+  });
+  const scenarioWindow = scenarioDom.window;
+  const alerts = [];
+  const fetchCalls = [];
+  installSnapshotGuardStubs(scenarioWindow);
+  scenarioWindow.alert = (message) => alerts.push(String(message));
+  scenarioWindow.console.error = () => {};
+  scenarioWindow.localStorage.setItem("finance-ledger-retirement-v1", JSON.stringify({
+    assets: [{
+      id: "snapshot-refresh",
+      name: "삼성전자",
+      ticker: "005930",
+      type: "KRX",
+      quantity: 2,
+      averagePrice: 90
+    }],
+    snapshots: [],
+    retirement: {}
+  }));
+  scenarioWindow.fetch = async (url, options) => {
+    fetchCalls.push({ options, url: String(url) });
+    if (fetchCalls.length === 1) {
+      return { ok: true, json: async () => finalCloseManifest(100) };
+    }
+    return refreshFetch({ call: fetchCalls.length, options, url: String(url) });
+  };
+
+  scenarioWindow.eval(`${appCode}
+    const originalSnapshotRefreshPerformance = refreshPerformanceObservation;
+    let snapshotRefreshPerformanceSources = [];
+    refreshPerformanceObservation = function snapshotRefreshPerformanceProbe(options = {}) {
+      snapshotRefreshPerformanceSources.push(options.source || "");
+      return originalSnapshotRefreshPerformance(options);
+    };
+    window.__snapshotRefreshTestApi = {
+      changeContext() {
+        activeStorageKey = activeStorageKey + ":changed";
+        cloud.authGeneration += 1;
+      },
+      editAssetQuantity(quantity) {
+        state.assets[0] = normalizeAsset({
+          ...state.assets[0],
+          quantity,
+          updatedAt: "2026-07-30T01:00:00.000Z"
+        });
+      },
+      deleteAsset() {
+        state.assets = [];
+      },
+      replaceFromImportedState() {
+        const imported = storageSafeState();
+        imported.assets[0].quantity = 4;
+        imported.events = imported.events.map((event) => (
+          event.type === "OPENING_BALANCE" && event.balanceKind === "POSITION"
+            ? { ...event, quantity: 4 }
+            : event
+        ));
+        imported.snapshots = [];
+        imported.performanceObservations = [];
+        replaceState(validateImportPayload(imported));
+      },
+      performanceSources() {
+        return [...snapshotRefreshPerformanceSources];
+      },
+      resetPerformanceSources() {
+        snapshotRefreshPerformanceSources = [];
+      },
+      snapshots() {
+        return JSON.parse(JSON.stringify(state.snapshots));
+      }
+    };
+  `);
+  await waitUntil(
+    scenarioWindow,
+    () => scenarioWindow.document.querySelector("#totalAsset").textContent === "₩200"
+      && scenarioWindow.document.querySelector("#priceStatus").textContent !== "가격 확인중",
+    "초기 가격표를 불러오지 못했습니다."
+  );
+  scenarioWindow.__snapshotRefreshTestApi.resetPerformanceSources();
+  return { alerts, dom: scenarioDom, fetchCalls, window: scenarioWindow };
+}
+
+// 저장은 반드시 저장 직전 가격표를 기다리고, 중복 클릭은 하나의 저장으로 합친다.
+{
+  const refreshResponse = deferred();
+  const harness = await createSnapshotRefreshHarness(() => refreshResponse.promise);
+  const { window: scenarioWindow } = harness;
+  const quickButton = scenarioWindow.document.querySelector("#snapshotBtn");
+  const monthlyButton = scenarioWindow.document.querySelector("#dashboardSnapshotBtn");
+  quickButton.click();
+  monthlyButton.click();
+
+  assert.equal(harness.fetchCalls.length, 2);
+  assert.equal(quickButton.disabled, true);
+  assert.equal(monthlyButton.disabled, true);
+  assert.equal(scenarioWindow.__snapshotRefreshTestApi.snapshots().length, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(scenarioWindow.__snapshotRefreshTestApi.performanceSources())), []);
+
+  refreshResponse.resolve({ ok: true, json: async () => finalCloseManifest(120) });
+  await waitUntil(
+    scenarioWindow,
+    () => scenarioWindow.__snapshotRefreshTestApi.snapshots().length === 1,
+    "갱신 가격 기준 조회 기록이 저장되지 않았습니다."
+  );
+
+  assert.equal(harness.fetchCalls.length, 2);
+  assert.equal(scenarioWindow.__snapshotRefreshTestApi.snapshots()[0].total, 240);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(scenarioWindow.__snapshotRefreshTestApi.performanceSources())),
+    ["USER_SNAPSHOT"]
+  );
+  assert.equal(quickButton.disabled, false);
+  assert.equal(monthlyButton.disabled, false);
+  assert.deepEqual(harness.alerts, []);
+  harness.dom.window.close();
+}
+
+// 저장 직전 재조회 실패는 이미 화면에 있던 가격으로 우회 저장하지 않는다.
+{
+  const harness = await createSnapshotRefreshHarness(async () => {
+    throw new TypeError("refresh unavailable");
+  });
+  const { window: scenarioWindow } = harness;
+  scenarioWindow.document.querySelector("#snapshotBtn").click();
+  await waitUntil(
+    scenarioWindow,
+    () => harness.alerts.length > 0,
+    "가격 재조회 실패 경고가 표시되지 않았습니다."
+  );
+
+  assert.equal(harness.fetchCalls.length, 2);
+  assert.match(harness.alerts[0], /최신 확정 종가 가격표를 다시 불러오지 못해/);
+  assert.equal(scenarioWindow.__snapshotRefreshTestApi.snapshots().length, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(scenarioWindow.__snapshotRefreshTestApi.performanceSources())), []);
+  assert.equal(scenarioWindow.document.querySelector("#snapshotBtn").disabled, false);
+  assert.equal(scenarioWindow.document.querySelector("#dashboardSnapshotBtn").disabled, false);
+  harness.dom.window.close();
+}
+
+// 가격을 기다리는 동안 사용자 저장 영역이 바뀌면 새 영역에 이전 요청을 저장하지 않는다.
+{
+  const refreshResponse = deferred();
+  const harness = await createSnapshotRefreshHarness(() => refreshResponse.promise);
+  const { window: scenarioWindow } = harness;
+  scenarioWindow.document.querySelector("#snapshotBtn").click();
+  scenarioWindow.__snapshotRefreshTestApi.changeContext();
+  refreshResponse.resolve({ ok: true, json: async () => finalCloseManifest(120) });
+  await waitUntil(
+    scenarioWindow,
+    () => harness.alerts.length > 0,
+    "사용자 데이터 영역 변경 차단 경고가 표시되지 않았습니다."
+  );
+
+  assert.match(harness.alerts[0], /사용자 데이터 영역이 변경되어 조회 기록을 저장하지 않았습니다/);
+  assert.equal(scenarioWindow.__snapshotRefreshTestApi.snapshots().length, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(scenarioWindow.__snapshotRefreshTestApi.performanceSources())), []);
+  assert.equal(scenarioWindow.document.querySelector("#snapshotBtn").disabled, false);
+  assert.equal(scenarioWindow.document.querySelector("#dashboardSnapshotBtn").disabled, false);
+  harness.dom.window.close();
+}
+
+// 같은 사용자 영역이어도 가격 조회 중 경제 데이터가 바뀌면 클릭 당시 스냅샷을 만들지 않는다.
+for (const [label, mutate] of [
+  ["자산 편집", (api) => api.editAssetQuantity(3)],
+  ["자산 삭제", (api) => api.deleteAsset()],
+  ["JSON 가져오기", (api) => api.replaceFromImportedState()]
+]) {
+  const refreshResponse = deferred();
+  const harness = await createSnapshotRefreshHarness(() => refreshResponse.promise);
+  const { window: scenarioWindow } = harness;
+  scenarioWindow.document.querySelector("#snapshotBtn").click();
+  mutate(scenarioWindow.__snapshotRefreshTestApi);
+  refreshResponse.resolve({ ok: true, json: async () => finalCloseManifest(120) });
+  await waitUntil(
+    scenarioWindow,
+    () => harness.alerts.length > 0,
+    `${label} 중 조회 기록 저장이 차단되지 않았습니다.`
+  );
+
+  assert.match(harness.alerts[0], /자산·원장 또는 저장 기록이 변경되어 조회 기록을 저장하지 않았습니다/);
+  assert.equal(scenarioWindow.__snapshotRefreshTestApi.snapshots().length, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(scenarioWindow.__snapshotRefreshTestApi.performanceSources())), []);
+  assert.equal(scenarioWindow.document.querySelector("#snapshotBtn").disabled, false);
+  harness.dom.window.close();
+}
+
+// 메모 입력은 경제 상태가 아니며, 저장 클릭 때 확정한 메모를 사용한다.
+{
+  const refreshResponse = deferred();
+  const harness = await createSnapshotRefreshHarness(() => refreshResponse.promise);
+  const { window: scenarioWindow } = harness;
+  const note = scenarioWindow.document.querySelector("#snapshotNote");
+  note.value = "저장 클릭 당시 메모";
+  scenarioWindow.document.querySelector("#snapshotBtn").click();
+  note.value = "가격 조회 중 바꾼 메모";
+  refreshResponse.resolve({ ok: true, json: async () => finalCloseManifest(120) });
+  await waitUntil(
+    scenarioWindow,
+    () => scenarioWindow.__snapshotRefreshTestApi.snapshots().length === 1,
+    "메모 입력 변경 때문에 조회 기록 저장이 중단되었습니다."
+  );
+
+  assert.equal(scenarioWindow.__snapshotRefreshTestApi.snapshots()[0].note, "저장 클릭 당시 메모");
+  assert.deepEqual(harness.alerts, []);
+  harness.dom.window.close();
+}
 
 {
   const xssDom = new JSDOM(html, {

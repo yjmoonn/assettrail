@@ -1,5 +1,5 @@
 const STORAGE_KEY = "finance-ledger-retirement-v1";
-const STATE_SCHEMA_VERSION = 7;
+const STATE_SCHEMA_VERSION = 8;
 const CLOUD_DOC_ID = "primary";
 const CLOUD_PAYLOAD_MAX_BYTES = 900 * 1024;
 const CLOUD_TRANSACTION_EVENT_LIMIT = 400;
@@ -34,6 +34,13 @@ const BREAKDOWN_ICONS = {
 };
 const RETIREMENT_MONEY_FIELDS = new Set(["currentInvestable", "monthlyInvest", "monthlySpend"]);
 const PRICE_STALE_DAYS = 3;
+const SNAPSHOT_VALUATION_SCHEMA = "assettrail.snapshot-valuation.v1";
+const SNAPSHOT_VALUATION_POSITION_LIMIT = 500;
+const SNAPSHOT_ITEM_MAX_BYTES = 220 * 1024;
+const FINAL_CLOSE_STATUS = "FINAL_CLOSE";
+const LATEST_COMPLETED_SESSION = "LATEST_COMPLETED_SESSION";
+const MANUAL_AMOUNT_ONLY = "MANUAL_AMOUNT_ONLY";
+const NOT_APPLICABLE = "NOT_APPLICABLE";
 const PERFORMANCE_OBSERVATION_LIMIT = IMPORT_LIMITS.performanceObservations;
 const PERFORMANCE_CUTOFF = "END_OF_DAY_POST_FLOW";
 const BROKER_CSV_MAPPING_RENDER_LIMIT = 200;
@@ -217,9 +224,11 @@ let priceBook = {
   benchmarks: {},
   dataPolicy: {
     distributionTreatment: null,
-    priceBasis: null
+    priceBasis: null,
+    valuationTiming: null
   },
   errors: [],
+  finalCloseCertificate: null,
   fx: {},
   generatedAt: null,
   loaded: false,
@@ -235,6 +244,8 @@ let priceBook = {
   }
 };
 let activePriceFileUrl = PRICE_FILE_PATH;
+let priceLoadGeneration = 0;
+let snapshotSaveInFlight = false;
 let symbolLoadPromise = null;
 let symbolsLoaded = false;
 let symbolLoadFailed = false;
@@ -833,6 +844,7 @@ function loadState(storageKey = activeStorageKey) {
     if (!isPlainObject(saved)) throw new Error("저장 데이터가 객체가 아닙니다.");
     const sourceVersion = Number(saved.schemaVersion || 1);
     const migrated = migrateState(saved);
+    const savedHistoryMeta = sourceVersion >= 7 ? normalizeHistoryMeta(saved.historyMeta) : null;
     if (Number.isSafeInteger(sourceVersion) && sourceVersion < STATE_SCHEMA_VERSION) {
       const backupKey = `${storageKey}:migration-backup:v${sourceVersion}-to-v${STATE_SCHEMA_VERSION}`;
       try {
@@ -847,7 +859,7 @@ function loadState(storageKey = activeStorageKey) {
         state: migrated,
         error: null,
         raw,
-        historyMeta: null,
+        historyMeta: savedHistoryMeta,
         migrationPending: true,
         sourceVersion
       };
@@ -857,7 +869,7 @@ function loadState(storageKey = activeStorageKey) {
       state: migrated,
       error: null,
       raw,
-      historyMeta: normalizeHistoryMeta(saved.historyMeta),
+      historyMeta: savedHistoryMeta,
       migrationPending: false,
       sourceVersion
     };
@@ -1369,7 +1381,7 @@ async function initializeLocalHistoryStorage(loadResult = initialStateLoad, scop
     historyStorage.adapter = adapter;
     let bundle = null;
     const requestedHistoryId = loadResult.historyMeta?.activeHistoryId || null;
-    if (!loadResult.migrationPending && loadResult.raw && requestedHistoryId) {
+    if (loadResult.raw && requestedHistoryId) {
       bundle = await adapter.readBundle(scope, requestedHistoryId);
       if (!storageContextIsCurrent()) return false;
       if (!bundle) throw new Error("로컬 주 데이터가 가리키는 히스토리 세대를 찾지 못했습니다.");
@@ -1380,10 +1392,10 @@ async function initializeLocalHistoryStorage(loadResult = initialStateLoad, scop
       }
       await adapter.setActiveHistoryId(scope, requestedHistoryId);
       if (!storageContextIsCurrent()) return false;
-    } else if (!loadResult.migrationPending && loadResult.raw && !loadResult.historyMeta) {
+    } else if (loadResult.raw && !loadResult.historyMeta) {
       bundle = await stageAndActivateLocalHistory(historyFlatState(), scope, { adapter });
       if (!storageContextIsCurrent()) return false;
-    } else if (!loadResult.raw || loadResult.migrationPending) {
+    } else if (!loadResult.raw) {
       bundle = await stageAndActivateLocalHistory(historyFlatState(), scope, { adapter });
       if (!storageContextIsCurrent()) return false;
     }
@@ -1524,7 +1536,7 @@ function migrateState(nextState) {
   }
   const hasExternalizedHistory = sourceVersion >= 7 && Boolean(normalizeHistoryMeta(source.historyMeta));
   if (sourceVersion >= 7 && source.historyMeta !== undefined && !hasExternalizedHistory) {
-    throw new Error("v7 장기 기록 무결성 정보가 올바르지 않습니다.");
+    throw new Error(`v${STATE_SCHEMA_VERSION} 장기 기록 무결성 정보가 올바르지 않습니다.`);
   }
   if (sourceVersion >= 6 && !Array.isArray(source.performanceObservations) && !hasExternalizedHistory) {
     throw new Error("v6 성과 평가 관측점 목록이 없습니다.");
@@ -1726,6 +1738,150 @@ function normalizeRetirementScenario(scenario, index = 0) {
   };
 }
 
+function snapshotNumbersClose(left, right) {
+  const a = Number(left);
+  const b = Number(right);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return Math.abs(a - b) <= Math.max(0.01, Math.abs(a) * 1e-9, Math.abs(b) * 1e-9);
+}
+
+function normalizeSnapshotFx(value) {
+  const source = isPlainObject(value) ? value : {};
+  const usdkrw = isPlainObject(source.USDKRW) ? source.USDKRW : null;
+  if (!usdkrw) return {};
+  const rate = Number(usdkrw.rate);
+  const date = normalizeDateKey(usdkrw.date);
+  const sessionStatus = String(usdkrw.sessionStatus || "").trim().toUpperCase();
+  if (!(rate > 0) || !date || sessionStatus !== FINAL_CLOSE_STATUS) return {};
+  return {
+    USDKRW: {
+      rate,
+      date,
+      sessionStatus,
+      source: String(usdkrw.source || "").slice(0, IMPORT_STRING_LIMITS.short)
+    }
+  };
+}
+
+function normalizeSnapshotValuationPosition(position) {
+  if (!isPlainObject(position)) return null;
+  const assetId = String(position.assetId || "").slice(0, IMPORT_STRING_LIMITS.id);
+  const rawAssetType = String(position.assetType || "").trim().toUpperCase();
+  const accountClass = String(position.accountClass || "").trim().toUpperCase();
+  const marketValueKRW = Number(position.marketValueKRW);
+  if (!assetId
+      || !["KRX", "US", "CASH", "MANUAL"].includes(rawAssetType)
+      || !["GENERAL", "PENSION", "SAVINGS", "UNASSIGNED"].includes(accountClass)
+      || !Number.isFinite(marketValueKRW)
+      || marketValueKRW < 0) {
+    return null;
+  }
+
+  const normalized = {
+    assetId,
+    assetType: rawAssetType,
+    accountClass,
+    valuationMode: isMarketType(rawAssetType) ? FINAL_CLOSE_STATUS : "MANUAL_AMOUNT",
+    marketValueKRW
+  };
+  if (!isMarketType(rawAssetType)) {
+    return String(position.valuationMode || "").trim().toUpperCase() === "MANUAL_AMOUNT"
+      ? normalized
+      : null;
+  }
+
+  const ticker = normalizeTicker(rawAssetType, position.ticker);
+  const hasKind = position.kind !== undefined && position.kind !== null && position.kind !== "";
+  const rawKind = hasKind ? String(position.kind).trim().toUpperCase() : null;
+  const kind = !hasKind || ["STOCK", "ETF", "ETN", "FUND"].includes(rawKind) ? rawKind : null;
+  const quantity = Number(position.quantity);
+  const appliedPrice = Number(position.appliedPrice);
+  const priceCurrency = String(position.priceCurrency || "").trim().toUpperCase();
+  const priceAsOf = normalizeDateKey(position.priceAsOf);
+  const sessionStatus = String(position.sessionStatus || "").trim().toUpperCase();
+  const expectedCurrency = rawAssetType === "US" ? "USD" : "KRW";
+  if (!ticker
+      || (hasKind && !kind)
+      || !Number.isFinite(quantity)
+      || quantity < 0
+      || !(appliedPrice > 0)
+      || priceCurrency !== expectedCurrency
+      || !priceAsOf
+      || sessionStatus !== FINAL_CLOSE_STATUS
+      || String(position.valuationMode || "").trim().toUpperCase() !== FINAL_CLOSE_STATUS) {
+    return null;
+  }
+  Object.assign(normalized, {
+    ticker,
+    ...(kind ? { kind } : {}),
+    quantity,
+    appliedPrice,
+    priceCurrency,
+    priceAsOf,
+    sessionStatus
+  });
+
+  if (rawAssetType === "US") {
+    const fxRate = Number(position.fxRate);
+    const fxAsOf = normalizeDateKey(position.fxAsOf);
+    const fxSessionStatus = String(position.fxSessionStatus || "").trim().toUpperCase();
+    if (!(fxRate > 0) || !fxAsOf || fxSessionStatus !== FINAL_CLOSE_STATUS) return null;
+    Object.assign(normalized, { fxRate, fxAsOf, fxSessionStatus });
+    if (!snapshotNumbersClose(marketValueKRW, quantity * appliedPrice * fxRate)) return null;
+  } else if (!snapshotNumbersClose(marketValueKRW, quantity * appliedPrice)) {
+    return null;
+  }
+  return normalized;
+}
+
+function normalizeSnapshotValuation(value) {
+  if (!isPlainObject(value)
+      || value.schemaVersion !== SNAPSHOT_VALUATION_SCHEMA
+      || !Array.isArray(value.positions)
+      || value.positions.length > SNAPSHOT_VALUATION_POSITION_LIMIT) {
+    return null;
+  }
+  const positions = value.positions.map(normalizeSnapshotValuationPosition);
+  if (positions.some((position) => !position)) return null;
+  if (new Set(positions.map((position) => position.assetId)).size !== positions.length) return null;
+  const hasMarketPositions = positions.some((position) => isMarketType(position.assetType));
+  const priceBookGeneratedAt = normalizeStoredDate(value.priceBookGeneratedAt);
+  const priceBasis = String(value.priceBasis || "").trim().toUpperCase();
+  const distributionTreatment = String(value.distributionTreatment || "").trim().toUpperCase();
+  const valuationTiming = String(value.valuationTiming || "").trim().toUpperCase();
+  if (hasMarketPositions) {
+    if (!priceBookGeneratedAt
+        || priceBasis !== "UNADJUSTED_CLOSE"
+        || distributionTreatment !== "EXCLUDED"
+        || valuationTiming !== LATEST_COMPLETED_SESSION) {
+      return null;
+    }
+  } else if (value.priceBookGeneratedAt !== null
+      || priceBasis !== NOT_APPLICABLE
+      || distributionTreatment !== NOT_APPLICABLE
+      || valuationTiming !== MANUAL_AMOUNT_ONLY
+      || !isPlainObject(value.fx)
+      || Object.keys(value.fx).length) {
+    return null;
+  }
+  const fx = normalizeSnapshotFx(value.fx);
+  if (positions.some((position) => position.assetType === "US") && !fx.USDKRW) return null;
+  if (fx.USDKRW && positions.some((position) => position.assetType === "US" && (
+    !snapshotNumbersClose(position.fxRate, fx.USDKRW.rate)
+      || position.fxAsOf !== fx.USDKRW.date
+      || position.fxSessionStatus !== fx.USDKRW.sessionStatus
+  ))) return null;
+  return {
+    schemaVersion: SNAPSHOT_VALUATION_SCHEMA,
+    priceBookGeneratedAt,
+    priceBasis,
+    distributionTreatment,
+    valuationTiming,
+    fx,
+    positions
+  };
+}
+
 function normalizeSnapshot(snapshot, index = 0) {
   const source = isPlainObject(snapshot) ? snapshot : {};
   const createdAtValue = String(source.createdAt || "");
@@ -1743,7 +1899,7 @@ function normalizeSnapshot(snapshot, index = 0) {
   const snapshotSource = ["MONTHLY_REVIEW", "QUICK_SNAPSHOT", "LEGACY_SNAPSHOT"].includes(rawSource)
     ? rawSource
     : "LEGACY_SNAPSHOT";
-  return {
+  const normalized = {
     id: String(source.id || `snapshot-${createdAt}-${index}`).slice(0, IMPORT_STRING_LIMITS.id),
     createdAt,
     total: Number.isFinite(Number(source.total)) && Number(source.total) >= 0 ? Number(source.total) : 0,
@@ -1755,6 +1911,9 @@ function normalizeSnapshot(snapshot, index = 0) {
       ? [...new Set(source.qualityIssues.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 20)
       : []
   };
+  const valuation = normalizeSnapshotValuation(source.valuation);
+  if (valuation) normalized.valuation = valuation;
+  return normalized;
 }
 
 function boundedPerformanceNumber(value, fallback = 0, { nonNegative = false } = {}) {
@@ -1926,7 +2085,8 @@ function showStatusNotice(message) {
   els.appNotice.textContent = message;
 }
 
-async function initPrices() {
+async function initPrices({ createPerformanceObservation = true } = {}) {
+  const generation = ++priceLoadGeneration;
   setPriceStatus("가격 확인중");
   if (els.priceRefreshBtn) els.priceRefreshBtn.disabled = true;
   symbolLoadPromise = null;
@@ -1935,20 +2095,28 @@ async function initPrices() {
 
   try {
     const loaded = await loadPriceBook();
+    if (generation !== priceLoadGeneration) return false;
     priceBook = normalizePriceBook(loaded.data);
     activePriceFileUrl = loaded.url;
     symbolsLoaded = !priceBook.symbolFile;
     applyPricesToAssets();
-    refreshPerformanceObservation({ source: "AUTOMATIC_PRICE_CLOSE" });
+    if (createPerformanceObservation) {
+      refreshPerformanceObservation({ source: "AUTOMATIC_PRICE_CLOSE" });
+    }
     setPriceStatus(priceBook.generatedAt ? `가격 ${compactDateTime(priceBook.generatedAt)}` : "가격 완료", true);
     render(false);
+    return true;
   } catch (error) {
+    if (generation !== priceLoadGeneration) return false;
     console.error(error);
     applyPricesToAssets();
     setPriceStatus("가격 불가");
     render(false);
+    return false;
   } finally {
-    if (els.priceRefreshBtn) els.priceRefreshBtn.disabled = false;
+    if (generation === priceLoadGeneration && els.priceRefreshBtn) {
+      els.priceRefreshBtn.disabled = false;
+    }
   }
 }
 
@@ -3936,9 +4104,16 @@ function normalizePriceBook(data) {
       ).trim().toUpperCase() || null,
       priceBasis: String(
         data?.methodology?.priceBasis || data?.dataPolicy?.priceBasis || data?.priceBasis || ""
+      ).trim().toUpperCase() || null,
+      valuationTiming: String(
+        data?.methodology?.valuationTiming
+          || data?.dataPolicy?.valuationTiming
+          || data?.valuationTiming
+          || ""
       ).trim().toUpperCase() || null
     },
     errors: Array.isArray(data?.errors) ? data.errors : [],
+    finalCloseCertificate: normalizeFinalCloseCertificate(data?.finalCloseCertificate),
     fx: normalizeFx(data?.fx),
     generatedAt: data?.generatedAt || data?.updatedAt || data?.date || null,
     loaded: true,
@@ -3971,6 +4146,31 @@ function normalizePriceBook(data) {
   return nextBook;
 }
 
+function normalizeSessionStatus(value) {
+  return String(value || "").trim().toUpperCase() || null;
+}
+
+function normalizeFinalCloseCertificate(value) {
+  if (!isPlainObject(value)) return null;
+  const marketSessions = isPlainObject(value.marketSessions) ? value.marketSessions : {};
+  const validUntilByMarket = isPlainObject(value.validUntilByMarket) ? value.validUntilByMarket : {};
+  return {
+    status: normalizeSessionStatus(value.status),
+    checkedAt: typeof value.checkedAt === "string" ? value.checkedAt : null,
+    validUntil: typeof value.validUntil === "string" ? value.validUntil : null,
+    validUntilByMarket: {
+      KRX: typeof validUntilByMarket.KRX === "string" ? validUntilByMarket.KRX : null,
+      US: typeof validUntilByMarket.US === "string" ? validUntilByMarket.US : null,
+      FX: typeof validUntilByMarket.FX === "string" ? validUntilByMarket.FX : null
+    },
+    marketSessions: {
+      KRX: normalizeDateKey(marketSessions.KRX) || null,
+      US: normalizeDateKey(marketSessions.US) || null,
+      FX: normalizeDateKey(marketSessions.FX) || null
+    }
+  };
+}
+
 function normalizeBenchmarks(value) {
   if (!isPlainObject(value)) return {};
   const result = {};
@@ -3983,11 +4183,13 @@ function normalizeBenchmarks(value) {
     const returnType = typeof source.totalReturn === "boolean"
       ? source.totalReturn ? "TOTAL_RETURN" : "PRICE_ONLY"
       : String(source.returnType || "UNKNOWN").trim().toUpperCase();
+    const sessionStatus = normalizeSessionStatus(source.sessionStatus);
     result[key] = {
       level,
       date,
       currency,
       returnType,
+      ...(sessionStatus ? { sessionStatus } : {}),
       source: String(source.source || "").trim(),
       priceBasis: String(source.priceBasis || "").trim().toUpperCase(),
       distributionTreatment: String(source.distributionTreatment || "").trim().toUpperCase(),
@@ -4000,11 +4202,13 @@ function normalizeBenchmarks(value) {
 function normalizeFx(fx) {
   const usdkrw = typeof fx?.USDKRW === "number" ? { rate: fx.USDKRW } : fx?.USDKRW;
   const rate = Number(usdkrw?.rate || usdkrw?.close || usdkrw?.value || 0);
+  const sessionStatus = normalizeSessionStatus(usdkrw?.sessionStatus);
   return {
     USDKRW: Number.isFinite(rate) && rate > 0
       ? {
           date: usdkrw?.date || usdkrw?.asOf || usdkrw?.updatedAt || null,
           rate,
+          ...(sessionStatus ? { sessionStatus } : {}),
           source: usdkrw?.source || null
         }
       : null
@@ -4058,12 +4262,14 @@ function parsePriceEntry(entry) {
 
   const close = Number(entry.close ?? entry.price ?? entry.value ?? entry.last);
   if (!Number.isFinite(close) || close <= 0) return null;
+  const sessionStatus = normalizeSessionStatus(entry.sessionStatus);
 
   return {
     close,
     date: entry.date || entry.asOf || entry.updatedAt || null,
     kind: entry.kind || null,
     name: entry.name || entry.shortName || entry.longName || null,
+    ...(sessionStatus ? { sessionStatus } : {}),
     source: entry.source || null
   };
 }
@@ -4511,14 +4717,18 @@ function regionCodeForAsset(asset) {
   return regionCodeForType(assetType(asset));
 }
 
-function accountClassLabel(asset) {
+function effectiveAccountClass(asset) {
   const explicit = normalizeAccountClass(asset.accountClass);
-  if (explicit !== "AUTO") return ACCOUNT_CLASS_LABELS[explicit];
+  if (explicit !== "AUTO") return explicit;
   const text = `${asset.account || ""} ${asset.name || ""} ${asset.note || ""}`.toLowerCase();
-  if (/(적금|청약)/i.test(text)) return "적금";
-  if (/(연금|irp|퇴직|개인형퇴직연금|확정기여형|(^|\s)dc(형)?(\s|$))/i.test(text)) return "연금계좌";
-  if (asset.account) return "일반계좌";
-  return "계좌 미지정";
+  if (/(적금|청약)/i.test(text)) return "SAVINGS";
+  if (/(연금|irp|퇴직|개인형퇴직연금|확정기여형|(^|\s)dc(형)?(\s|$))/i.test(text)) return "PENSION";
+  if (asset.account) return "GENERAL";
+  return "UNASSIGNED";
+}
+
+function accountClassLabel(asset) {
+  return ACCOUNT_CLASS_LABELS[effectiveAccountClass(asset)];
 }
 
 function inferManualSubtype(asset) {
@@ -5601,52 +5811,91 @@ function aiReviewEngine() {
   return window.AssetTrailAiReviewExportEngine || null;
 }
 
-function aiReviewMarketPositions(total) {
+function latestAiReviewSnapshot() {
+  return [...state.snapshots]
+    .map(normalizeSnapshot)
+    .sort((left, right) => String(left.createdAt).localeCompare(String(right.createdAt))
+      || String(left.id).localeCompare(String(right.id)))
+    .at(-1) || null;
+}
+
+function aiReviewSnapshotPositions(snapshot, total) {
+  if (!snapshot?.valuation) return [];
   const grouped = new Map();
-  state.assets.map(normalizeAsset).forEach((asset) => {
-    const type = assetType(asset);
-    if (!isMarketType(type) || !(Number(asset.quantity || 0) > 0)) return;
-    const ticker = normalizeTicker(type, asset.ticker);
-    const key = `${type}:${ticker}`;
-    const kind = assetKind(asset);
+  snapshot.valuation.positions.forEach((position) => {
+    const type = String(position.assetType || "").trim().toUpperCase();
+    const market = isMarketType(type) ? type : null;
+    const ticker = market ? normalizeTicker(type, position.ticker) : null;
+    const accountClass = String(position.accountClass || "UNASSIGNED").trim().toUpperCase();
+    const key = market ? `${type}:${ticker}:${accountClass}` : `${type}:${accountClass}`;
+    const kind = market ? String(position.kind || "STOCK").trim().toUpperCase() : null;
     const current = grouped.get(key) || {
-      market: type,
+      assetType: type,
+      market,
       ticker,
-      kind: ["ETF", "ETN", "FUND"].includes(kind)
-        ? kind
-        : "STOCK",
-      value: 0,
-      quantity: 0,
-      cost: 0,
-      priceAsOf: null,
-      quality: "VERIFIED"
+      kind: market && ["ETF", "ETN", "FUND"].includes(kind) ? kind : market ? "STOCK" : null,
+      accountClass,
+      valuationMode: position.valuationMode,
+      quantity: market ? 0 : null,
+      appliedPrice: market ? Number(position.appliedPrice) : null,
+      priceCurrency: market ? position.priceCurrency : null,
+      priceAsOf: market ? position.priceAsOf : null,
+      sessionStatus: market ? position.sessionStatus : null,
+      fxRate: type === "US" ? Number(position.fxRate) : null,
+      fxAsOf: type === "US" ? position.fxAsOf : null,
+      fxSessionStatus: type === "US" ? position.fxSessionStatus : null,
+      marketValueKRW: 0,
+      quality: market
+        ? (() => {
+            const age = businessDaysSince(position.priceAsOf);
+            if (!Number.isFinite(age) || age < 0) return "UNAVAILABLE";
+            return age > PRICE_STALE_DAYS ? "STALE" : "VERIFIED";
+          })()
+        : "VERIFIED"
     };
-    const value = assetValue(asset);
-    const cost = assetCost(asset);
-    const price = priceForAsset(asset);
-    current.value += Number.isFinite(value) ? value : 0;
-    current.quantity += Number(asset.quantity || 0);
-    current.cost += Number.isFinite(cost) ? cost : 0;
-    const priceDate = normalizeDateKey(price?.date);
-    if (priceDate && (!current.priceAsOf || priceDate < current.priceAsOf)) current.priceAsOf = priceDate;
-    const age = daysSince(price?.date);
-    if (!price || !(Number(price.close) > 0) || !priceDate) current.quality = "UNAVAILABLE";
-    else if (Number.isFinite(age) && age > PRICE_STALE_DAYS && current.quality !== "UNAVAILABLE") current.quality = "STALE";
+    if (market) current.quantity += Number(position.quantity || 0);
+    current.marketValueKRW += Number(position.marketValueKRW || 0);
     grouped.set(key, current);
   });
   return [...grouped.values()]
-    .sort((left, right) => `${left.market}:${left.ticker}`.localeCompare(`${right.market}:${right.ticker}`))
+    .sort((left, right) => (
+      `${left.assetType}:${left.ticker || ""}:${left.accountClass}`
+        .localeCompare(`${right.assetType}:${right.ticker || ""}:${right.accountClass}`)
+    ))
     .map((item) => ({
+      assetType: item.assetType,
       market: item.market,
       ticker: item.ticker,
       kind: item.kind,
+      accountClass: item.accountClass,
+      valuationMode: item.valuationMode,
       quantity: item.quantity,
-      marketValueKRW: item.value,
-      weightPct: total > 0 ? (item.value / total) * 100 : 0,
-      priceReturnPct: item.cost > 0 && item.value > 0 ? ((item.value - item.cost) / item.cost) * 100 : null,
+      appliedPrice: item.appliedPrice,
+      priceCurrency: item.priceCurrency,
       priceAsOf: item.priceAsOf,
+      sessionStatus: item.sessionStatus,
+      fxRate: item.fxRate,
+      fxAsOf: item.fxAsOf,
+      fxSessionStatus: item.fxSessionStatus,
+      marketValueKRW: item.marketValueKRW,
+      weightPct: total > 0 ? (item.marketValueKRW / total) * 100 : 0,
+      priceReturnPct: null,
       quality: item.quality
     }));
+}
+
+function aiReviewSnapshotConcentration(positions, total) {
+  const weights = total > 0
+    ? positions.map((position) => Number(position.marketValueKRW || 0) / total).filter((weight) => weight > 0)
+    : [];
+  const descending = [...weights].sort((left, right) => right - left);
+  const hhi = weights.reduce((sum, weight) => sum + weight ** 2, 0);
+  return {
+    top1Pct: (descending[0] || 0) * 100,
+    top5Pct: descending.slice(0, 5).reduce((sum, weight) => sum + weight, 0) * 100,
+    hhi,
+    effectivePositionCount: hhi > 0 ? 1 / hhi : 0
+  };
 }
 
 function aiReviewPerformance() {
@@ -5709,52 +5958,48 @@ function aiReviewStatus() {
 }
 
 function buildAiReviewInput(generatedAt = new Date().toISOString()) {
-  const total = totalAssets();
-  const bucketValues = bucketTotals();
-  const positions = aiReviewMarketPositions(total);
-  const priceDates = positions.map((position) => position.priceAsOf).filter(Boolean).sort();
-  const missingPriceCount = positions.filter((position) => position.quality === "UNAVAILABLE").length;
-  const hasStalePrice = positions.some((position) => position.quality === "STALE");
-  const dataQualityStatus = !priceBook.loaded || missingPriceCount
+  const snapshot = latestAiReviewSnapshot();
+  const valuationAvailable = Boolean(snapshot?.valuation);
+  const valuationStatus = valuationAvailable
+    ? "SNAPSHOT_VALUATION_AVAILABLE"
+    : snapshot ? "MISSING_LEGACY_SNAPSHOT_VALUATION" : "UNAVAILABLE";
+  const total = Number(snapshot?.total || 0);
+  const positions = aiReviewSnapshotPositions(snapshot, total);
+  const marketPositions = positions.filter((position) => isMarketType(position.assetType));
+  const priceDates = marketPositions.map((position) => position.priceAsOf).filter(Boolean).sort();
+  const missingPriceCount = marketPositions.filter((position) => position.quality === "UNAVAILABLE").length;
+  const hasStalePrice = marketPositions.some((position) => position.quality === "STALE");
+  const dataQualityStatus = !valuationAvailable || missingPriceCount
     ? "INCOMPLETE"
     : hasStalePrice ? "STALE" : "VERIFIED";
-  const concentration = portfolioConcentration();
-  const allPositionWeights = (() => {
-    if (!(total > 0)) return [];
-    const grouped = new Map();
-    state.assets.forEach((asset) => {
-      const key = decisionSubjectKeyForAsset(asset);
-      grouped.set(key, (grouped.get(key) || 0) + assetValue(asset));
-    });
-    return [...grouped.values()].filter((value) => value > 0).map((value) => value / total);
-  })();
-  const hhi = allPositionWeights.reduce((sum, weight) => sum + weight ** 2, 0);
+  const typeTotals = snapshot?.typeTotals || {};
   const bucketMap = { domestic: "DOMESTIC", overseas: "OVERSEAS", cash: "CASH", manual: "MANUAL" };
+  const typeByBucket = { domestic: "KRX", overseas: "US", cash: "CASH", manual: "MANUAL" };
   const allocation = Object.entries(bucketMap).map(([key, bucket]) => ({
     bucket,
-    weightPct: total > 0 ? (bucketValues[key] / total) * 100 : 0
+    weightPct: total > 0 ? (Number(typeTotals[typeByBucket[key]] || 0) / total) * 100 : 0
   }));
+  const snapshotDate = snapshot?.createdAt ? localDateInputValue(new Date(snapshot.createdAt)) : localDateInputValue();
   return {
     generatedAt,
-    asOfDate: priceDates.at(-1) || localDateInputValue(),
+    asOfDate: snapshotDate,
+    snapshotId: snapshot?.id || null,
+    snapshotCreatedAt: snapshot?.createdAt || null,
+    valuationStatus,
     dataQuality: {
       status: dataQualityStatus,
-      marketPositionCount: positions.length,
-      pricedPositionCount: positions.length - missingPriceCount,
+      marketPositionCount: marketPositions.length,
+      pricedPositionCount: marketPositions.length - missingPriceCount,
       missingPriceCount,
       oldestPriceDate: priceDates[0] || null,
       latestPriceDate: priceDates.at(-1) || null,
       performanceObservationCount: state.performanceObservations.length
     },
     portfolio: {
+      totalMarketValueKRW: total,
       allocation,
       positions,
-      concentration: {
-        top1Pct: concentration.top1Rate * 100,
-        top5Pct: concentration.top5Rate * 100,
-        hhi,
-        effectivePositionCount: hhi > 0 ? 1 / hhi : 0
-      },
+      concentration: aiReviewSnapshotConcentration(positions, total),
       targetComparison: {
         status: "DEFAULT_NOT_CONFIRMED",
         items: allocation.map((row) => ({
@@ -5775,7 +6020,7 @@ function aiReviewMarkdown(reviewPackage) {
   return [
     "# AssetTrail AI 월간 점검 패키지",
     "",
-    "이 파일에는 고정 분석 지침과 최신 가격 기준 종목별 수량·원화 평가액이 함께 들어 있습니다.",
+    "이 파일에는 고정 분석 지침과 가장 최근 저장한 조회 기록 기준 수량·가격·환율·원화 평가액이 함께 들어 있습니다.",
     "외부 AI에 업로드한 뒤 ‘첨부 파일 기준으로 점검해줘’라고 요청하세요.",
     "",
     "```json",
@@ -5786,8 +6031,10 @@ function aiReviewMarkdown(reviewPackage) {
 }
 
 function exportAiReviewPackage() {
-  if (!state.assets.length) {
-    if (els.aiCheckPackageStatus) els.aiCheckPackageStatus.textContent = "자산을 먼저 등록하세요.";
+  if (!latestAiReviewSnapshot()) {
+    if (els.aiCheckPackageStatus) {
+      els.aiCheckPackageStatus.textContent = "AI 점검에 사용할 최신 조회 기록을 먼저 저장하세요.";
+    }
     return false;
   }
   const engine = aiReviewEngine();
@@ -5806,7 +6053,9 @@ function exportAiReviewPackage() {
     );
     if (!exported) throw new Error("점검 파일 다운로드를 시작하지 못했습니다.");
     if (els.aiCheckPackageStatus) {
-      els.aiCheckPackageStatus.textContent = `점검 파일을 만들었습니다. 자동 전송하지 않았으며 품질 이슈 ${reviewPackage.dataQuality.issues.length}개를 함께 표시했습니다.`;
+      els.aiCheckPackageStatus.textContent = reviewPackage.valuationStatus === "SNAPSHOT_VALUATION_AVAILABLE"
+        ? `점검 파일을 만들었습니다. 자동 전송하지 않았으며 품질 이슈 ${reviewPackage.dataQuality.issues.length}개를 함께 표시했습니다.`
+        : "점검 파일은 만들었지만 최신 조회 기록에 종목별 평가 근거가 없습니다. 조회 기록을 다시 저장한 뒤 새 점검 파일을 만드세요.";
     }
     return true;
   } catch (error) {
@@ -5860,7 +6109,7 @@ function heldPriceEvidenceState() {
     .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
     .sort();
   const undatedCount = heldPriceRows.filter((price) => price && !/^\d{4}-\d{2}-\d{2}$/.test(String(price.date || "").slice(0, 10))).length;
-  const ages = dates.map((date) => calendarDaysSince(date));
+  const ages = dates.map((date) => businessDaysSince(date));
   const futureCount = ages.filter((age) => age < 0).length;
   const status = missingCount || sourceMissingCount || undatedCount || futureCount
     ? "INCOMPLETE"
@@ -6932,23 +7181,30 @@ function marketAssetsMissingPrices() {
     .map((asset) => `${assetType(asset)}:${normalizeTicker(assetType(asset), asset.ticker)}`);
 }
 
+function heldMarketAssets() {
+  return state.assets
+    .map(normalizeAsset)
+    .filter((asset) => isMarketType(assetType(asset)) && Number(asset.quantity || 0) > 0);
+}
+
 function heldMarketPriceFreshness() {
   const stale = [];
   const undated = [];
-  state.assets
-    .map(normalizeAsset)
-    .filter((asset) => isMarketType(assetType(asset)) && Number(asset.quantity || 0) > 0)
-    .forEach((asset) => {
+  const future = [];
+  heldMarketAssets().forEach((asset) => {
       const price = priceForAsset(asset);
       if (!price) return;
-      const age = daysSince(price.date);
-      if (!Number.isFinite(age)) {
+      const date = normalizeDateKey(price.date);
+      const age = businessDaysSince(date);
+      if (!date || !Number.isFinite(age)) {
         undated.push(asset);
+      } else if (age < 0) {
+        future.push({ age, asset });
       } else if (age > PRICE_STALE_DAYS) {
         stale.push({ age, asset });
       }
     });
-  return { stale, undated };
+  return { stale, undated, future };
 }
 
 function latestMarketPriceDate() {
@@ -6959,11 +7215,138 @@ function latestMarketPriceDate() {
   return timestamps.length ? new Date(Math.max(...timestamps)).toISOString() : null;
 }
 
+function snapshotValuationAssets() {
+  return state.assets
+    .map(normalizeAsset)
+    .filter((asset) => !isMarketType(assetType(asset)) || Number(asset.quantity || 0) > 0);
+}
+
+function buildSnapshotValuation() {
+  const assets = snapshotValuationAssets();
+  const hasMarketAssets = assets.some((asset) => isMarketType(assetType(asset)));
+  if (assets.length > SNAPSHOT_VALUATION_POSITION_LIMIT) {
+    throw new Error(`평가내역은 최대 ${SNAPSHOT_VALUATION_POSITION_LIMIT.toLocaleString("ko-KR")}개 자산까지 저장할 수 있습니다.`);
+  }
+
+  const usdkrw = priceBook.fx?.USDKRW;
+  const positions = assets.map((asset) => {
+    const assetTypeValue = assetType(asset);
+    const common = {
+      assetId: asset.id,
+      assetType: assetTypeValue,
+      accountClass: effectiveAccountClass(asset),
+      valuationMode: isMarketType(assetTypeValue) ? FINAL_CLOSE_STATUS : "MANUAL_AMOUNT",
+      marketValueKRW: assetValue(asset)
+    };
+    if (!isMarketType(assetTypeValue)) return common;
+
+    const price = priceForAsset(asset);
+    const marketPosition = {
+      ...common,
+      ticker: normalizeTicker(assetTypeValue, asset.ticker),
+      kind: assetKind(asset),
+      quantity: Number(asset.quantity || 0),
+      appliedPrice: Number(price?.close || 0),
+      priceCurrency: assetTypeValue === "US" ? "USD" : "KRW",
+      priceAsOf: normalizeDateKey(price?.date),
+      sessionStatus: normalizeSessionStatus(price?.sessionStatus)
+    };
+    if (assetTypeValue === "US") {
+      Object.assign(marketPosition, {
+        fxRate: Number(usdkrw?.rate || 0),
+        fxAsOf: normalizeDateKey(usdkrw?.date),
+        fxSessionStatus: normalizeSessionStatus(usdkrw?.sessionStatus)
+      });
+    }
+    return marketPosition;
+  });
+
+  const valuation = normalizeSnapshotValuation({
+    schemaVersion: SNAPSHOT_VALUATION_SCHEMA,
+    priceBookGeneratedAt: hasMarketAssets ? priceBook.generatedAt : null,
+    priceBasis: hasMarketAssets ? priceBook.dataPolicy.priceBasis : NOT_APPLICABLE,
+    distributionTreatment: hasMarketAssets
+      ? priceBook.dataPolicy.distributionTreatment
+      : NOT_APPLICABLE,
+    valuationTiming: hasMarketAssets ? priceBook.dataPolicy.valuationTiming : MANUAL_AMOUNT_ONLY,
+    fx: assets.some((asset) => assetType(asset) === "US")
+      ? { USDKRW: usdkrw }
+      : {},
+    positions
+  });
+  if (!valuation) throw new Error("저장 시점의 종목별 평가 근거를 만들지 못했습니다.");
+  return valuation;
+}
+
+function snapshotSaveEconomicStateFingerprint() {
+  const economicState = storageSafeState();
+  delete economicState.meta;
+  economicState.assets = economicState.assets.map((asset) => {
+    const economicAsset = { ...asset };
+    delete economicAsset.kind;
+    return economicAsset;
+  });
+  return strongDeterministicFingerprint("snapshot-save-state-v1", economicState);
+}
+
+function snapshotItemByteLength(snapshot) {
+  return new Blob([JSON.stringify(snapshot)]).size;
+}
+
+function finalCloseCertificateIssue(heldAssets) {
+  const certificate = priceBook.finalCloseCertificate;
+  if (!certificate || certificate.status !== FINAL_CLOSE_STATUS) {
+    return "가격표의 최신 확정 종가 인증을 확인할 수 없습니다.";
+  }
+
+  const checkedAt = Date.parse(certificate.checkedAt || "");
+  const now = Date.now();
+  if (!Number.isFinite(checkedAt)
+      || checkedAt > now + 5 * 60 * 1000) {
+    return "가격표의 최신 확정 종가 인증 정보가 올바르지 않습니다.";
+  }
+
+  const requiredMarkets = new Set(heldAssets.map((asset) => assetType(asset)));
+  if (requiredMarkets.has("US")) requiredMarkets.add("FX");
+  const invalidValidityMarkets = [...requiredMarkets].filter((market) => {
+    const marketValidUntil = Date.parse(
+      certificate.validUntilByMarket?.[market] || certificate.validUntil || ""
+    );
+    return !Number.isFinite(marketValidUntil) || marketValidUntil <= checkedAt;
+  });
+  if (invalidValidityMarkets.length) {
+    return `가격표의 ${invalidValidityMarkets.join(", ")} 시장 확정 종가 인증 정보가 올바르지 않습니다.`;
+  }
+  const expiredMarkets = [...requiredMarkets].filter((market) => {
+    const marketValidUntil = Date.parse(
+      certificate.validUntilByMarket?.[market] || certificate.validUntil || ""
+    );
+    return now >= marketValidUntil;
+  });
+  if (expiredMarkets.length) {
+    return `가격표의 ${expiredMarkets.join(", ")} 시장 최신 확정 종가 인증이 만료되었습니다. 최신 가격을 다시 확인한 뒤 저장하세요.`;
+  }
+  const missingSession = [...requiredMarkets]
+    .filter((market) => !normalizeDateKey(certificate.marketSessions?.[market]));
+  if (missingSession.length) {
+    return `가격표의 최신 확정 종가 인증에 ${missingSession.join(", ")} 시장 기준일이 없습니다.`;
+  }
+  return "";
+}
+
 function snapshotReadiness() {
   if (!state.assets.length) {
     return { ok: false, message: "조회 기록을 저장하려면 자산을 먼저 등록하세요.", warnings: [] };
   }
-  if (!priceBook.loaded) {
+  if (snapshotValuationAssets().length > SNAPSHOT_VALUATION_POSITION_LIMIT) {
+    return {
+      ok: false,
+      message: `조회 기록의 종목별 평가내역은 최대 ${SNAPSHOT_VALUATION_POSITION_LIMIT.toLocaleString("ko-KR")}개 자산까지 저장할 수 있습니다. 자산을 정리한 뒤 다시 저장하세요.`,
+      warnings: []
+    };
+  }
+  const heldMarketAssetsForSnapshot = heldMarketAssets();
+  if (heldMarketAssetsForSnapshot.length && !priceBook.loaded) {
     return {
       ok: false,
       message: "가격표를 아직 불러오지 못했습니다. 설정에서 최신 가격을 확인한 뒤 다시 저장하세요.",
@@ -6971,12 +7354,23 @@ function snapshotReadiness() {
     };
   }
 
-  const heldMarketAssets = state.assets.filter((asset) =>
-    isMarketType(assetType(asset)) && Number(asset.quantity || 0) > 0
-  );
-  const missing = heldMarketAssets.filter((asset) => marketPriceMissing(asset));
-  const hasUsAssets = heldMarketAssets.some((asset) => assetType(asset) === "US");
+  if (!heldMarketAssetsForSnapshot.length) {
+    return { ok: true, message: "", warnings: [] };
+  }
+
+  const missing = heldMarketAssetsForSnapshot.filter((asset) => marketPriceMissing(asset));
+  const hasUsAssets = heldMarketAssetsForSnapshot.some((asset) => assetType(asset) === "US");
   const issues = [];
+
+  const certificateIssue = finalCloseCertificateIssue(heldMarketAssetsForSnapshot);
+  if (certificateIssue) issues.push(certificateIssue);
+  if (priceBook.dataPolicy.valuationTiming !== LATEST_COMPLETED_SESSION) {
+    issues.push("가격표가 최근 완료된 시장 세션 기준인지 확인할 수 없습니다.");
+  }
+  if (priceBook.dataPolicy.priceBasis !== "UNADJUSTED_CLOSE"
+      || priceBook.dataPolicy.distributionTreatment !== "EXCLUDED") {
+    issues.push("가격표의 종가·배당 처리 기준을 확인할 수 없습니다.");
+  }
 
   if (missing.length) {
     const labels = missing.map((asset) => {
@@ -6985,9 +7379,64 @@ function snapshotReadiness() {
     });
     issues.push(`가격이 없는 보유 자산: ${labels.join(", ")}`);
   }
+
+  const nonFinalPrices = heldMarketAssetsForSnapshot.filter((asset) => {
+    const price = priceForAsset(asset);
+    return price && price.sessionStatus !== FINAL_CLOSE_STATUS;
+  });
+  if (nonFinalPrices.length) {
+    const labels = nonFinalPrices.map((asset) => {
+      const type = assetType(asset);
+      return `${asset.name || normalizeTicker(type, asset.ticker)} (${type}:${normalizeTicker(type, asset.ticker)})`;
+    });
+    issues.push(`확정 종가가 아닌 보유 자산: ${labels.join(", ")}`);
+  }
+
+  const certificate = priceBook.finalCloseCertificate;
+  const pricesAfterCertifiedSession = heldMarketAssetsForSnapshot.filter((asset) => {
+    const type = assetType(asset);
+    const priceDate = normalizeDateKey(priceForAsset(asset)?.date);
+    const sessionDate = normalizeDateKey(certificate?.marketSessions?.[type]);
+    return priceDate && sessionDate && priceDate > sessionDate;
+  });
+  if (pricesAfterCertifiedSession.length) {
+    issues.push("보유 자산 가격일이 인증된 최근 완료 시장 세션보다 이후입니다.");
+  }
+
   if (hasUsAssets && !(usdKrwRate() > 0)) {
     issues.push("미국 자산 평가에 필요한 USD/KRW 환율이 없습니다.");
   }
+  if (hasUsAssets && priceBook.fx?.USDKRW?.sessionStatus !== FINAL_CLOSE_STATUS) {
+    issues.push("미국 자산 평가에 필요한 USD/KRW 환율이 확정값이 아닙니다.");
+  }
+
+  const freshness = heldMarketPriceFreshness();
+  if (freshness.stale.length) {
+    const oldestDays = Math.max(...freshness.stale.map((item) => item.age));
+    issues.push(`보유 종목 확정 종가 ${freshness.stale.length}개가 평일 기준 최대 ${Math.floor(oldestDays)}일 전이라 오래되었습니다.`);
+  }
+  if (freshness.undated.length) {
+    issues.push(`보유 종목 확정 종가 ${freshness.undated.length}개의 기준일을 확인할 수 없습니다.`);
+  }
+  if (freshness.future.length) {
+    issues.push(`보유 종목 확정 종가 ${freshness.future.length}개의 기준일이 미래입니다.`);
+  }
+
+  const fxDate = normalizeDateKey(priceBook.fx?.USDKRW?.date);
+  const fxDays = businessDaysSince(fxDate);
+  if (hasUsAssets && !fxDate) {
+    issues.push("USD/KRW 환율의 기준일을 확인할 수 없습니다.");
+  } else if (hasUsAssets && fxDays < 0) {
+    issues.push("USD/KRW 환율의 기준일이 미래입니다.");
+  } else if (hasUsAssets && fxDays > PRICE_STALE_DAYS) {
+    issues.push(`USD/KRW 환율이 평일 기준 ${Math.floor(fxDays)}일 전이라 오래되었습니다.`);
+  }
+  if (hasUsAssets && fxDate
+      && normalizeDateKey(certificate?.marketSessions?.FX)
+      && fxDate !== normalizeDateKey(certificate.marketSessions.FX)) {
+    issues.push("USD/KRW 환율 기준일이 인증된 환율 세션과 다릅니다.");
+  }
+
   if (issues.length) {
     return {
       ok: false,
@@ -6995,21 +7444,7 @@ function snapshotReadiness() {
       warnings: []
     };
   }
-
-  const warnings = [];
-  const freshness = heldMarketPriceFreshness();
-  if (freshness.stale.length) {
-    const oldestDays = Math.max(...freshness.stale.map((item) => item.age));
-    warnings.push(`보유 종목 종가 ${freshness.stale.length}개가 최대 ${Math.floor(oldestDays)}일 전 기준입니다.`);
-  }
-  if (freshness.undated.length) {
-    warnings.push(`보유 종목 종가 ${freshness.undated.length}개의 기준일을 확인할 수 없습니다.`);
-  }
-  const fxDays = daysSince(priceBook.fx?.USDKRW?.date);
-  if (hasUsAssets && Number.isFinite(fxDays) && fxDays > PRICE_STALE_DAYS) {
-    warnings.push(`환율이 ${Math.floor(fxDays)}일 전 기준입니다.`);
-  }
-  return { ok: true, message: "", warnings };
+  return { ok: true, message: "", warnings: [] };
 }
 
 function deterministicFingerprint(prefix, value) {
@@ -7392,10 +7827,11 @@ function renderPriceNotice() {
   const missing = [...new Set(marketAssetsMissingPrices())].filter((item) => !item.endsWith(":"));
   const errors = Array.isArray(priceBook.errors) ? priceBook.errors : [];
   const freshness = heldMarketPriceFreshness();
-  const fxDays = daysSince(priceBook.fx?.USDKRW?.date);
-  const isFxStale = Number.isFinite(fxDays) && fxDays > PRICE_STALE_DAYS;
+  const fxDays = businessDaysSince(priceBook.fx?.USDKRW?.date);
+  const isFxStale = Number.isFinite(fxDays) && (fxDays < 0 || fxDays > PRICE_STALE_DAYS);
 
-  if (!missing.length && !errors.length && !freshness.stale.length && !freshness.undated.length && !isFxStale) {
+  if (!missing.length && !errors.length && !freshness.stale.length && !freshness.undated.length
+      && !freshness.future.length && !isFxStale) {
     els.priceAlert.hidden = true;
     els.priceAlert.textContent = "";
     renderOpsStatus();
@@ -7410,7 +7846,12 @@ function renderPriceNotice() {
   if (freshness.undated.length) {
     parts.push(`보유 종목 종가 ${freshness.undated.length}개의 기준일을 확인할 수 없습니다.`);
   }
-  if (isFxStale) parts.push(`환율이 ${Math.floor(fxDays)}일 전 기준입니다.`);
+  if (freshness.future.length) {
+    parts.push(`보유 종목 종가 ${freshness.future.length}개의 기준일이 미래입니다.`);
+  }
+  if (isFxStale) {
+    parts.push(fxDays < 0 ? "환율 기준일이 미래입니다." : `환율이 평일 기준 ${Math.floor(fxDays)}일 전입니다.`);
+  }
   if (missing.length) {
     const krxMissing = missing.filter((item) => item.startsWith("KRX:"));
     const usMissing = missing.filter((item) => item.startsWith("US:"));
@@ -7439,14 +7880,14 @@ function renderOpsStatus() {
   const errorCount = Array.isArray(priceBook.errors) ? priceBook.errors.length : 0;
   const fx = priceBook.fx?.USDKRW;
   const latestPriceDate = latestMarketPriceDate();
-  const staleDays = daysSince(latestPriceDate);
-  const fxDays = daysSince(fx?.date);
+  const staleDays = businessDaysSince(normalizeDateKey(latestPriceDate));
+  const fxDays = businessDaysSince(fx?.date);
   const hasIssues = errorCount > 0
     || !priceBook.generatedAt
     || !latestPriceDate
-    || (Number.isFinite(staleDays) && staleDays > PRICE_STALE_DAYS)
+    || (Number.isFinite(staleDays) && (staleDays < 0 || staleDays > PRICE_STALE_DAYS))
     || !fx?.rate
-    || (Number.isFinite(fxDays) && fxDays > PRICE_STALE_DAYS);
+    || (Number.isFinite(fxDays) && (fxDays < 0 || fxDays > PRICE_STALE_DAYS));
   const items = [
     `가격표 ${priceBook.generatedAt ? shortDateTime(priceBook.generatedAt) : "생성일 없음"}`,
     `최근 종가 ${latestPriceDate ? shortDate(latestPriceDate) : "기준일 없음"}`,
@@ -9967,6 +10408,27 @@ function calendarDaysSince(dateKey, todayKey = localDateInputValue()) {
   return Math.floor((end - start) / (24 * 60 * 60 * 1000));
 }
 
+function businessDaysSince(dateKey, todayKey = localDateInputValue()) {
+  const normalizedDate = normalizeDateKey(dateKey);
+  const normalizedToday = normalizeDateKey(todayKey);
+  if (!normalizedDate || !normalizedToday) return Number.POSITIVE_INFINITY;
+  if (normalizedDate === normalizedToday) return 0;
+
+  const start = Date.parse(`${normalizedDate}T00:00:00.000Z`);
+  const end = Date.parse(`${normalizedToday}T00:00:00.000Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return Number.POSITIVE_INFINITY;
+
+  const direction = start < end ? 1 : -1;
+  let weekdays = 0;
+  for (let cursor = start + direction * 24 * 60 * 60 * 1000;
+    direction > 0 ? cursor <= end : cursor >= end;
+    cursor += direction * 24 * 60 * 60 * 1000) {
+    const day = new Date(cursor).getUTCDay();
+    if (day !== 0 && day !== 6) weekdays += direction;
+  }
+  return direction < 0 && weekdays === 0 ? -1 : weekdays;
+}
+
 function compactMoney(value) {
   if (value >= 100000000) return `${(value / 100000000).toFixed(1)}억`;
   if (value >= 10000) return `${(value / 10000).toFixed(0)}만`;
@@ -12332,91 +12794,153 @@ els.realizedYearFilter?.addEventListener("change", () => {
   renderRealized();
 });
 
-async function saveAssetSnapshot({ monthlyReview = false } = {}) {
-  if (historyStorage.blocked) {
-    alert("장기 기록 저장소를 확인하지 못해 새 기록을 저장할 수 없습니다. IndexedDB 권한·저장 공간을 확인하거나 이전 전체 JSON 백업을 사용하세요.");
-    return false;
-  }
-  const readiness = snapshotReadiness();
-  if (!readiness.ok) {
-    alert(readiness.message);
-    return false;
-  }
+function setSnapshotSaveBusy(busy) {
+  if (els.snapshotBtn) els.snapshotBtn.disabled = busy;
+  if (els.dashboardSnapshotBtn) els.dashboardSnapshotBtn.disabled = busy;
+}
 
-  const now = new Date().toISOString();
-  const snapshotNote = monthlyReview
-    ? els.dashboardMonthlyConclusion?.value.trim() || ""
-    : els.snapshotNote?.value.trim() || "";
-  if (snapshotNote.length > IMPORT_STRING_LIMITS.note) {
-    alert("조회 기록 메모는 10,000자 이하로 입력하세요.");
-    return false;
-  }
-  const nextReviewAt = monthlyReview ? normalizeDateKey(els.dashboardNextReviewDate?.value) : null;
-  if (monthlyReview && !nextReviewAt) {
-    alert("다음 점검일을 선택하세요.");
-    els.dashboardNextReviewDate?.focus();
-    return false;
-  }
-  const existingMonthlyReview = monthlyReview ? currentMonthlyReview() : null;
-  if (!existingMonthlyReview && state.snapshots.length >= IMPORT_LIMITS.snapshots) {
-    alert(`조회 기록은 최대 ${IMPORT_LIMITS.snapshots.toLocaleString("ko-KR")}개까지 저장할 수 있습니다. 기존 기록을 내보낸 뒤 불필요한 조회 기록을 정리하세요.`);
-    return false;
-  }
-  const previousSnapshots = state.snapshots.map(normalizeSnapshot);
-  const previousPerformanceObservations = state.performanceObservations.map(normalizePerformanceObservation);
-  const snapshot = {
-    id: existingMonthlyReview?.id || uid(),
-    createdAt: now,
-    total: totalAssets(),
-    note: snapshotNote,
-    source: monthlyReview ? "MONTHLY_REVIEW" : "QUICK_SNAPSHOT",
-    nextReviewAt,
-    qualityIssues: readiness.warnings,
-    typeTotals: Object.fromEntries(
-      state.assets.reduce((map, asset) => {
-        const type = assetType(asset);
-        map.set(type, (map.get(type) || 0) + assetValue(asset));
-        return map;
-      }, new Map())
-    )
-  };
-  if (existingMonthlyReview) {
-    const index = state.snapshots.findIndex((item) => item.id === existingMonthlyReview.id);
-    if (index >= 0) state.snapshots[index] = normalizeSnapshot(snapshot, index);
-  } else {
-    state.snapshots.push(normalizeSnapshot(snapshot));
-  }
-  sortSnapshotsCanonical();
-  refreshPerformanceObservation({
-    source: monthlyReview ? "MONTHLY_REVIEW" : "USER_SNAPSHOT",
-    snapshotId: snapshot.id
-  });
-  if (!persist() || !await flushHistoryPersistence()) {
-    restoreSavedHistoryState();
-    render(false);
-    alert("장기 기록을 저장하지 못해 이번 변경을 화면에서도 되돌렸습니다. IndexedDB 권한·저장 공간을 확인하거나 이전 전체 JSON 백업을 사용하세요.");
-    return false;
-  }
-  if (els.snapshotNote) els.snapshotNote.value = "";
-  if (monthlyReview && els.dashboardMonthlyConclusion) els.dashboardMonthlyConclusion.value = snapshotNote;
-  render();
-  const warning = readiness.warnings.length ? ` ${readiness.warnings.join(" ")}` : "";
-  const successMessage = monthlyReview
-    ? `이번 달 자산 점검을 ${existingMonthlyReview ? "업데이트" : "저장"}했습니다.`
-    : "조회 기록을 저장했습니다.";
-  showUndoNotice(`${successMessage}${warning}`, async () => {
-    state.snapshots = previousSnapshots;
-    state.performanceObservations = previousPerformanceObservations;
+async function saveAssetSnapshot({ monthlyReview = false } = {}) {
+  if (snapshotSaveInFlight) return false;
+  snapshotSaveInFlight = true;
+  setSnapshotSaveBusy(true);
+
+  try {
+    if (historyStorage.blocked) {
+      alert("장기 기록 저장소를 확인하지 못해 새 기록을 저장할 수 없습니다. IndexedDB 권한·저장 공간을 확인하거나 이전 전체 JSON 백업을 사용하세요.");
+      return false;
+    }
+    if (!state.assets.length) {
+      alert("조회 기록을 저장하려면 자산을 먼저 등록하세요.");
+      return false;
+    }
+
+    const snapshotNote = monthlyReview
+      ? els.dashboardMonthlyConclusion?.value.trim() || ""
+      : els.snapshotNote?.value.trim() || "";
+    if (snapshotNote.length > IMPORT_STRING_LIMITS.note) {
+      alert("조회 기록 메모는 10,000자 이하로 입력하세요.");
+      return false;
+    }
+    const nextReviewAt = monthlyReview ? normalizeDateKey(els.dashboardNextReviewDate?.value) : null;
+    if (monthlyReview && !nextReviewAt) {
+      alert("다음 점검일을 선택하세요.");
+      els.dashboardNextReviewDate?.focus();
+      return false;
+    }
+    const reviewBeforePriceRefresh = monthlyReview ? currentMonthlyReview() : null;
+    if (!reviewBeforePriceRefresh && state.snapshots.length >= IMPORT_LIMITS.snapshots) {
+      alert(`조회 기록은 최대 ${IMPORT_LIMITS.snapshots.toLocaleString("ko-KR")}개까지 저장할 수 있습니다. 기존 기록을 내보낸 뒤 불필요한 조회 기록을 정리하세요.`);
+      return false;
+    }
+
+    if (heldMarketAssets().length) {
+      const saveContext = {
+        authGeneration: cloud.authGeneration,
+        economicStateFingerprint: snapshotSaveEconomicStateFingerprint(),
+        storageKey: activeStorageKey
+      };
+      const pricesRefreshed = await initPrices({ createPerformanceObservation: false });
+      if (saveContext.storageKey !== activeStorageKey
+          || saveContext.authGeneration !== cloud.authGeneration) {
+        alert("가격을 확인하는 동안 사용자 데이터 영역이 변경되어 조회 기록을 저장하지 않았습니다. 현재 계정에서 다시 저장하세요.");
+        return false;
+      }
+      if (saveContext.economicStateFingerprint !== snapshotSaveEconomicStateFingerprint()) {
+        alert("가격을 확인하는 동안 자산·원장 또는 저장 기록이 변경되어 조회 기록을 저장하지 않았습니다. 변경된 내용을 확인한 뒤 다시 저장하세요.");
+        return false;
+      }
+      if (!pricesRefreshed) {
+        alert("최신 확정 종가 가격표를 다시 불러오지 못해 조회 기록을 저장하지 않았습니다. 네트워크 연결을 확인한 뒤 다시 시도하세요.");
+        return false;
+      }
+    }
+
+    if (historyStorage.blocked) {
+      alert("가격을 확인하는 동안 장기 기록 저장소를 사용할 수 없게 되어 조회 기록을 저장하지 않았습니다.");
+      return false;
+    }
+    const readiness = snapshotReadiness();
+    if (!readiness.ok) {
+      alert(readiness.message);
+      return false;
+    }
+
+    const existingMonthlyReview = monthlyReview ? currentMonthlyReview() : null;
+    if (!existingMonthlyReview && state.snapshots.length >= IMPORT_LIMITS.snapshots) {
+      alert(`조회 기록은 최대 ${IMPORT_LIMITS.snapshots.toLocaleString("ko-KR")}개까지 저장할 수 있습니다. 기존 기록을 내보낸 뒤 불필요한 조회 기록을 정리하세요.`);
+      return false;
+    }
+    let valuation = null;
+    try {
+      valuation = buildSnapshotValuation();
+    } catch (error) {
+      alert(`${error.message} 정확한 종목별 평가 근거를 저장할 수 없어 조회 기록을 저장하지 않았습니다.`);
+      return false;
+    }
+    const previousSnapshots = state.snapshots.map(normalizeSnapshot);
+    const previousPerformanceObservations = state.performanceObservations.map(normalizePerformanceObservation);
+    const snapshot = {
+      id: existingMonthlyReview?.id || uid(),
+      createdAt: new Date().toISOString(),
+      total: totalAssets(),
+      note: snapshotNote,
+      source: monthlyReview ? "MONTHLY_REVIEW" : "QUICK_SNAPSHOT",
+      nextReviewAt,
+      qualityIssues: readiness.warnings,
+      typeTotals: Object.fromEntries(
+        state.assets.reduce((map, asset) => {
+          const type = assetType(asset);
+          map.set(type, (map.get(type) || 0) + assetValue(asset));
+          return map;
+        }, new Map())
+      ),
+      valuation
+    };
+    if (snapshotItemByteLength(snapshot) > SNAPSHOT_ITEM_MAX_BYTES) {
+      alert("종목별 평가내역이 조회 기록의 안전한 저장 크기를 초과해 저장하지 않았습니다. 자산 수를 줄이거나 별도 전체 JSON 백업을 사용하세요.");
+      return false;
+    }
+    if (existingMonthlyReview) {
+      const index = state.snapshots.findIndex((item) => item.id === existingMonthlyReview.id);
+      if (index >= 0) state.snapshots[index] = normalizeSnapshot(snapshot, index);
+    } else {
+      state.snapshots.push(normalizeSnapshot(snapshot));
+    }
+    sortSnapshotsCanonical();
+    refreshPerformanceObservation({
+      source: monthlyReview ? "MONTHLY_REVIEW" : "USER_SNAPSHOT",
+      snapshotId: snapshot.id
+    });
     if (!persist() || !await flushHistoryPersistence()) {
       restoreSavedHistoryState();
       render(false);
-      alert("되돌린 기록을 저장하지 못해 직전 상태를 유지했습니다.");
+      alert("장기 기록을 저장하지 못해 이번 변경을 화면에서도 되돌렸습니다. IndexedDB 권한·저장 공간을 확인하거나 이전 전체 JSON 백업을 사용하세요.");
       return false;
     }
+    if (els.snapshotNote) els.snapshotNote.value = "";
+    if (monthlyReview && els.dashboardMonthlyConclusion) els.dashboardMonthlyConclusion.value = snapshotNote;
     render();
+    const warning = readiness.warnings.length ? ` ${readiness.warnings.join(" ")}` : "";
+    const successMessage = monthlyReview
+      ? `이번 달 자산 점검을 ${existingMonthlyReview ? "업데이트" : "저장"}했습니다.`
+      : "조회 기록을 저장했습니다.";
+    showUndoNotice(`${successMessage}${warning}`, async () => {
+      state.snapshots = previousSnapshots;
+      state.performanceObservations = previousPerformanceObservations;
+      if (!persist() || !await flushHistoryPersistence()) {
+        restoreSavedHistoryState();
+        render(false);
+        alert("되돌린 기록을 저장하지 못해 직전 상태를 유지했습니다.");
+        return false;
+      }
+      render();
+      return true;
+    });
     return true;
-  });
-  return true;
+  } finally {
+    snapshotSaveInFlight = false;
+    setSnapshotSaveBusy(false);
+  }
 }
 
 els.snapshotBtn?.addEventListener("click", () => {
@@ -13271,6 +13795,68 @@ function validateImportedLedgerMeta(ledgerMeta, { required = false } = {}) {
   }
 }
 
+function validateImportedSnapshotValuation(valuation, snapshot, prefix) {
+  if (!isPlainObject(valuation)) throw new Error(`${prefix}.valuation이 객체가 아닙니다.`);
+  assertImportString(valuation.schemaVersion, `${prefix}.valuation.schemaVersion`, IMPORT_STRING_LIMITS.short);
+  if (valuation.schemaVersion !== SNAPSHOT_VALUATION_SCHEMA) {
+    throw new Error(`${prefix}.valuation.schemaVersion에 지원하지 않는 값이 있습니다.`);
+  }
+  assertImportDate(valuation.priceBookGeneratedAt, `${prefix}.valuation.priceBookGeneratedAt`);
+  ["priceBasis", "distributionTreatment", "valuationTiming"].forEach((field) => {
+    assertImportString(valuation[field], `${prefix}.valuation.${field}`, IMPORT_STRING_LIMITS.short);
+  });
+  if (!Array.isArray(valuation.positions)) throw new Error(`${prefix}.valuation.positions가 목록이 아닙니다.`);
+  if (valuation.positions.length > SNAPSHOT_VALUATION_POSITION_LIMIT) {
+    throw new Error(`${prefix}.valuation.positions가 허용 개수 ${SNAPSHOT_VALUATION_POSITION_LIMIT}개를 넘었습니다.`);
+  }
+  valuation.positions.forEach((position, positionIndex) => {
+    const positionPrefix = `${prefix}.valuation.positions[${positionIndex}]`;
+    if (!isPlainObject(position)) throw new Error(`${positionPrefix}이 객체가 아닙니다.`);
+    assertImportString(position.assetId, `${positionPrefix}.assetId`, IMPORT_STRING_LIMITS.id);
+    ["assetType", "ticker", "kind", "accountClass", "valuationMode", "priceCurrency", "sessionStatus", "fxSessionStatus"]
+      .forEach((field) => assertImportString(position[field], `${positionPrefix}.${field}`, IMPORT_STRING_LIMITS.short));
+    ["quantity", "appliedPrice", "fxRate", "marketValueKRW"].forEach((field) => {
+      assertImportNumber(position[field], `${positionPrefix}.${field}`, { min: 0, max: 1e18 });
+    });
+    ["priceAsOf", "fxAsOf"].forEach((field) => {
+      if (position[field] !== undefined && position[field] !== null && position[field] !== ""
+          && !normalizeDateKey(position[field])) {
+        throw new Error(`${positionPrefix}.${field}이 올바른 YYYY-MM-DD 날짜가 아닙니다.`);
+      }
+    });
+  });
+  validateUniqueImportField(valuation.positions, "assetId", `${prefix}.valuation.positions`);
+  if (valuation.fx !== undefined && !isPlainObject(valuation.fx)) {
+    throw new Error(`${prefix}.valuation.fx가 객체가 아닙니다.`);
+  }
+  if (valuation.fx?.USDKRW !== undefined) {
+    const fx = valuation.fx.USDKRW;
+    if (!isPlainObject(fx)) throw new Error(`${prefix}.valuation.fx.USDKRW가 객체가 아닙니다.`);
+    assertImportNumber(fx.rate, `${prefix}.valuation.fx.USDKRW.rate`, { min: 0, max: 1e9 });
+    if (!normalizeDateKey(fx.date)) throw new Error(`${prefix}.valuation.fx.USDKRW.date가 올바르지 않습니다.`);
+    assertImportString(fx.sessionStatus, `${prefix}.valuation.fx.USDKRW.sessionStatus`, IMPORT_STRING_LIMITS.short);
+    assertImportString(fx.source, `${prefix}.valuation.fx.USDKRW.source`, IMPORT_STRING_LIMITS.short);
+  }
+
+  const normalized = normalizeSnapshotValuation(valuation);
+  if (!normalized) throw new Error(`${prefix}.valuation의 종목별 평가 근거가 올바르지 않습니다.`);
+  const positionTotal = normalized.positions.reduce((sum, position) => sum + position.marketValueKRW, 0);
+  if (!snapshotNumbersClose(positionTotal, snapshot.total)) {
+    throw new Error(`${prefix}.valuation.positions 합계가 snapshot.total과 다릅니다.`);
+  }
+  Object.entries(snapshot.typeTotals || {}).forEach(([assetTypeValue, expectedTotal]) => {
+    const actualTotal = normalized.positions
+      .filter((position) => position.assetType === assetTypeValue)
+      .reduce((sum, position) => sum + position.marketValueKRW, 0);
+    if (!snapshotNumbersClose(actualTotal, expectedTotal)) {
+      throw new Error(`${prefix}.valuation.positions의 ${assetTypeValue} 합계가 typeTotals와 다릅니다.`);
+    }
+  });
+  if (snapshotItemByteLength(snapshot) > SNAPSHOT_ITEM_MAX_BYTES) {
+    throw new Error(`${prefix}이 단일 조회 기록의 안전한 저장 크기를 초과했습니다.`);
+  }
+}
+
 function validateImportedSnapshot(snapshot, index) {
   const prefix = `snapshots[${index}]`;
   assertImportString(snapshot.id, `${prefix}.id`, IMPORT_STRING_LIMITS.id);
@@ -13310,6 +13896,9 @@ function validateImportedSnapshot(snapshot, index) {
     snapshot.qualityIssues.forEach((issue, issueIndex) => {
       assertImportString(issue, `${prefix}.qualityIssues[${issueIndex}]`, IMPORT_STRING_LIMITS.short);
     });
+  }
+  if (snapshot.valuation !== undefined) {
+    validateImportedSnapshotValuation(snapshot.valuation, snapshot, prefix);
   }
 }
 
