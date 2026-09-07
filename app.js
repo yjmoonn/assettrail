@@ -5616,6 +5616,7 @@ function aiReviewMarketPositions(total) {
         ? kind
         : "STOCK",
       value: 0,
+      quantity: 0,
       cost: 0,
       priceAsOf: null,
       quality: "VERIFIED"
@@ -5624,6 +5625,7 @@ function aiReviewMarketPositions(total) {
     const cost = assetCost(asset);
     const price = priceForAsset(asset);
     current.value += Number.isFinite(value) ? value : 0;
+    current.quantity += Number(asset.quantity || 0);
     current.cost += Number.isFinite(cost) ? cost : 0;
     const priceDate = normalizeDateKey(price?.date);
     if (priceDate && (!current.priceAsOf || priceDate < current.priceAsOf)) current.priceAsOf = priceDate;
@@ -5638,6 +5640,8 @@ function aiReviewMarketPositions(total) {
       market: item.market,
       ticker: item.ticker,
       kind: item.kind,
+      quantity: item.quantity,
+      marketValueKRW: item.value,
       weightPct: total > 0 ? (item.value / total) * 100 : 0,
       priceReturnPct: item.cost > 0 && item.value > 0 ? ((item.value - item.cost) / item.cost) * 100 : null,
       priceAsOf: item.priceAsOf,
@@ -5771,7 +5775,7 @@ function aiReviewMarkdown(reviewPackage) {
   return [
     "# AssetTrail AI 월간 점검 패키지",
     "",
-    "이 파일에는 고정 분석 지침과 최소화된 상대 지표가 함께 들어 있습니다.",
+    "이 파일에는 고정 분석 지침과 최신 가격 기준 종목별 수량·원화 평가액이 함께 들어 있습니다.",
     "외부 AI에 업로드한 뒤 ‘첨부 파일 기준으로 점검해줘’라고 요청하세요.",
     "",
     "```json",

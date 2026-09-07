@@ -7,7 +7,7 @@
 `기존 확장 데이터 백업`에서 보존한다. 아래 Butler·ETF 계약은 신규 사용 흐름이 아니라
 레거시 데이터 검증·백업 호환을 위한 설명이다.
 
-현재 제공하는 AI 기능은 설정의 `ASSETTRAIL_AI_REVIEW_V1` Markdown 내보내기다. 앱은
+현재 제공하는 AI 기능은 설정의 `ASSETTRAIL_AI_REVIEW_V2` Markdown 내보내기다. 앱은
 공급자 API, 모델 API, ChatGPT 계정, 결과 가져오기·저장과 자동 주문을 연결하지 않는다.
 
 ## 현재 제공 범위
@@ -145,9 +145,9 @@ Butler 출처는 HTTPS `butler.works` 주소만 허용한다. URL의 사용자�
 
 설정의 `AI 점검 패키지 내보내기`는 다음 두 요소를 하나의 `.md` 파일로 만든다.
 
-- `ASSETTRAIL_AI_REVIEW_V1`: 자산군·포지션 비중, 집중도, 검증 성과율, 은퇴 목표
-  비율과 점검 상태
-- `ASSETTRAIL_MONTHLY_REVIEW_PROMPT_V1`: 데이터 품질을 먼저 확인하고 사실·해석·
+- `ASSETTRAIL_AI_REVIEW_V2`: 최신 가격 기준 종목별 수량·원화 평가액, 자산군·포지션
+  비중, 집중도, 검증 성과율, 은퇴 목표 비율과 점검 상태
+- `ASSETTRAIL_MONTHLY_REVIEW_PROMPT_V2`: 데이터 품질을 먼저 확인하고 사실·해석·
   불확실성을 분리하며 사용자가 확정하지 않은 목표 비중을 추정하지 않도록 고정한 분석 지침
 
 현재 앱은 숨겨진 레거시 `portfolioTargets`를 사용자 확정값으로 사용하지 않는다.
@@ -155,8 +155,9 @@ Butler 출처는 HTTPS `butler.works` 주소만 허용한다. URL의 사용자�
 차이는 `null`이다. 엔진의 `USER_CONFIGURED` 상태는 향후 명시적인 확인 UI가 생길 때만
 사용할 수 있는 계약이다.
 
-UID·이메일·이름, 계좌명, 내부 자산·거래 ID, 원거래, 절대 평가액·거래금액·수량,
-자유 메모와 URL은 포함하지 않는다. digest는 `generatedAt`을 제외한 안정 콘텐츠의
+UID·이메일·이름, 계좌명, 내부 자산·거래 ID, 원거래, 거래 행, 자유 메모와 URL은
+포함하지 않는다. 종목별 수량과 원화 평가액은 사용자가 요청한 AI 진단 근거로 포함한다.
+digest는 `generatedAt`을 제외한 안정 콘텐츠의
 canonical JSON SHA-256이며, 패키지는 exact-key 검증을 통과해야 내려받을 수 있다.
 사용자는 파일을 원하는 AI 서비스에 직접 첨부한다.
 
