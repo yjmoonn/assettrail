@@ -286,8 +286,8 @@ function createScenario(choice = null, {
   const { window } = scenario;
   await waitUntil(
     window,
-    () => scenario.remote.schemaVersion === 8,
-    "동일한 legacy 데이터를 충돌 선택 없이 v8로 승격하지 못했습니다."
+    () => scenario.remote.schemaVersion === 9,
+    "동일한 legacy 데이터를 충돌 선택 없이 v9로 승격하지 못했습니다."
   );
 
   const stored = JSON.parse(window.localStorage.getItem(USER_STORAGE_KEY));
@@ -295,7 +295,7 @@ function createScenario(choice = null, {
   assert.equal(dialog.open || dialog.hasAttribute("open"), false);
   assert.equal(scenario.resolverCalls.length, 0);
   assert.equal(scenario.downloads.length, 0);
-  assert.equal(stored.schemaVersion, 8);
+  assert.equal(stored.schemaVersion, 9);
   assert.equal(stored.assets[0].id, "remote-cash");
   assert.equal(stored.events.length, 1);
   assert.equal(stored.meta.cloudRevision, 8);
@@ -321,7 +321,7 @@ function createScenario(choice = null, {
   const { window } = scenario;
   await waitUntil(
     window,
-    () => scenario.remote.schemaVersion === 8,
+    () => scenario.remote.schemaVersion === 9,
     "저장 시각만 다른 동일 legacy 데이터를 자동 승격하지 못했습니다."
   );
 
@@ -353,7 +353,7 @@ function createScenario(choice = null, {
 {
   const futureLocal = {
     ...localState(),
-    schemaVersion: 9,
+    schemaVersion: 10,
     assets: [{
       id: "future-local-only",
       name: "미래 버전 로컬 자산",
@@ -385,7 +385,7 @@ function createScenario(choice = null, {
 {
   const futureRemote = {
     ...remoteState(),
-    schemaVersion: 9,
+    schemaVersion: 10,
     assets: [{
       id: "future-remote-only",
       name: "미래 버전 클라우드 자산",
@@ -422,11 +422,11 @@ function createScenario(choice = null, {
   );
   await waitUntil(
     window,
-    () => scenario.remote.schemaVersion === 8,
-    "원격 legacy 데이터를 v8 원장으로 승격하지 못했습니다."
+    () => scenario.remote.schemaVersion === 9,
+    "원격 legacy 데이터를 v9 원장으로 승격하지 못했습니다."
   );
   const writesAfterPromotion = scenario.writes.length;
-  scenario.remote.schemaVersion = 9;
+  scenario.remote.schemaVersion = 10;
   const monthlySpend = window.document.querySelector("#monthlySpend");
   monthlySpend.value = "4,700,000";
   monthlySpend.dispatchEvent(new window.Event("change", { bubbles: true }));
@@ -437,7 +437,7 @@ function createScenario(choice = null, {
   );
 
   assert.equal(scenario.writes.length, writesAfterPromotion);
-  assert.equal(scenario.remote.schemaVersion, 9);
+  assert.equal(scenario.remote.schemaVersion, 10);
   scenario.dom.window.close();
 }
 
@@ -446,7 +446,7 @@ function createScenario(choice = null, {
   const { window } = scenario;
   await waitUntil(
     window,
-    () => scenario.remote.schemaVersion === 8
+    () => scenario.remote.schemaVersion === 9
       && JSON.parse(window.localStorage.getItem(USER_STORAGE_KEY)).assets[0]?.id === "remote-cash",
     "클라우드 데이터 내려받기가 완료되지 않았습니다."
   );
@@ -456,7 +456,7 @@ function createScenario(choice = null, {
   assert.equal(scenario.resolverCalls[0].cloud.assets[0].id, "remote-cash");
   const promotedPrimaryWrites = scenario.writes.filter((write) => write.path === "users/alice/financeData/primary");
   assert.equal(promotedPrimaryWrites.length, 1);
-  assert.equal(promotedPrimaryWrites[0].data.schemaVersion, 8);
+  assert.equal(promotedPrimaryWrites[0].data.schemaVersion, 9);
   assert.equal(scenario.writes.some((write) => write.path.includes("/backups/schema-v2-revision-7")), true);
   assert.equal(scenario.writes.some((write) => write.path.includes("/ledgers/") && write.path.includes("/events/")), true);
   assert.equal(scenario.downloads.length, 1);

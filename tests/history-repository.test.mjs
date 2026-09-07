@@ -199,7 +199,7 @@ const v6 = {
 
 // Input ordering does not change the manifest or chunk layout, and flat data
 // survives a chunks round trip exactly after canonical normalization.
-const nestedSnapshotValuation = {
+const legacySnapshotValuation = {
   schemaVersion: "assettrail.snapshot-valuation.v1",
   priceBookGeneratedAt: "2026-02-02T06:30:00.000Z",
   priceBasis: "UNADJUSTED_CLOSE",
@@ -230,13 +230,28 @@ const nestedSnapshotValuation = {
     marketValueKRW: 260000
   }]
 };
+const currentSnapshotValuation = {
+  ...legacySnapshotValuation,
+  schemaVersion: "assettrail.snapshot-valuation.v2",
+  positions: legacySnapshotValuation.positions.map((position) => ({
+    ...position,
+    accountClass: "ISA",
+    accountName: "키움증권 ISA"
+  }))
+};
 const roundTripInput = {
   snapshots: [
     snapshot("s-feb", "2026-02-02T01:00:00Z", {
       note: "둘",
       total: 260000,
       typeTotals: { US: 260000 },
-      valuation: nestedSnapshotValuation
+      valuation: legacySnapshotValuation
+    }),
+    snapshot("s-v2", "2026-02-03T01:00:00Z", {
+      note: "계좌명 보존",
+      total: 260000,
+      typeTotals: { US: 260000 },
+      valuation: currentSnapshotValuation
     }),
     snapshot("s-jan", "2026-01-01T01:00:00Z", { note: "하나" })
   ],
@@ -264,8 +279,13 @@ const roundTripBundle = repository.createHistoryBundle(roundTripInput, {
   assert.deepEqual(restored, repository.normalizeHistory(roundTripInput));
   assert.deepEqual(
     restored.snapshots.find((item) => item.id === "s-feb").valuation,
-    nestedSnapshotValuation,
-    "nested snapshot valuation evidence must survive the flat -> chunk -> flat round trip"
+    legacySnapshotValuation,
+    "legacy v1 snapshot valuation evidence must survive the flat -> chunk -> flat round trip"
+  );
+  assert.deepEqual(
+    restored.snapshots.find((item) => item.id === "s-v2").valuation,
+    currentSnapshotValuation,
+    "current v2 accountName evidence must survive the flat -> chunk -> flat round trip"
   );
   assert.equal(repository.validateHistoryBundle(roundTripBundle).ok, true);
   assert.match(roundTripBundle.manifest.contentFingerprint, /^history-v1:[a-f0-9]{64}$/);
@@ -390,7 +410,7 @@ const maximumBundle = repository.createHistoryBundle(maximumHistory, {
 
   const callerCopy = await adapter.readBundle(scope, "history-roundtrip");
   callerCopy.manifest.snapshotCount = 999;
-  assert.equal((await adapter.readBundle(scope, "history-roundtrip")).manifest.snapshotCount, 2);
+  assert.equal((await adapter.readBundle(scope, "history-roundtrip")).manifest.snapshotCount, 3);
   assert.equal(await adapter.getActiveHistoryId("finance-ledger-retirement-v1:user-b"), null);
   await assert.rejects(
     adapter.deleteBundle(scope, "history-roundtrip"),

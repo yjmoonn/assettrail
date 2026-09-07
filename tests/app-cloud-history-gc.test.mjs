@@ -23,7 +23,7 @@ function historyMeta(bundle) {
 
 function remoteState(bundle, revision = 3) {
   return {
-    schemaVersion: 8,
+    schemaVersion: 9,
     assets: [],
     decisionProfiles: [],
     watchlist: [],
@@ -302,9 +302,9 @@ assert.ok(
 // A backup that points at the previous generation protects every one of its chunks.
 reset({
   backups: [{
-    id: "conflict-v8-revision-2",
+    id: "conflict-v9-revision-2",
     payload: {
-      sourceSchemaVersion: 8,
+      sourceSchemaVersion: 9,
       sourceRevision: 2,
       reason: "FORCED_CONFLICT_UPLOAD",
       createdAt: "2026-07-01T00:00:00.000Z",
@@ -322,7 +322,7 @@ reset();
 const forcedPayload = await window.__cloudHistoryGcTest.write({ expectedRemoteRevision: 3 });
 const forced = window.__cloudHistoryGcTest.inspect();
 assert.notEqual(forcedPayload.historyMeta.activeHistoryId, oldBundle.manifest.historyId);
-assert.equal(documentPaths(forced).some((path) => path.includes("/backups/conflict-v8-revision-3")), true);
+assert.equal(documentPaths(forced).some((path) => path.includes("/backups/conflict-v9-revision-3")), true);
 assert.equal(documentPaths(forced).some((path) => path.includes("/histories/history-old/chunks/")), true);
 assert.equal(forced.operations.some((item) => item.type === "delete"), false);
 

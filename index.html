@@ -229,12 +229,14 @@
                 <label>
                   계좌
                   <input id="assetAccount" type="text" maxlength="500" placeholder="예: 삼성증권 ISA">
+                  <small class="field-help">AI 점검 패키지에 포함됩니다. 계좌번호·이메일 등 민감정보는 입력하지 마세요.</small>
                 </label>
                 <label>
                   계좌 분류
                   <select id="assetAccountClass">
                     <option value="AUTO">자동 분류</option>
                     <option value="GENERAL">일반계좌</option>
+                    <option value="ISA">ISA</option>
                     <option value="PENSION">연금계좌</option>
                     <option value="SAVINGS">적금</option>
                     <option value="UNASSIGNED">계좌 미지정</option>
@@ -1346,7 +1348,7 @@
                 <div>
                   <span class="decision-kicker">결정론적 수치와 해석 분리</span>
                   <h2 id="aiReportTitle">보안형 AI 보고서</h2>
-                  <p>계좌명·사용자 식별자·원거래·정확한 금액을 제외한 근거 패키지를 만들고, AI 없이도 핵심 경고를 표시합니다.</p>
+                  <p>저장 당시 계좌명과 계좌별 평가 근거를 포함한 점검 패키지를 만들고, AI 없이도 핵심 경고를 표시합니다.</p>
                 </div>
                 <div class="panel-actions">
                   <button class="primary-button" id="copyAiHandoffBtn" type="button">ChatGPT 전달문 복사</button>
@@ -1510,7 +1512,8 @@
             <article class="settings-card ai-check-package-card">
               <span>AI 점검</span>
               <strong>월간 점검 패키지</strong>
-              <p>최신 가격 기준 종목별 수량·원화 평가액, 상대 지표와 고정 분석 프롬프트를 한 Markdown 파일로 만듭니다. 계좌명·원거래는 제외하며 파일은 자동 전송되지 않습니다.</p>
+              <p>가장 최근에 저장한 조회 기록 기준 계좌별 종목 수량·확정 종가·원화 평가액과 계좌명, 상대 지표와 고정 분석 프롬프트를 한 Markdown 파일로 만듭니다. 파일은 자동 전송되지 않습니다.</p>
+              <p class="field-help">계좌명에 계좌번호·이메일 등 민감정보를 적었다면 자산에서 계좌명을 수정하고 조회 기록을 다시 저장한 뒤 외부 AI에 첨부하세요.</p>
               <div class="settings-actions">
                 <button class="primary-button" id="exportAiCheckPackageBtn" type="button">AI 점검 패키지 내보내기</button>
               </div>
@@ -1731,8 +1734,8 @@
     <script src="external-data-engine.js?v=20260819-butler-import-quality"></script>
     <script src="etf-exposure-engine.js?v=20260807-stage5"></script>
     <script src="ai-report-engine.js?v=20260807-stage5"></script>
-    <script src="ai-review-export-engine.js?v=20260907-snapshot-valuation-v2"></script>
+    <script src="ai-review-export-engine.js?v=20260907-account-valuation-v3"></script>
     <script src="history-repository.js?v=20260819-history-v1"></script>
-    <script type="module" src="app.js?v=20260907-final-close-v8"></script>
+    <script type="module" src="app.js?v=20260907-account-valuation-v9"></script>
   </body>
 </html>

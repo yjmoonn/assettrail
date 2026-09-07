@@ -307,7 +307,7 @@ await new Promise((resolve) => window.setTimeout(resolve, 10));
 const lastWrite = writes.filter((write) => write.path === "users/alice/financeData/primary").at(-1);
 assert.equal(lastWrite.options.merge, false);
 assert.equal(lastWrite.path, "users/alice/financeData/primary");
-assert.equal(lastWrite.data.schemaVersion, 8);
+assert.equal(lastWrite.data.schemaVersion, 9);
 assert.equal(lastWrite.data.revision >= 1, true);
 assert.equal(lastWrite.data.meta.cloudRevision, lastWrite.data.revision);
 assert.equal(lastWrite.data.assets.length, 2);
@@ -337,16 +337,19 @@ assert.deepEqual(
   ["createdAt", "id", "nextReviewAt", "note", "qualityIssues", "source", "total", "typeTotals", "valuation"]
 );
 assert.equal(storedSnapshot.valuation.positions.length, 2);
+assert.equal(storedSnapshot.valuation.schemaVersion, "assettrail.snapshot-valuation.v2");
 const krxValuation = storedSnapshot.valuation.positions.find((position) => position.assetType === "KRX");
 const usValuation = storedSnapshot.valuation.positions.find((position) => position.assetType === "US");
 assert.equal(krxValuation.marketValueKRW, 3 * 74000);
+assert.equal(krxValuation.accountName, "삼성증권");
 assert.equal(usValuation.marketValueKRW, 2 * 250 * 1300);
+assert.equal(usValuation.accountName, "");
 assert.equal(usValuation.fxRate, 1300);
 assert.equal(storedSnapshot.valuation.fx.USDKRW.rate, 1300);
 assert.equal(lastWrite.data.retirement.monthlySpend, 4200000);
 assert.match(lastWrite.data.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
 const userLocalState = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1:user:alice"));
-assert.equal(userLocalState.schemaVersion, 8);
+assert.equal(userLocalState.schemaVersion, 9);
 assert.equal(userLocalState.assets.length, 2);
 assert.equal(userLocalState.assets[0].ticker, "005930");
 

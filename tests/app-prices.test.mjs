@@ -227,7 +227,7 @@ assert.equal(window.document.querySelector("#dashboardAssetBtn").classList.conta
 window.document.querySelector('[data-nav-view="ASSETS"]').click();
 
 setValue("#assetCategory", "KRX");
-setValue("#assetAccount", "미래에셋");
+setValue("#assetAccount", "키움증권 ISA");
 setValue("#assetTicker", "005930");
 assert.equal(window.document.querySelector("#assetName").value, "삼성전자");
 setValue("#assetQuantity", "5");
@@ -347,6 +347,8 @@ const rows = [...window.document.querySelectorAll("#assetRows tr")].map((row) =>
   row.textContent.replace(/\s+/g, " ").trim()
 );
 const saved = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
+const autoIsaAsset = saved.assets.find((asset) => asset.ticker === "005930" && asset.account === "키움증권 ISA");
+assert.equal(autoIsaAsset.accountClass, "AUTO");
 
 assert.equal(window.document.querySelector("#assetFormPanel").hidden, true);
 assert.equal(window.document.querySelector("#visibleAssetCount").textContent, "전체 9개");
@@ -394,14 +396,14 @@ assert.match(window.document.querySelector("#historySummary").textContent, /기�
 assert.match(window.document.querySelector("#historySummary").textContent, /1회/);
 assert.match(window.document.querySelector("#appNotice").textContent, /조회 기록을 저장했습니다/);
 const savedAfterSnapshot = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
-assert.equal(savedAfterSnapshot.schemaVersion, 8);
+assert.equal(savedAfterSnapshot.schemaVersion, 9);
 assert.equal(savedAfterSnapshot.snapshots[0].assets, undefined);
 assert.deepEqual(
   Object.keys(savedAfterSnapshot.snapshots[0]).sort(),
   ["createdAt", "id", "nextReviewAt", "note", "qualityIssues", "source", "total", "typeTotals", "valuation"]
 );
 const savedValuation = savedAfterSnapshot.snapshots[0].valuation;
-assert.equal(savedValuation.schemaVersion, "assettrail.snapshot-valuation.v1");
+assert.equal(savedValuation.schemaVersion, "assettrail.snapshot-valuation.v2");
 assert.equal(savedValuation.priceBookGeneratedAt, "2026-05-19T00:00:00.000Z");
 assert.equal(savedValuation.priceBasis, "UNADJUSTED_CLOSE");
 assert.equal(savedValuation.distributionTreatment, "EXCLUDED");
@@ -417,6 +419,7 @@ assert.deepEqual(
     assetId: saved.assets.find((asset) => asset.ticker === "005930" && asset.account === "삼성증권").id,
     assetType: "KRX",
     accountClass: "GENERAL",
+    accountName: "삼성증권",
     valuationMode: "FINAL_CLOSE",
     marketValueKRW: 1110000,
     ticker: "005930",
@@ -434,6 +437,7 @@ assert.deepEqual(
     assetId: saved.assets.find((asset) => asset.ticker === "AAPL").id,
     assetType: "US",
     accountClass: "UNASSIGNED",
+    accountName: "",
     valuationMode: "FINAL_CLOSE",
     marketValueKRW: 494000,
     ticker: "AAPL",
@@ -451,6 +455,12 @@ assert.deepEqual(
 assert.equal(
   savedValuation.positions.find((position) => position.ticker === "0092B0").accountClass,
   "PENSION"
+);
+assert.deepEqual(
+  savedValuation.positions
+    .filter((position) => position.ticker === "005930" && position.quantity === 5)
+    .map(({ accountClass, accountName }) => ({ accountClass, accountName })),
+  [{ accountClass: "ISA", accountName: "키움증권 ISA" }]
 );
 assert.equal(
   savedValuation.positions.find((position) => position.assetType === "MANUAL" && position.marketValueKRW === 500000).accountClass,
@@ -485,7 +495,7 @@ window.document.querySelector('[data-nav-view="DASHBOARD"]').click();
 assert.equal(window.document.querySelector("#priceStatus").textContent, "가격 5/19 09:00");
 assert.equal(window.document.querySelector("#totalAsset").textContent, "₩6,093,645");
 assert.match(rows.join("\n"), /삼성전자 005930 KRX 국내 삼성증권 15 ₩1,110,000종가 74,000 · 5월 18일 ▲ \+₩10,000/);
-assert.match(rows.join("\n"), /삼성전자 005930 KRX 국내 미래에셋 5 ₩370,000종가 74,000 · 5월 18일 ▲ \+₩10,000/);
+assert.match(rows.join("\n"), /삼성전자 005930 KRX 국내 키움증권 ISA 5 ₩370,000종가 74,000 · 5월 18일 ▲ \+₩10,000/);
 assert.match(rows.join("\n"), /SOL 한국원자력SMR 0092B0 KRX 국내 연금저축 1 ₩19,645종가 19,645 · 5월 19일 ▲ \+₩9,645/);
 assert.match(rows.join("\n"), /Apple Inc\. AAPL US 미국 2 ₩494,000종가 \$190\.00 · 환율 1,300원 · 5월 18일 ▲ \+₩26,000/);
 assert.match(rows.join("\n"), /현금 CASH 현금 - ₩600,000/);
@@ -506,7 +516,7 @@ assert.deepEqual(
   })),
   [
     { amount: 0, account: "삼성증권", currentPrice: undefined, name: "삼성전자", type: "KRX" },
-    { amount: 0, account: "미래에셋", currentPrice: undefined, name: "삼성전자", type: "KRX" },
+    { amount: 0, account: "키움증권 ISA", currentPrice: undefined, name: "삼성전자", type: "KRX" },
     { amount: 0, account: "연금저축", currentPrice: undefined, name: "SOL 한국원자력SMR", type: "KRX" },
     { amount: 0, account: "", currentPrice: undefined, name: "Apple Inc.", type: "US" },
     { amount: 600000, account: "", currentPrice: undefined, name: "현금", type: "CASH" },
@@ -721,7 +731,7 @@ const cashOnlySnapshot = cashOnlyWithoutPrices.stored.snapshots[0];
 assert.equal(cashOnlySnapshot.total, 1000000);
 assert.deepEqual(cashOnlySnapshot.typeTotals, { CASH: 1000000 });
 assert.deepEqual(cashOnlySnapshot.valuation, {
-  schemaVersion: "assettrail.snapshot-valuation.v1",
+  schemaVersion: "assettrail.snapshot-valuation.v2",
   priceBookGeneratedAt: null,
   priceBasis: "NOT_APPLICABLE",
   distributionTreatment: "NOT_APPLICABLE",
@@ -731,6 +741,7 @@ assert.deepEqual(cashOnlySnapshot.valuation, {
     assetId: "cash-only",
     assetType: "CASH",
     accountClass: "UNASSIGNED",
+    accountName: "",
     valuationMode: "MANUAL_AMOUNT",
     marketValueKRW: 1000000
   }]
@@ -765,6 +776,7 @@ assert.deepEqual(manualOnlySnapshot.valuation.positions, [{
   assetId: "manual-only",
   assetType: "MANUAL",
   accountClass: "PENSION",
+  accountName: "개인형퇴직연금",
   valuationMode: "MANUAL_AMOUNT",
   marketValueKRW: 2500000
 }]);
@@ -789,7 +801,7 @@ const zeroQuantityMarketSnapshot = zeroQuantityMarketWithoutPrices.stored.snapsh
 assert.equal(zeroQuantityMarketSnapshot.total, 0);
 assert.deepEqual(zeroQuantityMarketSnapshot.typeTotals, { KRX: 0 });
 assert.deepEqual(zeroQuantityMarketSnapshot.valuation, {
-  schemaVersion: "assettrail.snapshot-valuation.v1",
+  schemaVersion: "assettrail.snapshot-valuation.v2",
   priceBookGeneratedAt: null,
   priceBasis: "NOT_APPLICABLE",
   distributionTreatment: "NOT_APPLICABLE",

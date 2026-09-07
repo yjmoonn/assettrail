@@ -96,6 +96,15 @@ const MANUAL_ONLY_SNAPSHOT_VALUATION_FIXTURE = {
     }
   ]
 };
+const SNAPSHOT_VALUATION_V2_FIXTURE = {
+  ...SNAPSHOT_VALUATION_FIXTURE,
+  schemaVersion: "assettrail.snapshot-valuation.v2",
+  positions: SNAPSHOT_VALUATION_FIXTURE.positions.map((position, index) => ({
+    ...position,
+    accountClass: index === 0 ? "ISA" : position.accountClass,
+    accountName: ["키움증권 ISA", "연금저축", "퇴직연금 현금", "청년 적금"][index]
+  }))
+};
 
 function installBrowserStubs(window, { alerts = [], downloads = [], downloadBlobs = [] } = {}) {
   window.HTMLCanvasElement.prototype.getContext = () => ({
@@ -242,7 +251,7 @@ function evalAppWithLedgerCloudTestApi(window) {
 
 for (const protectedRaw of [
   JSON.stringify({
-    schemaVersion: 9,
+    schemaVersion: 10,
     futureOnlyData: { mustRemain: true },
     assets: [],
     snapshots: []
@@ -340,7 +349,7 @@ for (const protectedRaw of [
 }
 
 // A v7 primary that already externalized history must read and verify its
-// referenced bundle before the primary is promoted to v8. The history schema
+// referenced bundle before the primary is promoted to v9. The history schema
 // itself is unchanged, so the verified generation remains active.
 {
   const dom = makeDom();
@@ -423,12 +432,12 @@ for (const protectedRaw of [
   await waitForApp(window, 50);
 
   const migratedPrimary = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
-  assert.equal(migratedPrimary.schemaVersion, 8);
+  assert.equal(migratedPrimary.schemaVersion, 9);
   assert.equal(migratedPrimary.snapshots, undefined);
   assert.equal(migratedPrimary.performanceObservations, undefined);
   assert.equal(migratedPrimary.historyMeta.activeHistoryId, historyId);
   assert.equal(migratedPrimary.historyMeta.contentFingerprint, bundle.manifest.contentFingerprint);
-  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v7-to-v8`), v7Raw);
+  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v7-to-v9`), v7Raw);
   const portable = JSON.parse(window.eval("serializeStateFile(storageSafeState())"));
   assert.equal(portable.snapshots[0].id, historicalSnapshot.id);
   assert.deepEqual(portable.snapshots[0].valuation, SNAPSHOT_VALUATION_FIXTURE);
@@ -438,7 +447,7 @@ for (const protectedRaw of [
 }
 
 // If the v7 primary points to a missing generation, keep the byte-identical
-// primary and block writes instead of replacing it with an empty v8 history.
+// primary and block writes instead of replacing it with an empty v9 history.
 {
   const dom = makeDom();
   const { window } = dom;
@@ -478,7 +487,7 @@ for (const protectedRaw of [
   await waitForApp(window, 50);
 
   assert.equal(window.localStorage.getItem(STORAGE_KEY), v7Raw);
-  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v7-to-v8`), v7Raw);
+  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v7-to-v9`), v7Raw);
   assert.equal(window.eval("persist()"), false);
   assert.match(window.document.querySelector("#appNotice").textContent, /장기 기록 저장소를 검증하지 못해|자동 저장을 중단/);
   dom.window.close();
@@ -601,7 +610,7 @@ for (const protectedRaw of [
   await waitForApp(window);
 
   const migrated = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
-  assert.equal(migrated.schemaVersion, 8);
+  assert.equal(migrated.schemaVersion, 9);
   assert.equal(migrated.assets[0].updatedAt, "2026-07-29T12:00:00.000Z");
   assert.equal(migrated.assets[0].investmentRole, undefined);
   assert.equal(migrated.decisionProfiles.length, 1);
@@ -634,7 +643,7 @@ for (const protectedRaw of [
   );
   await dispatchImport(window, jsonFile(window, migrated, "round-trip-v2.json"));
   const roundTripped = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
-  assert.equal(roundTripped.schemaVersion, 8);
+  assert.equal(roundTripped.schemaVersion, 9);
   assert.equal(roundTripped.assets[0].id, "legacy-cash");
   assert.equal(roundTripped.snapshots[0].id, "legacy-snapshot");
   assert.equal(roundTripped.decisionProfiles[0].nextReviewAt, "2026-08-31");
@@ -675,7 +684,7 @@ for (const protectedRaw of [
   dom.window.close();
 }
 
-// Optional v1 snapshot valuation evidence survives the v7 -> v8 migration,
+// Optional v1 snapshot valuation evidence survives the v7 -> v9 migration,
 // portable normalization, and import validation without consulting current assets.
 {
   const dom = makeDom();
@@ -717,8 +726,8 @@ for (const protectedRaw of [
   await waitForApp(window);
 
   const migrated = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
-  assert.equal(migrated.schemaVersion, 8);
-  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v7-to-v8`), v7Raw);
+  assert.equal(migrated.schemaVersion, 9);
+  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v7-to-v9`), v7Raw);
   assert.deepEqual(migrated.snapshots[0].valuation, SNAPSHOT_VALUATION_FIXTURE);
 
   const portable = JSON.parse(window.eval("serializeStateFile(storageSafeState())"));
@@ -729,6 +738,38 @@ for (const protectedRaw of [
   ));
   assert.deepEqual(importedValuation, SNAPSHOT_VALUATION_FIXTURE);
   delete window.__snapshotValuationPortable;
+
+  const v2Portable = JSON.parse(JSON.stringify(portable));
+  v2Portable.snapshots[0].valuation = SNAPSHOT_VALUATION_V2_FIXTURE;
+  window.__snapshotValuationV2Portable = v2Portable;
+  const importedV2Valuation = JSON.parse(window.eval(
+    "JSON.stringify(validateImportPayload(window.__snapshotValuationV2Portable).snapshots[0].valuation)"
+  ));
+  assert.deepEqual(importedV2Valuation, SNAPSHOT_VALUATION_V2_FIXTURE);
+  assert.deepEqual(
+    importedV2Valuation.positions.map(({ accountClass, accountName }) => ({ accountClass, accountName })),
+    [
+      { accountClass: "ISA", accountName: "키움증권 ISA" },
+      { accountClass: "PENSION", accountName: "연금저축" },
+      { accountClass: "PENSION", accountName: "퇴직연금 현금" },
+      { accountClass: "SAVINGS", accountName: "청년 적금" }
+    ]
+  );
+
+  for (const mutate of [
+    (valuation) => { delete valuation.positions[0].accountName; },
+    (valuation) => { valuation.positions[0].accountName = "키움증권\u0000ISA"; }
+  ]) {
+    const invalidV2Portable = JSON.parse(JSON.stringify(v2Portable));
+    mutate(invalidV2Portable.snapshots[0].valuation);
+    window.__invalidSnapshotValuationV2Portable = invalidV2Portable;
+    assert.throws(
+      () => window.eval("validateImportPayload(window.__invalidSnapshotValuationV2Portable)"),
+      /accountName/
+    );
+  }
+  delete window.__invalidSnapshotValuationV2Portable;
+  delete window.__snapshotValuationV2Portable;
 
   const manualOnlyPortable = JSON.parse(window.eval("serializeStateFile(storageSafeState())"));
   manualOnlyPortable.snapshots = [{
@@ -950,7 +991,7 @@ for (const protectedRaw of [
   const storagePrototype = Object.getPrototypeOf(window.localStorage);
   const originalSetItem = storagePrototype.setItem;
   storagePrototype.setItem = function setItemWithMigrationFailure(key, value) {
-    if (key === STORAGE_KEY && JSON.parse(String(value)).schemaVersion === 8) {
+    if (key === STORAGE_KEY && JSON.parse(String(value)).schemaVersion === 9) {
       throw new window.DOMException("quota", "QuotaExceededError");
     }
     return originalSetItem.call(this, key, value);
@@ -960,7 +1001,7 @@ for (const protectedRaw of [
   await waitForApp(window);
 
   assert.equal(window.localStorage.getItem(STORAGE_KEY), legacyRaw, "failed migration must keep the active v4 payload");
-  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v4-to-v8`), legacyRaw);
+  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v4-to-v9`), legacyRaw);
   assert.equal(window.eval("persist()"), false);
   assert.match(window.document.querySelector("#appNotice").textContent, /자동 저장을 중단|보호/);
   window.document.querySelector("#assetForm").dispatchEvent(
@@ -1455,7 +1496,7 @@ for (const protectedRaw of [
   installBrowserStubs(window, { alerts, downloads });
   window.firebaseConfig = {};
   const futureRaw = JSON.stringify({
-    schemaVersion: 9,
+    schemaVersion: 10,
     futureOnlyData: { mustRemain: true },
     assets: [],
     snapshots: []
@@ -1526,7 +1567,7 @@ for (const protectedRaw of [
   const recovered = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
   assert.equal(downloads.length, 1);
   assert.match(downloads[0], /^finance-ledger-recovery-before-import-/);
-  assert.equal(recovered.schemaVersion, 8);
+  assert.equal(recovered.schemaVersion, 9);
   assert.equal(recovered.assets[0].id, "recovered-cash");
   assert.equal(recovered.watchlist[0].ticker, "MSFT");
   assert.equal(recovered.decisionProfiles[0].subjectKey, "INSTRUMENT:US:MSFT");
@@ -1625,7 +1666,7 @@ for (const protectedRaw of [
   await waitForApp(window, 50);
   const primaryTransactionWrites = () => transactionWrites.filter((write) => write.path === "users/alice/financeData/primary");
   assert.equal(primaryTransactionWrites().length, 1, "legacy remote state must be promoted immediately after download");
-  assert.equal(primaryTransactionWrites()[0].data.schemaVersion, 8);
+  assert.equal(primaryTransactionWrites()[0].data.schemaVersion, 9);
   assert.equal(primaryTransactionWrites()[0].data.revision, 5);
   assert.equal(primaryTransactionWrites()[0].data.meta.cloudRevision, 5);
   assert.equal(primaryTransactionWrites()[0].options.merge, false);
@@ -1652,7 +1693,7 @@ for (const protectedRaw of [
   addCash("추가 현금", 2000000);
   await waitForApp(window, 50);
   assert.equal(primaryTransactionWrites().length, 2);
-  assert.equal(primaryTransactionWrites()[1].data.schemaVersion, 8);
+  assert.equal(primaryTransactionWrites()[1].data.schemaVersion, 9);
   assert.equal(primaryTransactionWrites()[1].data.revision, 6);
   assert.equal(primaryTransactionWrites()[1].data.meta.cloudRevision, 6);
   assert.equal(primaryTransactionWrites()[1].options.merge, false);

@@ -1,5 +1,5 @@
 const STORAGE_KEY = "finance-ledger-retirement-v1";
-const STATE_SCHEMA_VERSION = 8;
+const STATE_SCHEMA_VERSION = 9;
 const CLOUD_DOC_ID = "primary";
 const CLOUD_PAYLOAD_MAX_BYTES = 900 * 1024;
 const CLOUD_TRANSACTION_EVENT_LIMIT = 400;
@@ -34,7 +34,8 @@ const BREAKDOWN_ICONS = {
 };
 const RETIREMENT_MONEY_FIELDS = new Set(["currentInvestable", "monthlyInvest", "monthlySpend"]);
 const PRICE_STALE_DAYS = 3;
-const SNAPSHOT_VALUATION_SCHEMA = "assettrail.snapshot-valuation.v1";
+const SNAPSHOT_VALUATION_SCHEMA = "assettrail.snapshot-valuation.v2";
+const LEGACY_SNAPSHOT_VALUATION_SCHEMA = "assettrail.snapshot-valuation.v1";
 const SNAPSHOT_VALUATION_POSITION_LIMIT = 500;
 const SNAPSHOT_ITEM_MAX_BYTES = 220 * 1024;
 const FINAL_CLOSE_STATUS = "FINAL_CLOSE";
@@ -63,6 +64,7 @@ const ASSET_TYPE_LABELS = {
 const ACCOUNT_CLASS_LABELS = {
   AUTO: "자동 분류",
   GENERAL: "일반계좌",
+  ISA: "ISA",
   PENSION: "연금계좌",
   SAVINGS: "적금",
   UNASSIGNED: "계좌 미지정"
@@ -1763,15 +1765,27 @@ function normalizeSnapshotFx(value) {
   };
 }
 
-function normalizeSnapshotValuationPosition(position) {
+function normalizeSnapshotAccountName(value) {
+  if (typeof value !== "string") return null;
+  const accountName = value.trim();
+  if (accountName.length > IMPORT_STRING_LIMITS.short
+      || /[\u0000-\u001f\u007f-\u009f]/u.test(accountName)) return null;
+  return accountName;
+}
+
+function normalizeSnapshotValuationPosition(position, schemaVersion = SNAPSHOT_VALUATION_SCHEMA) {
   if (!isPlainObject(position)) return null;
   const assetId = String(position.assetId || "").slice(0, IMPORT_STRING_LIMITS.id);
   const rawAssetType = String(position.assetType || "").trim().toUpperCase();
   const accountClass = String(position.accountClass || "").trim().toUpperCase();
+  const accountName = schemaVersion === SNAPSHOT_VALUATION_SCHEMA
+    ? normalizeSnapshotAccountName(position.accountName)
+    : null;
   const marketValueKRW = Number(position.marketValueKRW);
   if (!assetId
       || !["KRX", "US", "CASH", "MANUAL"].includes(rawAssetType)
-      || !["GENERAL", "PENSION", "SAVINGS", "UNASSIGNED"].includes(accountClass)
+      || !["GENERAL", "ISA", "PENSION", "SAVINGS", "UNASSIGNED"].includes(accountClass)
+      || (schemaVersion === SNAPSHOT_VALUATION_SCHEMA && accountName === null)
       || !Number.isFinite(marketValueKRW)
       || marketValueKRW < 0) {
     return null;
@@ -1781,6 +1795,7 @@ function normalizeSnapshotValuationPosition(position) {
     assetId,
     assetType: rawAssetType,
     accountClass,
+    ...(schemaVersion === SNAPSHOT_VALUATION_SCHEMA ? { accountName } : {}),
     valuationMode: isMarketType(rawAssetType) ? FINAL_CLOSE_STATUS : "MANUAL_AMOUNT",
     marketValueKRW
   };
@@ -1835,13 +1850,14 @@ function normalizeSnapshotValuationPosition(position) {
 }
 
 function normalizeSnapshotValuation(value) {
+  const schemaVersion = String(value?.schemaVersion || "");
   if (!isPlainObject(value)
-      || value.schemaVersion !== SNAPSHOT_VALUATION_SCHEMA
+      || ![SNAPSHOT_VALUATION_SCHEMA, LEGACY_SNAPSHOT_VALUATION_SCHEMA].includes(schemaVersion)
       || !Array.isArray(value.positions)
       || value.positions.length > SNAPSHOT_VALUATION_POSITION_LIMIT) {
     return null;
   }
-  const positions = value.positions.map(normalizeSnapshotValuationPosition);
+  const positions = value.positions.map((position) => normalizeSnapshotValuationPosition(position, schemaVersion));
   if (positions.some((position) => !position)) return null;
   if (new Set(positions.map((position) => position.assetId)).size !== positions.length) return null;
   const hasMarketPositions = positions.some((position) => isMarketType(position.assetType));
@@ -1872,7 +1888,7 @@ function normalizeSnapshotValuation(value) {
       || position.fxSessionStatus !== fx.USDKRW.sessionStatus
   ))) return null;
   return {
-    schemaVersion: SNAPSHOT_VALUATION_SCHEMA,
+    schemaVersion,
     priceBookGeneratedAt,
     priceBasis,
     distributionTreatment,
@@ -4721,6 +4737,7 @@ function effectiveAccountClass(asset) {
   const explicit = normalizeAccountClass(asset.accountClass);
   if (explicit !== "AUTO") return explicit;
   const text = `${asset.account || ""} ${asset.name || ""} ${asset.note || ""}`.toLowerCase();
+  if (/(^|\s|[^a-z])isa([^a-z]|\s|$)/i.test(text)) return "ISA";
   if (/(적금|청약)/i.test(text)) return "SAVINGS";
   if (/(연금|irp|퇴직|개인형퇴직연금|확정기여형|(^|\s)dc(형)?(\s|$))/i.test(text)) return "PENSION";
   if (asset.account) return "GENERAL";
@@ -5821,13 +5838,15 @@ function latestAiReviewSnapshot() {
 
 function aiReviewSnapshotPositions(snapshot, total) {
   if (!snapshot?.valuation) return [];
+  const accountNamesAvailable = snapshot.valuation.schemaVersion === SNAPSHOT_VALUATION_SCHEMA;
   const grouped = new Map();
   snapshot.valuation.positions.forEach((position) => {
     const type = String(position.assetType || "").trim().toUpperCase();
     const market = isMarketType(type) ? type : null;
     const ticker = market ? normalizeTicker(type, position.ticker) : null;
     const accountClass = String(position.accountClass || "UNASSIGNED").trim().toUpperCase();
-    const key = market ? `${type}:${ticker}:${accountClass}` : `${type}:${accountClass}`;
+    const accountName = accountNamesAvailable ? String(position.accountName || "").trim() : "";
+    const key = JSON.stringify([type, ticker, accountClass, accountName]);
     const kind = market ? String(position.kind || "STOCK").trim().toUpperCase() : null;
     const current = grouped.get(key) || {
       assetType: type,
@@ -5835,6 +5854,7 @@ function aiReviewSnapshotPositions(snapshot, total) {
       ticker,
       kind: market && ["ETF", "ETN", "FUND"].includes(kind) ? kind : market ? "STOCK" : null,
       accountClass,
+      accountName,
       valuationMode: position.valuationMode,
       quantity: market ? 0 : null,
       appliedPrice: market ? Number(position.appliedPrice) : null,
@@ -5859,8 +5879,8 @@ function aiReviewSnapshotPositions(snapshot, total) {
   });
   return [...grouped.values()]
     .sort((left, right) => (
-      `${left.assetType}:${left.ticker || ""}:${left.accountClass}`
-        .localeCompare(`${right.assetType}:${right.ticker || ""}:${right.accountClass}`)
+      `${left.assetType}:${left.ticker || ""}:${left.accountClass}:${left.accountName}`
+        .localeCompare(`${right.assetType}:${right.ticker || ""}:${right.accountClass}:${right.accountName}`)
     ))
     .map((item) => ({
       assetType: item.assetType,
@@ -5868,6 +5888,7 @@ function aiReviewSnapshotPositions(snapshot, total) {
       ticker: item.ticker,
       kind: item.kind,
       accountClass: item.accountClass,
+      accountName: item.accountName,
       valuationMode: item.valuationMode,
       quantity: item.quantity,
       appliedPrice: item.appliedPrice,
@@ -5885,8 +5906,15 @@ function aiReviewSnapshotPositions(snapshot, total) {
 }
 
 function aiReviewSnapshotConcentration(positions, total) {
+  const economicPositions = new Map();
+  positions.forEach((position) => {
+    const key = isMarketType(position.assetType)
+      ? `${position.assetType}:${position.ticker}`
+      : `${position.assetType}:${position.accountClass}:${position.accountName}`;
+    economicPositions.set(key, (economicPositions.get(key) || 0) + Number(position.marketValueKRW || 0));
+  });
   const weights = total > 0
-    ? positions.map((position) => Number(position.marketValueKRW || 0) / total).filter((weight) => weight > 0)
+    ? [...economicPositions.values()].map((value) => value / total).filter((weight) => weight > 0)
     : [];
   const descending = [...weights].sort((left, right) => right - left);
   const hhi = weights.reduce((sum, weight) => sum + weight ** 2, 0);
@@ -5960,9 +5988,12 @@ function aiReviewStatus() {
 function buildAiReviewInput(generatedAt = new Date().toISOString()) {
   const snapshot = latestAiReviewSnapshot();
   const valuationAvailable = Boolean(snapshot?.valuation);
-  const valuationStatus = valuationAvailable
+  const accountNamesAvailable = snapshot?.valuation?.schemaVersion === SNAPSHOT_VALUATION_SCHEMA;
+  const valuationStatus = accountNamesAvailable
     ? "SNAPSHOT_VALUATION_AVAILABLE"
-    : snapshot ? "MISSING_LEGACY_SNAPSHOT_VALUATION" : "UNAVAILABLE";
+    : valuationAvailable
+      ? "MISSING_SNAPSHOT_ACCOUNT_NAMES"
+      : snapshot ? "MISSING_LEGACY_SNAPSHOT_VALUATION" : "UNAVAILABLE";
   const total = Number(snapshot?.total || 0);
   const positions = aiReviewSnapshotPositions(snapshot, total);
   const marketPositions = positions.filter((position) => isMarketType(position.assetType));
@@ -5971,7 +6002,7 @@ function buildAiReviewInput(generatedAt = new Date().toISOString()) {
   const hasStalePrice = marketPositions.some((position) => position.quality === "STALE");
   const dataQualityStatus = !valuationAvailable || missingPriceCount
     ? "INCOMPLETE"
-    : hasStalePrice ? "STALE" : "VERIFIED";
+    : hasStalePrice ? "STALE" : !accountNamesAvailable ? "LIMITED" : "VERIFIED";
   const typeTotals = snapshot?.typeTotals || {};
   const bucketMap = { domestic: "DOMESTIC", overseas: "OVERSEAS", cash: "CASH", manual: "MANUAL" };
   const typeByBucket = { domestic: "KRX", overseas: "US", cash: "CASH", manual: "MANUAL" };
@@ -6020,7 +6051,8 @@ function aiReviewMarkdown(reviewPackage) {
   return [
     "# AssetTrail AI 월간 점검 패키지",
     "",
-    "이 파일에는 고정 분석 지침과 가장 최근 저장한 조회 기록 기준 수량·가격·환율·원화 평가액이 함께 들어 있습니다.",
+    "이 파일에는 고정 분석 지침과 가장 최근 저장한 조회 기록 기준 계좌명·수량·가격·환율·원화 평가액이 함께 들어 있습니다.",
+    "계좌명에 계좌번호·이메일 등 개인정보를 입력했다면 외부 AI에 첨부하기 전에 AssetTrail에서 수정하고 조회 기록을 다시 저장하세요.",
     "외부 AI에 업로드한 뒤 ‘첨부 파일 기준으로 점검해줘’라고 요청하세요.",
     "",
     "```json",
@@ -6054,8 +6086,10 @@ function exportAiReviewPackage() {
     if (!exported) throw new Error("점검 파일 다운로드를 시작하지 못했습니다.");
     if (els.aiCheckPackageStatus) {
       els.aiCheckPackageStatus.textContent = reviewPackage.valuationStatus === "SNAPSHOT_VALUATION_AVAILABLE"
-        ? `점검 파일을 만들었습니다. 자동 전송하지 않았으며 품질 이슈 ${reviewPackage.dataQuality.issues.length}개를 함께 표시했습니다.`
-        : "점검 파일은 만들었지만 최신 조회 기록에 종목별 평가 근거가 없습니다. 조회 기록을 다시 저장한 뒤 새 점검 파일을 만드세요.";
+        ? `점검 파일을 만들었습니다. 입력한 계좌명이 포함되며 자동 전송하지 않았습니다. 품질 이슈 ${reviewPackage.dataQuality.issues.length}개를 함께 표시했습니다.`
+        : reviewPackage.valuationStatus === "MISSING_SNAPSHOT_ACCOUNT_NAMES"
+          ? "점검 파일은 만들었지만 이전 조회 기록에는 저장 당시 계좌명이 없습니다. 계좌별 진단이 필요하면 조회 기록을 다시 저장한 뒤 새 점검 파일을 만드세요."
+          : "점검 파일은 만들었지만 최신 조회 기록에 종목별 평가 근거가 없습니다. 조회 기록을 다시 저장한 뒤 새 점검 파일을 만드세요.";
     }
     return true;
   } catch (error) {
@@ -7235,6 +7269,7 @@ function buildSnapshotValuation() {
       assetId: asset.id,
       assetType: assetTypeValue,
       accountClass: effectiveAccountClass(asset),
+      accountName: String(asset.account || "").trim(),
       valuationMode: isMarketType(assetTypeValue) ? FINAL_CLOSE_STATUS : "MANUAL_AMOUNT",
       marketValueKRW: assetValue(asset)
     };
@@ -13798,7 +13833,7 @@ function validateImportedLedgerMeta(ledgerMeta, { required = false } = {}) {
 function validateImportedSnapshotValuation(valuation, snapshot, prefix) {
   if (!isPlainObject(valuation)) throw new Error(`${prefix}.valuation이 객체가 아닙니다.`);
   assertImportString(valuation.schemaVersion, `${prefix}.valuation.schemaVersion`, IMPORT_STRING_LIMITS.short);
-  if (valuation.schemaVersion !== SNAPSHOT_VALUATION_SCHEMA) {
+  if (![SNAPSHOT_VALUATION_SCHEMA, LEGACY_SNAPSHOT_VALUATION_SCHEMA].includes(valuation.schemaVersion)) {
     throw new Error(`${prefix}.valuation.schemaVersion에 지원하지 않는 값이 있습니다.`);
   }
   assertImportDate(valuation.priceBookGeneratedAt, `${prefix}.valuation.priceBookGeneratedAt`);
@@ -13813,6 +13848,12 @@ function validateImportedSnapshotValuation(valuation, snapshot, prefix) {
     const positionPrefix = `${prefix}.valuation.positions[${positionIndex}]`;
     if (!isPlainObject(position)) throw new Error(`${positionPrefix}이 객체가 아닙니다.`);
     assertImportString(position.assetId, `${positionPrefix}.assetId`, IMPORT_STRING_LIMITS.id);
+    if (valuation.schemaVersion === SNAPSHOT_VALUATION_SCHEMA) {
+      assertImportString(position.accountName, `${positionPrefix}.accountName`, IMPORT_STRING_LIMITS.short);
+      if (normalizeSnapshotAccountName(position.accountName) === null) {
+        throw new Error(`${positionPrefix}.accountName에 지원하지 않는 문자가 있습니다.`);
+      }
+    }
     ["assetType", "ticker", "kind", "accountClass", "valuationMode", "priceCurrency", "sessionStatus", "fxSessionStatus"]
       .forEach((field) => assertImportString(position[field], `${positionPrefix}.${field}`, IMPORT_STRING_LIMITS.short));
     ["quantity", "appliedPrice", "fxRate", "marketValueKRW"].forEach((field) => {

@@ -38,8 +38,8 @@ const reviewEngineScriptIndex = scriptSources.findIndex((src) => src.startsWith(
 const appScriptIndex = scriptSources.findIndex((src) => src.startsWith("app.js"));
 assert.ok(reviewEngineScriptIndex >= 0);
 assert.ok(appScriptIndex > reviewEngineScriptIndex);
-assert.equal(scriptSources[reviewEngineScriptIndex], "ai-review-export-engine.js?v=20260907-snapshot-valuation-v2");
-assert.equal(scriptSources[appScriptIndex], "app.js?v=20260907-final-close-v8");
+assert.equal(scriptSources[reviewEngineScriptIndex], "ai-review-export-engine.js?v=20260907-account-valuation-v3");
+assert.equal(scriptSources[appScriptIndex], "app.js?v=20260907-account-valuation-v9");
 
 // buildAiReviewInput maps existing deterministic calculations into the engine allowlist contract.
 const inputSource = sourceBetween("function buildAiReviewInput", "function aiReviewMarkdown");
@@ -71,6 +71,7 @@ const positionSource = sourceBetween("function aiReviewSnapshotPositions", "func
   "ticker",
   "kind",
   "accountClass",
+  "accountName",
   "valuationMode",
   "quantity",
   "appliedPrice",
@@ -266,7 +267,7 @@ window.eval(`${appCode}
         nextReviewAt: null,
         qualityIssues: [],
         valuation: {
-          schemaVersion: "assettrail.snapshot-valuation.v1",
+          schemaVersion: "assettrail.snapshot-valuation.v2",
           priceBookGeneratedAt: "2026-07-31T00:00:00.000Z",
           priceBasis: "UNADJUSTED_CLOSE",
           distributionTreatment: "EXCLUDED",
@@ -285,7 +286,8 @@ window.eval(`${appCode}
               assetType: "KRX",
               ticker: "005930",
               kind: "STOCK",
-              accountClass: "PENSION",
+              accountClass: "ISA",
+              accountName: "키움증권 ISA",
               valuationMode: "FINAL_CLOSE",
               quantity: 2,
               appliedPrice: 55000,
@@ -299,7 +301,8 @@ window.eval(`${appCode}
               assetType: "KRX",
               ticker: "005930",
               kind: "STOCK",
-              accountClass: "PENSION",
+              accountClass: "GENERAL",
+              accountName: "키움증권 일반",
               valuationMode: "FINAL_CLOSE",
               quantity: 1,
               appliedPrice: 55000,
@@ -314,6 +317,7 @@ window.eval(`${appCode}
               ticker: "MSFT",
               kind: "STOCK",
               accountClass: "GENERAL",
+              accountName: "미국주식 계좌",
               valuationMode: "FINAL_CLOSE",
               quantity: 1,
               appliedPrice: 190,
@@ -331,6 +335,7 @@ window.eval(`${appCode}
               ticker: "069500",
               kind: "ETF",
               accountClass: "GENERAL",
+              accountName: "국내 ETF 계좌",
               valuationMode: "FINAL_CLOSE",
               quantity: 3,
               appliedPrice: 95,
@@ -343,6 +348,7 @@ window.eval(`${appCode}
               assetId: "sensitive-cash-id",
               assetType: "CASH",
               accountClass: "GENERAL",
+              accountName: "생활비 계좌",
               valuationMode: "MANUAL_AMOUNT",
               marketValueKRW: 100000
             },
@@ -350,12 +356,14 @@ window.eval(`${appCode}
               assetId: "sensitive-manual-id",
               assetType: "MANUAL",
               accountClass: "PENSION",
+              accountName: "퇴직연금 계좌",
               valuationMode: "MANUAL_AMOUNT",
               marketValueKRW: 50000
             }
           ]
         }
       }];
+      state.assets[0].account = "조회 기록 저장 후 바뀐 계좌명";
       state.performanceObservations = [];
       state.portfolioTargets = { domestic: 5, overseas: 15, cash: 30, manual: 50 };
       cloud.user = { uid: "sensitive-user-uid", email: "sensitive-user@example.com" };
@@ -385,6 +393,13 @@ window.eval(`${appCode}
       state.snapshots = [];
       state.performanceObservations = [];
     },
+    setAccountlessValuationSnapshot() {
+      const snapshot = JSON.parse(JSON.stringify(state.snapshots[0]));
+      snapshot.id = "accountless-valuation-snapshot-id";
+      snapshot.valuation.schemaVersion = "assettrail.snapshot-valuation.v1";
+      snapshot.valuation.positions.forEach((position) => delete position.accountName);
+      state.snapshots = [normalizeSnapshot(snapshot)];
+    },
     setLegacySnapshot() {
       state.snapshots = [{
         id: "legacy-snapshot-id",
@@ -406,8 +421,8 @@ window.eval(`${appCode}
 await new Promise((resolve) => window.setTimeout(resolve, 40));
 window.__aiReviewExportTestApi.setupPortfolio();
 
-// The app-side mapping uses the latest stored valuation, aggregates only privacy-safe account classes,
-// and never substitutes the newer in-memory price book.
+// The app-side mapping uses the latest stored valuation, keeps saved account rows separate,
+// and never substitutes current account labels or the newer in-memory price book.
 const mappedInput = window.__aiReviewExportTestApi.input();
 assert.deepEqual(Object.keys(mappedInput).sort(), [
   "asOfDate",
@@ -427,12 +442,19 @@ assert.equal(mappedInput.valuationStatus, "SNAPSHOT_VALUATION_AVAILABLE");
 assert.equal(mappedInput.asOfDate, "2026-07-31");
 assert.equal(mappedInput.dataQuality.status, "STALE", "an old saved price date must remain stale at export time");
 assert.equal(mappedInput.portfolio.totalMarketValueKRW, 552785);
-assert.equal(mappedInput.portfolio.positions.length, 5);
+assert.equal(mappedInput.portfolio.positions.length, 6);
 assert.deepEqual(
   Array.from(mappedInput.portfolio.positions, (position) => (
-    `${position.assetType}:${position.ticker || ""}:${position.accountClass}`
+    `${position.assetType}:${position.ticker || ""}:${position.accountClass}:${position.accountName}`
   )),
-  ["CASH::GENERAL", "KRX:005930:PENSION", "KRX:069500:GENERAL", "MANUAL::PENSION", "US:MSFT:GENERAL"]
+  [
+    "CASH::GENERAL:생활비 계좌",
+    "KRX:005930:GENERAL:키움증권 일반",
+    "KRX:005930:ISA:키움증권 ISA",
+    "KRX:069500:GENERAL:국내 ETF 계좌",
+    "MANUAL::PENSION:퇴직연금 계좌",
+    "US:MSFT:GENERAL:미국주식 계좌"
+  ]
 );
 assert.equal(
   mappedInput.portfolio.positions.find((position) => position.ticker === "069500")?.kind,
@@ -443,6 +465,7 @@ mappedInput.portfolio.positions.forEach((position) => {
   assert.deepEqual(Object.keys(position).sort(), [
     "kind",
     "accountClass",
+    "accountName",
     "appliedPrice",
     "assetType",
     "fxAsOf",
@@ -461,9 +484,22 @@ mappedInput.portfolio.positions.forEach((position) => {
     "weightPct"
   ].sort());
 });
-assert.equal(mappedInput.portfolio.positions.find((position) => position.ticker === "005930")?.quantity, 3);
-assert.equal(mappedInput.portfolio.positions.find((position) => position.ticker === "005930")?.appliedPrice, 55000);
-assert.equal(mappedInput.portfolio.positions.find((position) => position.ticker === "005930")?.marketValueKRW, 165000);
+assert.equal(
+  mappedInput.portfolio.positions.find((position) => position.accountName === "키움증권 ISA")?.quantity,
+  2
+);
+assert.equal(
+  mappedInput.portfolio.positions.find((position) => position.accountName === "키움증권 ISA")?.appliedPrice,
+  55000
+);
+assert.equal(
+  mappedInput.portfolio.positions.find((position) => position.accountName === "키움증권 ISA")?.marketValueKRW,
+  110000
+);
+assert.equal(
+  mappedInput.portfolio.positions.find((position) => position.accountName === "키움증권 일반")?.marketValueKRW,
+  55000
+);
 assert.equal(mappedInput.portfolio.positions.find((position) => position.ticker === "MSFT")?.marketValueKRW, 237500);
 assert.equal(mappedInput.portfolio.positions.find((position) => position.ticker === "MSFT")?.fxRate, 1250);
 assert.equal(mappedInput.portfolio.positions.find((position) => position.assetType === "CASH")?.marketValueKRW, 100000);
@@ -482,12 +518,7 @@ const mappedSerialized = JSON.stringify(mappedInput);
 [
   "sensitive-user-uid",
   "sensitive-user@example.com",
-  "sensitive-retirement-account-a",
-  "sensitive-retirement-account-b",
-  "sensitive-us-account",
-  "sensitive-etf-account",
-  "sensitive-cash-account",
-  "sensitive-manual-account",
+  "조회 기록 저장 후 바뀐 계좌명",
   "sensitive-asset-id-a",
   "sensitive-event-id",
   "sensitive-event-note",
@@ -509,8 +540,8 @@ const markdown = await downloads[0].blob.text();
 assert.match(markdown, /^# AssetTrail AI 월간 점검 패키지/m);
 const fencedJson = markdown.match(/```json\n([\s\S]+)\n```/);
 assert.ok(fencedJson);
-assert.match(markdown, /"schemaVersion": "ASSETTRAIL_AI_REVIEW_V2"/);
-assert.match(markdown, /"promptVersion": "ASSETTRAIL_MONTHLY_REVIEW_PROMPT_V2"/);
+assert.match(markdown, /"schemaVersion": "ASSETTRAIL_AI_REVIEW_V3"/);
+assert.match(markdown, /"promptVersion": "ASSETTRAIL_MONTHLY_REVIEW_PROMPT_V3"/);
 assert.match(markdown, /개인 자산 현황을 월간 점검하는 도우미/);
 assert.match(markdown, /각 핵심 주장 뒤에는 근거가 된 JSON 경로를 표시하세요/);
 assert.match(markdown, /"networkRequestPerformed": false/);
@@ -519,7 +550,7 @@ const downloadedPackage = window.JSON.parse(fencedJson[1]);
 assert.equal(window.AssetTrailAiReviewExportEngine.validateReviewPackage(downloadedPackage).ok, true);
 assert.equal(downloadedPackage.privacy.absoluteAmountsIncluded, true);
 assert.equal(downloadedPackage.privacy.quantitiesIncluded, true);
-assert.equal(downloadedPackage.privacy.accountNamesIncluded, false);
+assert.equal(downloadedPackage.privacy.accountNamesIncluded, true);
 assert.equal(downloadedPackage.privacy.transactionRowsIncluded, false);
 assert.equal(downloadedPackage.privacy.freeTextIncluded, false);
 assert.equal(downloadedPackage.snapshotId, "sensitive-snapshot-id");
@@ -528,10 +559,11 @@ assert.equal(downloadedPackage.valuationStatus, "SNAPSHOT_VALUATION_AVAILABLE");
 assert.equal(downloadedPackage.portfolio.totalMarketValueKRW, 552785);
 assert.deepEqual(
   Array.from(downloadedPackage.portfolio.positions, (position) => position.instrumentKey),
-  ["CASH:GENERAL", "KRX:005930:PENSION", "KRX:069500:GENERAL", "MANUAL:PENSION", "US:MSFT:GENERAL"]
+  ["CASH", "KRX:005930", "KRX:005930", "KRX:069500", "MANUAL", "US:MSFT"]
 );
-assert.equal(downloadedPackage.portfolio.positions.find((position) => position.ticker === "005930")?.quantity, 3);
-assert.equal(downloadedPackage.portfolio.positions.find((position) => position.ticker === "005930")?.appliedPrice, 55000);
+assert.equal(downloadedPackage.portfolio.positions.find((position) => position.accountName === "키움증권 ISA")?.quantity, 2);
+assert.equal(downloadedPackage.portfolio.positions.find((position) => position.accountName === "키움증권 ISA")?.appliedPrice, 55000);
+assert.equal(downloadedPackage.portfolio.positions.find((position) => position.accountName === "키움증권 ISA")?.accountClass, "ISA");
 assert.equal(downloadedPackage.portfolio.positions.find((position) => position.ticker === "MSFT")?.fxRate, 1250);
 assert.equal(downloadedPackage.portfolio.positions.find((position) => position.assetType === "CASH")?.market, null);
 assert.equal(downloadedPackage.portfolio.targetComparison.status, "DEFAULT_NOT_CONFIRMED");
@@ -544,14 +576,41 @@ downloadedPackage.portfolio.targetComparison.items.forEach((row) => {
   "sensitive-user-uid",
   "sensitive-user@example.com",
   "sensitive-user-company-name",
-  "sensitive-retirement-account-a",
+  "조회 기록 저장 후 바뀐 계좌명",
   "sensitive-asset-note-a",
   "sensitive-event-note",
   "sensitive-journal-reason",
   "sensitive-investment-thesis",
   "sensitive-snapshot-note"
 ].forEach((secret) => assert.equal(markdown.includes(secret), false, `download leaked ${secret}`));
+[
+  "키움증권 ISA",
+  "키움증권 일반",
+  "미국주식 계좌",
+  "국내 ETF 계좌",
+  "생활비 계좌",
+  "퇴직연금 계좌"
+].forEach((accountName) => assert.equal(markdown.includes(accountName), true, `saved account name missing: ${accountName}`));
 assert.match(window.document.querySelector("#aiCheckPackageStatus").textContent, /점검 파일을 만들었습니다/);
+
+// A v1 valuation keeps its saved quantities and values, but never guesses historical account names.
+window.__aiReviewExportTestApi.setAccountlessValuationSnapshot();
+const accountlessInput = window.__aiReviewExportTestApi.input();
+assert.equal(accountlessInput.valuationStatus, "MISSING_SNAPSHOT_ACCOUNT_NAMES");
+assert.equal(accountlessInput.portfolio.positions.length, 6);
+accountlessInput.portfolio.positions.forEach((position) => assert.equal(position.accountName, ""));
+const accountlessDownloadsBefore = downloads.length;
+window.document.querySelector("#exportAiCheckPackageBtn").click();
+assert.equal(downloads.length, accountlessDownloadsBefore + 1);
+const accountlessMarkdown = await downloads.at(-1).blob.text();
+const accountlessFencedJson = accountlessMarkdown.match(/```json\n([\s\S]+)\n```/);
+assert.ok(accountlessFencedJson);
+const accountlessPackage = window.JSON.parse(accountlessFencedJson[1]);
+assert.equal(accountlessPackage.valuationStatus, "MISSING_SNAPSHOT_ACCOUNT_NAMES");
+assert.equal(accountlessPackage.dataQuality.issues.includes("MISSING_SNAPSHOT_ACCOUNT_NAMES"), true);
+assert.equal(accountlessPackage.portfolio.positions.reduce((sum, position) => sum + position.marketValueKRW, 0), 552785);
+assert.equal(accountlessMarkdown.includes("조회 기록 저장 후 바뀐 계좌명"), false);
+assert.match(window.document.querySelector("#aiCheckPackageStatus").textContent, /저장 당시 계좌명이 없습니다/);
 
 // A legacy latest snapshot stays explicit and never falls back to current assets or prices.
 window.__aiReviewExportTestApi.setLegacySnapshot();
