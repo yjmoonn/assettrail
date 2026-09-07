@@ -15,6 +15,9 @@ spec.loader.exec_module(generate_prices)
 
 QUALITY_TODAY = date(2026, 8, 4)
 FRESH_TRADE_DATE = "2026-07-29"
+REQUIRED_US_PORTFOLIO_TICKERS = {
+    "ADI", "AVGO", "BE", "COHR", "INTC", "MU", "NVDA", "SNDK", "WDC"
+}
 
 
 def valid_output(krx_count=3, us_tickers=("AAPL", "MSFT", "TSLA")):
@@ -132,6 +135,12 @@ def test_main_uses_only_the_trusted_ticker_file():
     assert publish.call_args.args[1] is baseline
     assert not hasattr(generate_prices, "fetch_requested_us_tickers")
     assert not hasattr(generate_prices, "parse_firestore_string_array")
+
+
+def test_trusted_ticker_file_covers_required_us_portfolio():
+    tickers = generate_prices.read_tickers("tickers.json")
+    assert tickers["US"] == sorted(set(tickers["US"]))
+    assert REQUIRED_US_PORTFOLIO_TICKERS <= set(tickers["US"])
 
 
 def test_parse_trade_date_rejects_malformed_and_invalid_calendar_dates():
@@ -532,6 +541,7 @@ def test_price_quality_failure_preserves_existing_artifacts():
 
 if __name__ == "__main__":
     test_main_uses_only_the_trusted_ticker_file()
+    test_trusted_ticker_file_covers_required_us_portfolio()
     test_parse_trade_date_rejects_malformed_and_invalid_calendar_dates()
     test_price_quality_accepts_healthy_output()
     test_methodology_explicitly_excludes_distributions_and_total_return()
