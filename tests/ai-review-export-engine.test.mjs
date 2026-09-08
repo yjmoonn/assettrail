@@ -543,4 +543,23 @@ assert.equal(engine.validateReviewPackage(strippedDerivedKeys).ok, true);
   /\bindexedDB\b/
 ].forEach((pattern) => assert.equal(pattern.test(source), false, `unexpected side-effect API: ${pattern}`));
 
+// Match the app's six-character KRX code contract, including newer ETF codes.
+for (const ticker of ["0167A0", "0104H0", "005930", "0167a0"]) {
+  const input = fixture();
+  input.portfolio.positions.find((row) => row.market === "KRX").ticker = ticker;
+  const result = engine.buildReviewPackage(input);
+  assert.equal(result.portfolio.positions.length, input.portfolio.positions.length);
+  assert.equal(result.portfolio.positions.find((row) => row.market === "KRX").ticker, ticker.toUpperCase());
+  assert.equal(result.portfolio.positions.reduce((sum, row) => sum + row.marketValueKRW, 0),
+    input.portfolio.totalMarketValueKRW);
+  assert.equal(result.dataQuality.issues.includes("INVALID_POSITION"), false);
+  assert.equal(engine.validateReviewPackage(result).ok, true);
+}
+for (const ticker of ["0167A", "0167A00", "016-A0", "016가A0"]) {
+  const input = fixture();
+  input.portfolio.positions.find((row) => row.market === "KRX").ticker = ticker;
+  const result = engine.buildReviewPackage(input);
+  assert.equal(result.dataQuality.issues.includes("INVALID_POSITION"), true);
+}
+
 console.log("ai-review-export-engine tests passed");
