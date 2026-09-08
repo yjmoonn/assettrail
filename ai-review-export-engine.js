@@ -561,7 +561,7 @@
 
   function normalizeTicker(market, value) {
     const ticker = String(value || "").trim().toUpperCase();
-    if (market === "KRX") return /^\d{6}$/.test(ticker) ? ticker : null;
+    if (market === "KRX") return /^[0-9A-Z]{6}$/.test(ticker) ? ticker : null;
     if (market === "US") return /^[A-Z0-9][A-Z0-9.-]{0,14}$/.test(ticker) ? ticker : null;
     return null;
   }
