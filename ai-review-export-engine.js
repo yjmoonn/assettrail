@@ -1234,9 +1234,9 @@
       grouped.set(key, current);
     });
     return [...grouped.values()]
-      .sort((left, right) => (
-        `${left.assetType}:${left.ticker || ""}:${left.accountClass}:${left.accountName}`
-          .localeCompare(`${right.assetType}:${right.ticker || ""}:${right.accountClass}:${right.accountName}`)
+      .sort((left, right) => compareText(
+        `${left.assetType}:${left.ticker || ""}:${left.accountClass}:${left.accountName}`,
+        `${right.assetType}:${right.ticker || ""}:${right.accountClass}:${right.accountName}`
       ))
       .map((item) => ({
         assetType: item.assetType,

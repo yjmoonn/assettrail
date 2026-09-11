@@ -10,6 +10,7 @@ assert.deepEqual(Object.keys(engine).sort(), [
   "INTERNAL_EVENT_TYPES",
   "TRANSACTION_EVENT_TYPES",
   "createOpeningBalanceEvent",
+  "fingerprintLedger",
   "normalizeLedgerEvent",
   "projectLedger",
   "validateLedger"

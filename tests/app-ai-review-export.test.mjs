@@ -38,8 +38,8 @@ const reviewEngineScriptIndex = scriptSources.findIndex((src) => src.startsWith(
 const appScriptIndex = scriptSources.findIndex((src) => src.startsWith("app.js"));
 assert.ok(reviewEngineScriptIndex >= 0);
 assert.ok(appScriptIndex > reviewEngineScriptIndex);
-assert.equal(scriptSources[reviewEngineScriptIndex], "ai-review-export-engine.js?v=20260911-shared-review-input-v3");
-assert.equal(scriptSources[appScriptIndex], "app.js?v=20260911-shared-review-input-v9");
+assert.equal(scriptSources[reviewEngineScriptIndex], "ai-review-export-engine.js?v=20260911-stable-review-input-v3");
+assert.equal(scriptSources[appScriptIndex], "app.js?v=20260911-read-only-source-v9");
 
 // The browser delegates saved-valuation assembly to the same pure producer API.
 const inputSource = sourceBetween("function buildAiReviewInput", "function aiReviewMarkdown");

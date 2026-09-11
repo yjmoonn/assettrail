@@ -64,6 +64,26 @@ const regenerated = engine.buildReviewPackage(engine.buildSnapshotReviewInput({ 
   generatedAt: "2026-09-11T06:00:00.000Z" }));
 assert.equal(regenerated.digest, exported.digest);
 
+// Host collation must not reorder floating-point concentration accumulation.
+// This vector differed under ko/en in fd1c453 before the fixed ordering.
+const localeInput = fixture();
+const amounts = [37317, 3956, 97527, 92414, 11449, 34936, 31435, 82882];
+const names = ["가", "A", "나", "B", "다", "C", "라", "D"];
+localeInput.snapshot.total = amounts.reduce((a, b) => a + b, 0);
+localeInput.snapshot.typeTotals = { CASH: localeInput.snapshot.total };
+localeInput.snapshot.valuation.positions = amounts.map((amount, i) => ({
+  assetType: "CASH", accountClass: "GENERAL", accountName: names[i],
+  valuationMode: "MANUAL_AMOUNT", marketValueKRW: amount
+}));
+const expectedLocaleDigest = engine.buildReviewPackage(engine.buildSnapshotReviewInput(localeInput)).digest;
+for (const locale of ["ko", "en", "sv"]) {
+  const runtime = vm.createContext({ inputJSON: JSON.stringify(localeInput), locale });
+  vm.runInContext("var collator = new Intl.Collator(locale); String.prototype.localeCompare = function(other) { return collator.compare(String(this), String(other)); };", runtime);
+  vm.runInContext(readFileSync("ai-review-export-engine.js", "utf8"), runtime);
+  const output = vm.runInContext("AssetTrailAiReviewExportEngine.buildReviewPackage(AssetTrailAiReviewExportEngine.buildSnapshotReviewInput(JSON.parse(inputJSON)))", runtime);
+  assert.equal(output.digest, expectedLocaleDigest);
+}
+
 // Exchange holiday certification is not implied by the preserved weekday age heuristic.
 for (const [today, expected] of [["2026-09-13", "VERIFIED"], ["2026-09-15", "VERIFIED"],
   ["2026-09-16", "STALE"], ["2026-09-09", "UNAVAILABLE"]]) {
