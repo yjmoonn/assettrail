@@ -3,13 +3,14 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 
 const html = readFileSync("index.html", "utf8");
-const appSource = readFileSync("app.js", "utf8");
+const appSource = [readFileSync("retirement-engine.js", "utf8"), readFileSync("app.js", "utf8")].join("\n");
 const appCode = [
   "decision-engine.js",
   "action-engine.js",
   "ledger-engine.js",
   "performance-engine.js",
   "ai-review-export-engine.js",
+  "retirement-engine.js",
   "app.js"
 ].map((path) => readFileSync(path, "utf8")).join("\n");
 
@@ -36,10 +37,12 @@ const scriptSources = [...staticDom.window.document.querySelectorAll("script[src
   .map((script) => script.getAttribute("src"));
 const reviewEngineScriptIndex = scriptSources.findIndex((src) => src.startsWith("ai-review-export-engine.js"));
 const appScriptIndex = scriptSources.findIndex((src) => src.startsWith("app.js"));
+const retirementScriptIndex = scriptSources.findIndex((src) => src.startsWith("retirement-engine.js"));
+assert.ok(retirementScriptIndex >= 0 && retirementScriptIndex < appScriptIndex);
 assert.ok(reviewEngineScriptIndex >= 0);
 assert.ok(appScriptIndex > reviewEngineScriptIndex);
 assert.equal(scriptSources[reviewEngineScriptIndex], "ai-review-export-engine.js?v=20260911-stable-review-input-v3");
-assert.equal(scriptSources[appScriptIndex], "app.js?v=20260911-read-only-source-v9");
+assert.equal(scriptSources[appScriptIndex], "app.js?v=20260911-retirement-engine-v9");
 
 // The browser delegates saved-valuation assembly to the same pure producer API.
 const inputSource = sourceBetween("function buildAiReviewInput", "function aiReviewMarkdown");

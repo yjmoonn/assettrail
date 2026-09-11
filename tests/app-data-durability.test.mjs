@@ -7,7 +7,7 @@ const historyRepositoryCode = readFileSync("history-repository.js", "utf8");
 const appCode = [
   readFileSync("ledger-engine.js", "utf8"),
   historyRepositoryCode,
-  readFileSync("app.js", "utf8")
+  [readFileSync("retirement-engine.js", "utf8"), readFileSync("app.js", "utf8")].join("\n")
 ].join("\n");
 const STORAGE_KEY = "finance-ledger-retirement-v1";
 const PORTABLE_IMPORT_MAX_BYTES = 32 * 1024 * 1024;

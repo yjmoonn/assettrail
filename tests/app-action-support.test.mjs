@@ -5,7 +5,7 @@ import { JSDOM } from "jsdom";
 const html = readFileSync("index.html", "utf8");
 const decisionEngineCode = readFileSync("decision-engine.js", "utf8");
 const actionEngineCode = readFileSync("action-engine.js", "utf8");
-const appCode = [readFileSync("ledger-engine.js", "utf8"), readFileSync("app.js", "utf8")].join("\n");
+const appCode = [readFileSync("ledger-engine.js", "utf8"), [readFileSync("retirement-engine.js", "utf8"), readFileSync("app.js", "utf8")].join("\n")].join("\n");
 const STORAGE_KEY = "finance-ledger-retirement-v1";
 const TODAY = "2026-08-05";
 

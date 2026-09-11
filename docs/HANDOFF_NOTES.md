@@ -16,6 +16,8 @@
 
 ## 현재 제품 방향 (2026-09-07)
 
+2026-09-11 은퇴 계산 분리: `retirement-engine.js`로 기본값·검증·계산·V3 goal 맥락을 옮겨 앱이 재사용한다. 실제 서버 입력 goal과 기존 V3 일치 및 48개 이전 계산 결과 대조, 전체 npm test exit 0을 확인했다. [세션 기록](sessions/2026-09-11-retirement-engine.md). PR CI·성과/월간 검토 맥락 분리·무인 인증은 후속 확인하며 운영 배포는 하지 않는다.
+
 2026-09-11 읽기 전용 source 후속: 원장 지문을 기존 엔진에 공유하고 primary·ledger·history 일관성 검사와 Firestore GET transport를 추가했다. [구현·검수 경계](sessions/2026-09-11-read-only-source.md). 실제 identity 등록과 경제적 잔액·평가 검증은 아직 남아 있으며 운영 자료/원장/Rules는 변경하지 않았다.
 
 2026-09-11 후속 개발: 저장 평가의 V3 입력 구성을 기존 순수 엔진으로 분리하고 앱에서 재사용한다. [공통 입력 구성](sessions/2026-09-11-shared-review-input.md)에 계약·검수·다음 작업을 기록했다. 읽기 전용 worker의 인증과 Firestore source 조립, 실제 원본 V3 대조는 남아 있다. 운영 배포나 원장 변경은 수행하지 않는다.
