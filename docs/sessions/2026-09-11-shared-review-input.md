@@ -21,6 +21,10 @@ AssetTrail 앱과 향후 읽기 전용 exporter가 같은 저장 평가 → V3 �
 - 전체 `npm test` exit 0: JavaScript, Python 가격 생성 계약, Firestore Emulator Rules 포함. Python 3.14의 기존 검수 환경과 Java 21을 사용했다. 로그는 상위 작업의 work/assettrail-shared-input-tests.log에 보존한다. PR CI는 후속 결과로 기록한다. 실제 보유자산 최신 조회·무인 인증·운영 배포 완료를 뜻하지 않는다.
 
 ## 다음 작업
+
+PR #55의 최초 CI 34565650316은 기존 개발 의존성 js-yaml 4.3.1의 high advisory 때문에 코드 테스트 전에 중단됐다. [유지관리자 공지](https://github.com/nodeca/js-yaml/security/advisories/GHSA-2883-xcg3-v3hh)의 호환 수정 버전 4.3.2로 package-lock의 해당 패키지만 갱신했다. audit-level=high 통과, moderate 12건은 남으며 전체 취약점 해소로 표시하지 않는다. 별도 worktree에 npm ci로 설치해 원래 작업 트리의 의존성을 보존했다. 보안 검사 기준 완화·강제 major 변경은 하지 않았다.
+
+수정된 lock으로 설치 후 전체 npm test도 exit 0으로 통과했다(work/assettrail-shared-input-patched-tests.log). 실제 설치 트리의 npm audit --audit-level=high도 exit 0이다. 후속 CI는 별도로 검수한다.
 - 현재 검증된 source revision과 원장·history manifest/chunk를 일관되게 읽는 producer adapter 및 제한된 읽기 identity를 연결한다.
 - 같은 실제 원본으로 브라우저 V3와 worker V3를 대조하고, 평가 저장일과 현재 원장의 간격을 source receipt에 명시한다.
 - private Drive create-only 발행과 consumer 인수 이후에도 저장 평가가 오래됐다면 최신 자산 배분을 제한한다.
