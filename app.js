@@ -5836,96 +5836,6 @@ function latestAiReviewSnapshot() {
     .at(-1) || null;
 }
 
-function aiReviewSnapshotPositions(snapshot, total) {
-  if (!snapshot?.valuation) return [];
-  const accountNamesAvailable = snapshot.valuation.schemaVersion === SNAPSHOT_VALUATION_SCHEMA;
-  const grouped = new Map();
-  snapshot.valuation.positions.forEach((position) => {
-    const type = String(position.assetType || "").trim().toUpperCase();
-    const market = isMarketType(type) ? type : null;
-    const ticker = market ? normalizeTicker(type, position.ticker) : null;
-    const accountClass = String(position.accountClass || "UNASSIGNED").trim().toUpperCase();
-    const accountName = accountNamesAvailable ? String(position.accountName || "").trim() : "";
-    const key = JSON.stringify([type, ticker, accountClass, accountName]);
-    const kind = market ? String(position.kind || "STOCK").trim().toUpperCase() : null;
-    const current = grouped.get(key) || {
-      assetType: type,
-      market,
-      ticker,
-      kind: market && ["ETF", "ETN", "FUND"].includes(kind) ? kind : market ? "STOCK" : null,
-      accountClass,
-      accountName,
-      valuationMode: position.valuationMode,
-      quantity: market ? 0 : null,
-      appliedPrice: market ? Number(position.appliedPrice) : null,
-      priceCurrency: market ? position.priceCurrency : null,
-      priceAsOf: market ? position.priceAsOf : null,
-      sessionStatus: market ? position.sessionStatus : null,
-      fxRate: type === "US" ? Number(position.fxRate) : null,
-      fxAsOf: type === "US" ? position.fxAsOf : null,
-      fxSessionStatus: type === "US" ? position.fxSessionStatus : null,
-      marketValueKRW: 0,
-      quality: market
-        ? (() => {
-            const age = businessDaysSince(position.priceAsOf);
-            if (!Number.isFinite(age) || age < 0) return "UNAVAILABLE";
-            return age > PRICE_STALE_DAYS ? "STALE" : "VERIFIED";
-          })()
-        : "VERIFIED"
-    };
-    if (market) current.quantity += Number(position.quantity || 0);
-    current.marketValueKRW += Number(position.marketValueKRW || 0);
-    grouped.set(key, current);
-  });
-  return [...grouped.values()]
-    .sort((left, right) => (
-      `${left.assetType}:${left.ticker || ""}:${left.accountClass}:${left.accountName}`
-        .localeCompare(`${right.assetType}:${right.ticker || ""}:${right.accountClass}:${right.accountName}`)
-    ))
-    .map((item) => ({
-      assetType: item.assetType,
-      market: item.market,
-      ticker: item.ticker,
-      kind: item.kind,
-      accountClass: item.accountClass,
-      accountName: item.accountName,
-      valuationMode: item.valuationMode,
-      quantity: item.quantity,
-      appliedPrice: item.appliedPrice,
-      priceCurrency: item.priceCurrency,
-      priceAsOf: item.priceAsOf,
-      sessionStatus: item.sessionStatus,
-      fxRate: item.fxRate,
-      fxAsOf: item.fxAsOf,
-      fxSessionStatus: item.fxSessionStatus,
-      marketValueKRW: item.marketValueKRW,
-      weightPct: total > 0 ? (item.marketValueKRW / total) * 100 : 0,
-      priceReturnPct: null,
-      quality: item.quality
-    }));
-}
-
-function aiReviewSnapshotConcentration(positions, total) {
-  const economicPositions = new Map();
-  positions.forEach((position) => {
-    const key = isMarketType(position.assetType)
-      ? `${position.assetType}:${position.ticker}`
-      : `${position.assetType}:${position.accountClass}:${position.accountName}`;
-    economicPositions.set(key, (economicPositions.get(key) || 0) + Number(position.marketValueKRW || 0));
-  });
-  const weights = total > 0
-    ? [...economicPositions.values()].map((value) => value / total).filter((weight) => weight > 0)
-    : [];
-  const descending = [...weights].sort((left, right) => right - left);
-  const hhi = weights.reduce((sum, weight) => sum + weight ** 2, 0);
-  return {
-    top1Pct: (descending[0] || 0) * 100,
-    top5Pct: descending.slice(0, 5).reduce((sum, weight) => sum + weight, 0) * 100,
-    hhi,
-    effectivePositionCount: hhi > 0 ? 1 / hhi : 0
-  };
-}
-
 function aiReviewPerformance() {
   const evidence = allPerformanceEvidence();
   const facts = Object.fromEntries((evidence.facts || []).map((fact) => [fact.metric, fact.returnRate]));
@@ -5987,64 +5897,16 @@ function aiReviewStatus() {
 
 function buildAiReviewInput(generatedAt = new Date().toISOString()) {
   const snapshot = latestAiReviewSnapshot();
-  const valuationAvailable = Boolean(snapshot?.valuation);
-  const accountNamesAvailable = snapshot?.valuation?.schemaVersion === SNAPSHOT_VALUATION_SCHEMA;
-  const valuationStatus = accountNamesAvailable
-    ? "SNAPSHOT_VALUATION_AVAILABLE"
-    : valuationAvailable
-      ? "MISSING_SNAPSHOT_ACCOUNT_NAMES"
-      : snapshot ? "MISSING_LEGACY_SNAPSHOT_VALUATION" : "UNAVAILABLE";
-  const total = Number(snapshot?.total || 0);
-  const positions = aiReviewSnapshotPositions(snapshot, total);
-  const marketPositions = positions.filter((position) => isMarketType(position.assetType));
-  const priceDates = marketPositions.map((position) => position.priceAsOf).filter(Boolean).sort();
-  const missingPriceCount = marketPositions.filter((position) => position.quality === "UNAVAILABLE").length;
-  const hasStalePrice = marketPositions.some((position) => position.quality === "STALE");
-  const dataQualityStatus = !valuationAvailable || missingPriceCount
-    ? "INCOMPLETE"
-    : hasStalePrice ? "STALE" : !accountNamesAvailable ? "LIMITED" : "VERIFIED";
-  const typeTotals = snapshot?.typeTotals || {};
-  const bucketMap = { domestic: "DOMESTIC", overseas: "OVERSEAS", cash: "CASH", manual: "MANUAL" };
-  const typeByBucket = { domestic: "KRX", overseas: "US", cash: "CASH", manual: "MANUAL" };
-  const allocation = Object.entries(bucketMap).map(([key, bucket]) => ({
-    bucket,
-    weightPct: total > 0 ? (Number(typeTotals[typeByBucket[key]] || 0) / total) * 100 : 0
-  }));
-  const snapshotDate = snapshot?.createdAt ? localDateInputValue(new Date(snapshot.createdAt)) : localDateInputValue();
-  return {
+  return aiReviewEngine().buildSnapshotReviewInput({
+    snapshot,
     generatedAt,
-    asOfDate: snapshotDate,
-    snapshotId: snapshot?.id || null,
-    snapshotCreatedAt: snapshot?.createdAt || null,
-    valuationStatus,
-    dataQuality: {
-      status: dataQualityStatus,
-      marketPositionCount: marketPositions.length,
-      pricedPositionCount: marketPositions.length - missingPriceCount,
-      missingPriceCount,
-      oldestPriceDate: priceDates[0] || null,
-      latestPriceDate: priceDates.at(-1) || null,
-      performanceObservationCount: state.performanceObservations.length
-    },
-    portfolio: {
-      totalMarketValueKRW: total,
-      allocation,
-      positions,
-      concentration: aiReviewSnapshotConcentration(positions, total),
-      targetComparison: {
-        status: "DEFAULT_NOT_CONFIRMED",
-        items: allocation.map((row) => ({
-          bucket: row.bucket,
-          currentPct: row.weightPct,
-          targetPct: null,
-          gapPctPoint: null
-        }))
-      }
-    },
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    priceStaleDays: PRICE_STALE_DAYS,
+    performanceObservationCount: state.performanceObservations.length,
     performance: aiReviewPerformance(),
     goal: aiReviewGoal(),
     reviewStatus: aiReviewStatus()
-  };
+  });
 }
 
 function aiReviewMarkdown(reviewPackage) {

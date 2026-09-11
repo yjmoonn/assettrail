@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const engine = require("../ai-review-export-engine.js");
 const source = readFileSync("ai-review-export-engine.js", "utf8");
 
-const API = ["buildReviewPackage", "getFixedPrompt", "validateReviewPackage"];
+const API = ["buildReviewPackage", "buildSnapshotReviewInput", "getFixedPrompt", "validateReviewPackage"];
 assert.deepEqual(Object.keys(engine).sort(), API);
 
 {

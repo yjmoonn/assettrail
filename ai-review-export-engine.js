@@ -1168,6 +1168,211 @@
     return { ...packageWithoutDigest, digest: reviewContentDigest(packageWithoutDigest) };
   }
 
+  // A weekday-age heuristic, not an exchange holiday/session certification.
+  function snapshotPriceWeekdays(dateKey, todayKey) {
+    if (!validDateKey(dateKey) || !validDateKey(todayKey)) return Infinity;
+    const start = Date.parse(`${dateKey}T00:00:00.000Z`);
+    const end = Date.parse(`${todayKey}T00:00:00.000Z`);
+    if (start === end) return 0;
+    const direction = start < end ? 1 : -1;
+    const days = Math.abs(end - start) / 86400000;
+    let weekdays = Math.floor(days / 7) * 5 * direction;
+    for (let offset = Math.floor(days / 7) * 7 + 1; offset <= days; offset += 1) {
+      const day = new Date(start + direction * offset * 86400000).getUTCDay();
+      if (day !== 0 && day !== 6) weekdays += direction;
+    }
+    return direction < 0 && weekdays === 0 ? -1 : weekdays;
+  }
+
+  function snapshotReviewPositions(snapshot, total, todayKey, priceStaleDays) {
+    if (!snapshot?.valuation) return [];
+    const accountNamesAvailable = snapshot.valuation.schemaVersion === "assettrail.snapshot-valuation.v2";
+    const grouped = new Map();
+    snapshot.valuation.positions.forEach((position) => {
+      const type = String(position.assetType || "").trim().toUpperCase();
+      const market = MARKETS.includes(type) ? type : null;
+      const ticker = market ? normalizeTicker(type, position.ticker) : null;
+      const accountClass = String(position.accountClass || "UNASSIGNED").trim().toUpperCase();
+      const accountName = accountNamesAvailable ? String(position.accountName || "").trim() : "";
+      const key = JSON.stringify([type, ticker, accountClass, accountName]);
+      const kind = market ? String(position.kind || "STOCK").trim().toUpperCase() : null;
+      const current = grouped.get(key) || {
+        assetType: type,
+        market,
+        ticker,
+        kind: market && ["ETF", "ETN", "FUND"].includes(kind) ? kind : market ? "STOCK" : null,
+        accountClass,
+        accountName,
+        valuationMode: position.valuationMode,
+        quantity: market ? 0 : null,
+        appliedPrice: market ? Number(position.appliedPrice) : null,
+        priceCurrency: market ? position.priceCurrency : null,
+        priceAsOf: market ? position.priceAsOf : null,
+        sessionStatus: market ? position.sessionStatus : null,
+        fxRate: type === "US" ? Number(position.fxRate) : null,
+        fxAsOf: type === "US" ? position.fxAsOf : null,
+        fxSessionStatus: type === "US" ? position.fxSessionStatus : null,
+        marketValueKRW: 0,
+        quality: market
+          ? (() => {
+              const age = snapshotPriceWeekdays(position.priceAsOf, todayKey);
+              if (!Number.isFinite(age) || age < 0) return "UNAVAILABLE";
+              return age > priceStaleDays ? "STALE" : "VERIFIED";
+            })()
+          : "VERIFIED"
+      };
+      if (grouped.has(key) && market) {
+        const fields = ["kind", "valuationMode", "appliedPrice", "priceCurrency", "priceAsOf",
+          "sessionStatus", "fxRate", "fxAsOf", "fxSessionStatus"];
+        const incoming = { ...position, kind: ["ETF", "ETN", "FUND"].includes(kind) ? kind : "STOCK" };
+        if (fields.some((field) => (current[field] ?? null) !== (incoming[field] ?? null))) {
+          throw new Error("CONFLICTING_SNAPSHOT_POSITION_BASIS");
+        }
+      }
+      if (market) current.quantity += Number(position.quantity || 0);
+      current.marketValueKRW += Number(position.marketValueKRW || 0);
+      grouped.set(key, current);
+    });
+    return [...grouped.values()]
+      .sort((left, right) => (
+        `${left.assetType}:${left.ticker || ""}:${left.accountClass}:${left.accountName}`
+          .localeCompare(`${right.assetType}:${right.ticker || ""}:${right.accountClass}:${right.accountName}`)
+      ))
+      .map((item) => ({
+        assetType: item.assetType,
+        market: item.market,
+        ticker: item.ticker,
+        kind: item.kind,
+        accountClass: item.accountClass,
+        accountName: item.accountName,
+        valuationMode: item.valuationMode,
+        quantity: item.quantity,
+        appliedPrice: item.appliedPrice,
+        priceCurrency: item.priceCurrency,
+        priceAsOf: item.priceAsOf,
+        sessionStatus: item.sessionStatus,
+        fxRate: item.fxRate,
+        fxAsOf: item.fxAsOf,
+        fxSessionStatus: item.fxSessionStatus,
+        marketValueKRW: item.marketValueKRW,
+        weightPct: total > 0 ? (item.marketValueKRW / total) * 100 : 0,
+        priceReturnPct: null,
+        quality: item.quality
+      }));
+  }
+
+  function snapshotReviewConcentration(positions, total) {
+    const economicPositions = new Map();
+    positions.forEach((position) => {
+      const key = MARKETS.includes(position.assetType)
+        ? `${position.assetType}:${position.ticker}`
+        : `${position.assetType}:${position.accountClass}:${position.accountName}`;
+      economicPositions.set(key, (economicPositions.get(key) || 0) + Number(position.marketValueKRW || 0));
+    });
+    const weights = total > 0
+      ? [...economicPositions.values()].map((value) => value / total).filter((weight) => weight > 0)
+      : [];
+    const descending = [...weights].sort((left, right) => right - left);
+    const hhi = weights.reduce((sum, weight) => sum + weight ** 2, 0);
+    return {
+      top1Pct: (descending[0] || 0) * 100,
+      top5Pct: descending.slice(0, 5).reduce((sum, weight) => sum + weight, 0) * 100,
+      hhi,
+      effectivePositionCount: hhi > 0 ? 1 / hhi : 0
+    };
+  }
+
+  function buildSnapshotReviewInput({
+    snapshot, generatedAt, timeZone = "Asia/Seoul", priceStaleDays = 3,
+    performanceObservationCount, performance, goal, reviewStatus
+  }) {
+    if (!Number.isSafeInteger(priceStaleDays) || priceStaleDays < 0
+        || typeof generatedAt !== "string" || !Number.isFinite(Date.parse(generatedAt))
+        || new Date(generatedAt).toISOString() !== generatedAt) {
+      throw new Error("INVALID_SNAPSHOT_REVIEW_CONTEXT");
+    }
+    if (snapshot !== null && (!isPlainObject(snapshot)
+        || (snapshot.valuation && (!isPlainObject(snapshot.valuation)
+          || !["assettrail.snapshot-valuation.v1", "assettrail.snapshot-valuation.v2"].includes(snapshot.valuation.schemaVersion)
+          || !Array.isArray(snapshot.valuation.positions)
+          || snapshot.valuation.positions.length > MAX_POSITIONS)))) {
+      throw new Error("INVALID_SNAPSHOT_REVIEW_SOURCE");
+    }
+    let dateFormatter;
+    try {
+      if (typeof timeZone !== "string" || !timeZone) throw new Error();
+      dateFormatter = new Intl.DateTimeFormat("en", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+    } catch {
+      throw new Error("INVALID_SNAPSHOT_REVIEW_CONTEXT");
+    }
+    const dateKey = (timestamp) => {
+      const date = new Date(timestamp);
+      if (!Number.isFinite(date.getTime())) throw new Error("INVALID_SNAPSHOT_REVIEW_SOURCE");
+      const parts = Object.fromEntries(dateFormatter.formatToParts(date).map(part => [part.type, part.value]));
+      return `${parts.year}-${parts.month}-${parts.day}`;
+    };
+    const todayKey = dateKey(generatedAt);
+    const asOfDate = dateKey(snapshot ? snapshot.createdAt : generatedAt);
+    const valuationAvailable = Boolean(snapshot?.valuation);
+    const accountNamesAvailable = snapshot?.valuation?.schemaVersion === "assettrail.snapshot-valuation.v2";
+    const valuationStatus = accountNamesAvailable
+      ? "SNAPSHOT_VALUATION_AVAILABLE"
+      : valuationAvailable
+        ? "MISSING_SNAPSHOT_ACCOUNT_NAMES"
+        : snapshot ? "MISSING_LEGACY_SNAPSHOT_VALUATION" : "UNAVAILABLE";
+    const total = Number(snapshot?.total || 0);
+    const positions = snapshotReviewPositions(snapshot, total, todayKey, priceStaleDays);
+    const marketPositions = positions.filter((position) => MARKETS.includes(position.assetType));
+    const priceDates = marketPositions.map((position) => position.priceAsOf).filter(Boolean).sort();
+    const missingPriceCount = marketPositions.filter((position) => position.quality === "UNAVAILABLE").length;
+    const hasStalePrice = marketPositions.some((position) => position.quality === "STALE");
+    const dataQualityStatus = !valuationAvailable || missingPriceCount
+      ? "INCOMPLETE"
+      : hasStalePrice ? "STALE" : !accountNamesAvailable ? "LIMITED" : "VERIFIED";
+    const typeTotals = snapshot?.typeTotals || {};
+    const bucketMap = { domestic: "DOMESTIC", overseas: "OVERSEAS", cash: "CASH", manual: "MANUAL" };
+    const typeByBucket = { domestic: "KRX", overseas: "US", cash: "CASH", manual: "MANUAL" };
+    const allocation = Object.entries(bucketMap).map(([key, bucket]) => ({
+      bucket,
+      weightPct: total > 0 ? (Number(typeTotals[typeByBucket[key]] || 0) / total) * 100 : 0
+    }));
+    return {
+      generatedAt,
+      asOfDate,
+      snapshotId: snapshot?.id || null,
+      snapshotCreatedAt: snapshot?.createdAt || null,
+      valuationStatus,
+      dataQuality: {
+        status: dataQualityStatus,
+        marketPositionCount: marketPositions.length,
+        pricedPositionCount: marketPositions.length - missingPriceCount,
+        missingPriceCount,
+        oldestPriceDate: priceDates[0] || null,
+        latestPriceDate: priceDates.at(-1) || null,
+        performanceObservationCount: performanceObservationCount
+      },
+      portfolio: {
+        totalMarketValueKRW: total,
+        allocation,
+        positions,
+        concentration: snapshotReviewConcentration(positions, total),
+        targetComparison: {
+          status: "DEFAULT_NOT_CONFIRMED",
+          items: allocation.map((row) => ({
+            bucket: row.bucket,
+            currentPct: row.weightPct,
+            targetPct: null,
+            gapPctPoint: null
+          }))
+        }
+      },
+      performance,
+      goal,
+      reviewStatus
+    };
+  }
+
+
   function exactKeys(value, expected) {
     if (!isPlainObject(value)) return false;
     const keys = Object.keys(value).sort(compareText);
@@ -1497,6 +1702,7 @@
 
   return Object.freeze({
     buildReviewPackage,
+    buildSnapshotReviewInput,
     getFixedPrompt: fixedPrompt,
     validateReviewPackage
   });

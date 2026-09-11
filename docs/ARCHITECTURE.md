@@ -32,7 +32,7 @@ AssetTrail은 GitHub Pages로 배포되는 정적 개인 자산 관리 앱이다
 | `external-data-engine.js` | 사용자가 붙여넣은 Butler 표를 출처·기준일·확정/컨센서스가 분리된 기업 사실 스냅샷으로 정규화하는 순수 엔진 |
 | `etf-exposure-engine.js` | 허용된 ETF 카탈로그를 검증하고 직접·간접 중복노출, 현금·미매핑·미보고 비중을 계산하는 순수 엔진 |
 | `ai-report-engine.js` | 상대지표 근거 envelope, 결정론 보고서, 수동 ChatGPT handoff와 응답 계약을 만드는 순수 엔진 |
-| `ai-review-export-engine.js` | 월간 점검용 `ASSETTRAIL_AI_REVIEW_V3` 데이터, 고정 프롬프트와 무결성 digest를 만드는 순수 엔진 |
+| `ai-review-export-engine.js` | 검증된 저장 평가의 포지션·집중도·기준일 입력 구성과 월간 `ASSETTRAIL_AI_REVIEW_V3`, 고정 프롬프트·digest를 만드는 순수 엔진 |
 | `firebase-config.js` | 브라우저용 Firebase 클라이언트 설정 |
 | `firebase.json` | Firebase 프로젝트 설정 |
 | `firestore.rules` | Firestore 접근 제어 경계 |
