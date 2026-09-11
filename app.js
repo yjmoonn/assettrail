@@ -5791,17 +5791,11 @@ function aiReviewGoal() {
   return retirementEngine().buildGoalContext(state.retirement);
 }
 
-function aiReviewStatus() {
-  const review = currentMonthlyReview();
-  const nextReviewAt = normalizeDateKey(review?.nextReviewAt);
-  if (!nextReviewAt) return { overdueCount: 0, dueSoonCount: 0, unscheduledCount: 1 };
-  const today = localDateInputValue();
-  const days = Math.round((Date.parse(`${nextReviewAt}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000);
-  return {
-    overdueCount: days < 0 ? 1 : 0,
-    dueSoonCount: days >= 0 && days <= 7 ? 1 : 0,
-    unscheduledCount: 0
-  };
+function aiReviewStatus(generatedAt = new Date().toISOString()) {
+  return aiReviewEngine().buildMonthlyReviewStatus({
+    snapshots: state.snapshots.map(normalizeSnapshot), generatedAt,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+  });
 }
 
 function buildAiReviewInput(generatedAt = new Date().toISOString()) {
@@ -5814,7 +5808,7 @@ function buildAiReviewInput(generatedAt = new Date().toISOString()) {
     performanceObservationCount: state.performanceObservations.length,
     performance: aiReviewPerformance(),
     goal: aiReviewGoal(),
-    reviewStatus: aiReviewStatus()
+    reviewStatus: aiReviewStatus(generatedAt)
   });
 }
 

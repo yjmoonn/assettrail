@@ -1282,6 +1282,41 @@
     };
   }
 
+  function buildMonthlyReviewStatus({ snapshots, generatedAt, timeZone = "Asia/Seoul" }) {
+    if (!Array.isArray(snapshots) || snapshots.length > 10000
+        || typeof generatedAt !== "string" || !Number.isFinite(Date.parse(generatedAt))
+        || new Date(generatedAt).toISOString() !== generatedAt) {
+      throw new Error("INVALID_MONTHLY_REVIEW_CONTEXT");
+    }
+    let formatter;
+    try {
+      if (typeof timeZone !== "string" || !timeZone) throw new Error();
+      formatter = new Intl.DateTimeFormat("en", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+    } catch { throw new Error("INVALID_MONTHLY_REVIEW_CONTEXT"); }
+    const dateKey = timestamp => {
+      const parts = Object.fromEntries(formatter.formatToParts(new Date(timestamp)).map(p => [p.type, p.value]));
+      return `${parts.year}-${parts.month}-${parts.day}`;
+    };
+    const today = dateKey(generatedAt);
+    let review = null;
+    for (const snapshot of snapshots) {
+      if (!isPlainObject(snapshot)) throw new Error("INVALID_MONTHLY_REVIEW_SOURCE");
+      if (snapshot.source !== "MONTHLY_REVIEW") continue;
+      if (typeof snapshot.createdAt !== "string" || !Number.isFinite(Date.parse(snapshot.createdAt))
+          || new Date(snapshot.createdAt).toISOString() !== snapshot.createdAt
+          || Date.parse(snapshot.createdAt) > Date.parse(generatedAt)) {
+        throw new Error("INVALID_MONTHLY_REVIEW_SOURCE");
+      }
+      if (dateKey(snapshot.createdAt).slice(0, 7) !== today.slice(0, 7)) continue;
+      if (!review || snapshot.createdAt > review.createdAt) review = snapshot;
+    }
+    const next = validDateKey(review?.nextReviewAt);
+    if (!next) return { overdueCount: 0, dueSoonCount: 0, unscheduledCount: 1 };
+    const days = (Date.parse(`${next}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000;
+    return { overdueCount: days < 0 ? 1 : 0, dueSoonCount: days >= 0 && days <= 7 ? 1 : 0,
+      unscheduledCount: 0 };
+  }
+
   function buildSnapshotReviewInput({
     snapshot, generatedAt, timeZone = "Asia/Seoul", priceStaleDays = 3,
     performanceObservationCount, performance, goal, reviewStatus
@@ -1703,6 +1738,7 @@
   return Object.freeze({
     buildReviewPackage,
     buildSnapshotReviewInput,
+    buildMonthlyReviewStatus,
     getFixedPrompt: fixedPrompt,
     validateReviewPackage
   });

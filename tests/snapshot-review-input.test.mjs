@@ -4,6 +4,27 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
 const engine = createRequire(import.meta.url)("../ai-review-export-engine.js");
+const monthly = (nextReviewAt, generatedAt = "2026-09-11T00:00:00.000Z") => engine.buildMonthlyReviewStatus({
+  snapshots: [{ source: "MONTHLY_REVIEW", createdAt: "2026-09-01T00:00:00.000Z", nextReviewAt }], generatedAt
+});
+assert.deepEqual(monthly("2026-09-10"), { overdueCount: 1, dueSoonCount: 0, unscheduledCount: 0 });
+for (const next of ["2026-09-11", "2026-09-18"]) assert.equal(monthly(next).dueSoonCount, 1);
+assert.equal(monthly("2026-09-19").dueSoonCount, 0);
+assert.equal(monthly("2026-02-30").unscheduledCount, 1);
+assert.equal(monthly(null).unscheduledCount, 1);
+const monthBoundary = { snapshots: [{ source: "MONTHLY_REVIEW", createdAt: "2026-08-31T15:00:00.000Z",
+  nextReviewAt: "2026-09-02" }], generatedAt: "2026-09-01T00:00:00.000Z" };
+assert.equal(engine.buildMonthlyReviewStatus({ ...monthBoundary, timeZone: "Asia/Seoul" }).dueSoonCount, 1);
+assert.equal(engine.buildMonthlyReviewStatus({ ...monthBoundary, timeZone: "UTC" }).unscheduledCount, 1);
+const originalMonthly = JSON.stringify(monthBoundary);
+engine.buildMonthlyReviewStatus(monthBoundary);
+assert.equal(JSON.stringify(monthBoundary), originalMonthly);
+assert.throws(() => engine.buildMonthlyReviewStatus({ ...monthBoundary, timeZone: "BAD_ZONE" }), /CONTEXT/);
+assert.throws(() => monthly("2026-09-02", "2026-08-31T00:00:00.000Z"), /SOURCE/);
+assert.throws(() => engine.buildMonthlyReviewStatus({ ...monthBoundary, snapshots: [null] }), /SOURCE/);
+assert.deepEqual(engine.buildMonthlyReviewStatus({ ...monthBoundary, snapshots: [
+  ...monthBoundary.snapshots, { source: "MONTHLY_REVIEW", createdAt: "2026-09-01T00:00:00.000Z", nextReviewAt: null }
+] }), { overdueCount: 0, dueSoonCount: 0, unscheduledCount: 1 });
 function fixture() {
   const market = {
     assetType: "KRX", ticker: "000660", kind: "STOCK", accountClass: "GENERAL",
