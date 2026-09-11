@@ -10,6 +10,7 @@ const appCode = [
   "etf-exposure-engine.js",
   "ai-report-engine.js",
   "retirement-engine.js",
+  "performance-source-engine.js",
   "app.js"
 ].map((path) => readFileSync(path, "utf8")).join("\n");
 

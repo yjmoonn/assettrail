@@ -34,7 +34,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PAGES_URL: https://yjmoonn.github.io/assettrail
   STATIC_SITE_FILES: >-
-    index.html app.js retirement-engine.js decision-engine.js action-engine.js ledger-engine.js
+    index.html app.js retirement-engine.js performance-source-engine.js decision-engine.js action-engine.js ledger-engine.js
     performance-engine.js broker-csv-engine.js broker-csv-adapter-standard.js
     external-data-engine.js etf-exposure-engine.js ai-report-engine.js
     ai-review-export-engine.js history-repository.js styles.css

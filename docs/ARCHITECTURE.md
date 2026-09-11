@@ -26,6 +26,7 @@ AssetTrail은 GitHub Pages로 배포되는 정적 개인 자산 관리 앱이다
 | `action-engine.js` | 신규자금 제약 배분과 수동 태그 노출·위험예산을 계산하는 순수 엔진 |
 | `ledger-engine.js` | 거래·현금흐름 이벤트 검증, 기초잔액, 수량·원가·CASH 투영, 정정·취소 감사를 계산하는 순수 엔진 |
 | `performance-engine.js` | 검증 평가점의 TWR·XIRR, 원화 가치변화 브리지, 벤치마크, 낙폭·회복·변동성을 계산하는 순수 엔진 |
+| `performance-source-engine.js` | 원장·평가점 지문·NAV 항등식·입출금 경계·정규화를 검수하고 성과 데이터 및 V3 performance를 구성하는 순수 엔진 |
 | `retirement-engine.js` | 은퇴 가정 기본값·입력 검증·필요자산·요구수익률·V3 goal 맥락을 앱과 독립 worker에 공통 제공하는 순수 엔진 |
 | `history-repository.js` | 조회 스냅샷·성과 평가점을 월별 chunk로 정규화하고 digest 검증, IndexedDB 저장과 평면 배열 복원을 담당하는 순수 저장 엔진 |
 | `broker-csv-engine.js` | CSV 파싱·형식 감지·매핑 요청·중복 판별과 행별 처리 결과를 만드는 순수 엔진 |

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 
 const html = readFileSync("index.html", "utf8");
-const appSource = [readFileSync("retirement-engine.js", "utf8"), readFileSync("app.js", "utf8")].join("\n");
+const appSource = [readFileSync("retirement-engine.js", "utf8"), [readFileSync("performance-source-engine.js", "utf8"), readFileSync("app.js", "utf8")].join("\n")].join("\n");
 const appCode = [
   "decision-engine.js",
   "action-engine.js",
@@ -11,6 +11,7 @@ const appCode = [
   "performance-engine.js",
   "ai-review-export-engine.js",
   "retirement-engine.js",
+  "performance-source-engine.js",
   "app.js"
 ].map((path) => readFileSync(path, "utf8")).join("\n");
 
@@ -42,7 +43,7 @@ assert.ok(retirementScriptIndex >= 0 && retirementScriptIndex < appScriptIndex);
 assert.ok(reviewEngineScriptIndex >= 0);
 assert.ok(appScriptIndex > reviewEngineScriptIndex);
 assert.equal(scriptSources[reviewEngineScriptIndex], "ai-review-export-engine.js?v=20260911-monthly-review-v3");
-assert.equal(scriptSources[appScriptIndex], "app.js?v=20260911-monthly-review-v9");
+assert.equal(scriptSources[appScriptIndex], "app.js?v=20260911-performance-source-v9");
 
 // The browser delegates saved-valuation assembly to the same pure producer API.
 const inputSource = sourceBetween("function buildAiReviewInput", "function aiReviewMarkdown");
