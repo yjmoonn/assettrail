@@ -16,6 +16,8 @@
 
 ## 현재 제품 방향 (2026-09-07)
 
+2026-09-11 reader 인증 갱신: 고정 refresh endpoint·identity 확인·메모리 캐시·rotation 저장 callback을 구현하고 합성 실패/동시성 테스트를 통과했다. [계약과 경계](sessions/2026-09-11-reader-token-refresh.md). 실제 등록·저장소·무인 인증은 아직 연결하지 않았다.
+
 2026-09-11 전용 reader 규칙: 운영 rules를 바꾸지 않는 제안 생성기와 에뮬레이터 검수를 추가했다. 지정 사용자 primary·ledger/history 읽기만 허용하고 다른 경로·모든 쓰기·만료된 읽기를 거절한다. [경계와 미완료 항목](sessions/2026-09-11-scoped-reader-rules.md). 실제 identity 등록·갱신과 Rules 배포는 미실행이다.
 
 2026-09-11 V3 실행 진입점: 검증된 source receipt와 전체 V3 조립을 offline CLI/읽기 전용 함수로 연결했다. 해시·원장·시각 검사와 비공개 출력/덮어쓰기 거절 테스트를 통과했다. [실행 계약과 검증 경계](sessions/2026-09-11-read-only-v3-entrypoint.md). 무인 인증과 운영 배포는 아직 완료되지 않았다.
