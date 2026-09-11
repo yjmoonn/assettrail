@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readOnlySource } from "../scripts/read_only_source.mjs";
+import { buildSourceReview, readOnlyReview } from "../scripts/export_review.mjs";
+import { mkdtempSync, readFileSync, writeFileSync, statSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 
 const require = createRequire(import.meta.url);
 const ledger = require("../ledger-engine.js");
@@ -118,3 +123,56 @@ assert.equal((await run(flat)).receipt.reads, 3);
 delete flat.primary.data.snapshots;
 await assert.rejects(run(flat), /SOURCE_INLINE_HISTORY_MISSING/);
 console.log("read-only source tests passed");
+
+const exportFixture = fixture();
+exportFixture.primary.data.retirement = { ...require("../retirement-engine.js").defaults };
+const exportSource = await run(exportFixture);
+const exportOptions = { generatedAt: at, producerCommit: "a".repeat(40) };
+const exported = buildSourceReview(exportSource, exportOptions);
+assert.equal(exported.receipt.sourceStateDigest, exportSource.receipt.stateDigest);
+assert.equal(exported.receipt.sourceReceiptDigest, history.digestCanonical(exportSource.receipt));
+assert.equal(exported.receipt.reviewDigest, exported.review.digest);
+assert.equal(exported.receipt.currentAllocationEligible, false);
+assert.equal(exported.receipt.authenticationVerifiedByBuilder, false);
+assert.equal(exported.review.valuationStatus, "MISSING_LEGACY_SNAPSHOT_VALUATION");
+const exportTransport = transportFor(exportFixture);
+assert.deepEqual(await readOnlyReview({ transport: exportTransport, uid: "test-user", observedAt: at,
+  ...exportOptions }), exported);
+assert.equal(exportTransport.calls.length, 4);
+for (const modify of [
+  s => { s.state.retirement.currentAge = 40; },
+  s => { s.receipt.eventCount += 1; },
+  s => { s.state.events[0].amount = 2000; s.receipt.stateDigest = history.digestCanonical(s.state); },
+  s => { s.receipt.economicStateValidated = true; },
+  s => { s.receipt.observedAt = "2026-09-12T00:00:00.000Z"; },
+  s => { s.state.schemaVersion = 8; s.receipt.stateDigest = history.digestCanonical(s.state); },
+  s => { s.state.snapshots[0].createdAt = "2026-09-12T00:00:00.000Z";
+    s.receipt.stateDigest = history.digestCanonical(s.state); }
+]) {
+  const damaged = copy(exportSource); modify(damaged);
+  assert.throws(() => buildSourceReview(damaged, exportOptions), /INVALID_REVIEW/);
+}
+const noRead = transportFor(exportFixture);
+await assert.rejects(readOnlyReview({ transport: noRead, uid: "test-user", observedAt: at,
+  ...exportOptions, producerCommit: "invalid" }), /CONTEXT/);
+assert.equal(noRead.calls.length, 0);
+await assert.rejects(readOnlyReview({ transport: noRead, uid: "test-user", observedAt: at,
+  ...exportOptions, timeZone: "INVALID" }), /CONTEXT/);
+assert.equal(noRead.calls.length, 0);
+const directory = mkdtempSync(join(tmpdir(), "assettrail-export-test-"));
+try {
+  const input = join(directory, "source.json"), output = join(directory, "review.json");
+  writeFileSync(input, JSON.stringify(exportSource), { mode: 0o600 });
+  const args = ["scripts/export_review.mjs", "--source", input, "--output", output,
+    "--generated-at", at, "--producer-commit", exportOptions.producerCommit];
+  const first = spawnSync(process.execPath, args, { encoding: "utf8" });
+  assert.equal(first.status, 0, first.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), exported);
+  assert.equal(statSync(output).mode & 0o777, 0o600);
+  const bytes = readFileSync(output);
+  const repeated = spawnSync(process.execPath, args, { encoding: "utf8" });
+  assert.equal(repeated.status, 1);
+  assert.equal(repeated.stderr, "ASSETTRAIL_EXPORT_FAILED\n");
+  assert.deepEqual(readFileSync(output), bytes);
+} finally { rmSync(directory, { recursive: true, force: true }); }
+console.log("read-only V3 export: receipt binding, CLI and no-overwrite checks passed");
