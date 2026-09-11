@@ -14,7 +14,7 @@
     "test:external-data": "node tests/external-data-engine.test.mjs",
     "test:etf": "node tests/etf-exposure-engine.test.mjs",
     "test:ai": "node tests/ai-report-engine.test.mjs",
-    "test:ai-review": "node tests/retirement-engine.test.mjs && node tests/ai-review-export-engine.test.mjs && node tests/snapshot-review-input.test.mjs && node tests/app-ai-review-export.test.mjs && node tests/read-only-source.test.mjs && node tests/firestore-read-transport.test.mjs && node tests/firebase-reader-token.test.mjs",
+    "test:ai-review": "node tests/retirement-engine.test.mjs && node tests/ai-review-export-engine.test.mjs && node tests/snapshot-review-input.test.mjs && node tests/app-ai-review-export.test.mjs && node tests/read-only-source.test.mjs && node tests/firestore-read-transport.test.mjs && node tests/firebase-reader-token.test.mjs && node tests/reader-export.test.mjs",
     "test:history": "node tests/history-repository.test.mjs",
     "test:history-race": "node tests/app-history-transaction-race.test.mjs",
     "test:product": "node tests/app-product-restructure.test.mjs",

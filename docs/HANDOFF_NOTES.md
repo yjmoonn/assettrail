@@ -16,6 +16,8 @@
 
 ## 현재 제품 방향 (2026-09-07)
 
+2026-09-11 reader 실행 연결: `createReaderExporter`가 전용 identity 갱신 → owner 경로 GET → 일관성 검사 → V3 조립을 연결한다. 동시 export 거절, bounded reads, 인증 캐시/무효화, 잘못된 문맥의 네트워크 호출 전 거절을 검수했다. 실제 reader 등록·내구성 credential callback·Rules 운영 반영은 아직 필요하다. [세션](sessions/2026-09-11-reader-export-wiring.md).
+
 2026-09-11 reader 인증 갱신: 고정 refresh endpoint·identity 확인·메모리 캐시·rotation 저장 callback을 구현하고 합성 실패/동시성 테스트를 통과했다. [계약과 경계](sessions/2026-09-11-reader-token-refresh.md). 실제 등록·저장소·무인 인증은 아직 연결하지 않았다.
 
 2026-09-11 전용 reader 규칙: 운영 rules를 바꾸지 않는 제안 생성기와 에뮬레이터 검수를 추가했다. 지정 사용자 primary·ledger/history 읽기만 허용하고 다른 경로·모든 쓰기·만료된 읽기를 거절한다. [경계와 미완료 항목](sessions/2026-09-11-scoped-reader-rules.md). 실제 identity 등록·갱신과 Rules 배포는 미실행이다.
