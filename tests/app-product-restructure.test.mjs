@@ -14,7 +14,7 @@ const engineCode = [
   "external-data-engine.js",
   "history-repository.js"
 ].map((path) => readFileSync(path, "utf8")).join("\n");
-const appSource = readFileSync("app.js", "utf8");
+const appSource = [readFileSync("retirement-engine.js", "utf8"), [readFileSync("performance-source-engine.js", "utf8"), readFileSync("app.js", "utf8")].join("\n")].join("\n");
 
 const STORAGE_KEY = "finance-ledger-retirement-v1";
 const EXTERNAL_DATA_KEY = `${STORAGE_KEY}:external-data-v1`;

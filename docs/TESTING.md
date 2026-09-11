@@ -37,6 +37,10 @@
 
 ## 기본 검증
 
+`test:ai-review`의 `read-only-source.test.mjs`·`firestore-read-transport.test.mjs`는 원장/이력 조립과 HTTP GET 어댑터의 합성 검수다. 사용자 자료·실제 인증 검수와 구분한다. 원장 지문은 origin/main 361d7b4의 기준 벡터를 유지한다.
+
+2026-09-11: `test:ai-review`에는 `snapshot-review-input.test.mjs`도 포함한다. 브라우저 없는 VM/Node의 저장 평가 입력 구성 일치, 원본 불변, 계좌별 합산·기초자산 집중도, 평가 기준일 보존·명시한 시간대·평일 경과일, legacy/누락 및 동일 포지션의 평가 기준 충돌을 검수한다. 이 합성 테스트는 Firestore 무인 접근이나 실제 보유자산 갱신의 증거가 아니다.
+
 문서만 변경한 경우:
 
 ```sh

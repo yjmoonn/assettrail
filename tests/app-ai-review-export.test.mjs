@@ -3,13 +3,15 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 
 const html = readFileSync("index.html", "utf8");
-const appSource = readFileSync("app.js", "utf8");
+const appSource = [readFileSync("retirement-engine.js", "utf8"), [readFileSync("performance-source-engine.js", "utf8"), readFileSync("app.js", "utf8")].join("\n")].join("\n");
 const appCode = [
   "decision-engine.js",
   "action-engine.js",
   "ledger-engine.js",
   "performance-engine.js",
   "ai-review-export-engine.js",
+  "retirement-engine.js",
+  "performance-source-engine.js",
   "app.js"
 ].map((path) => readFileSync(path, "utf8")).join("\n");
 
@@ -36,59 +38,18 @@ const scriptSources = [...staticDom.window.document.querySelectorAll("script[src
   .map((script) => script.getAttribute("src"));
 const reviewEngineScriptIndex = scriptSources.findIndex((src) => src.startsWith("ai-review-export-engine.js"));
 const appScriptIndex = scriptSources.findIndex((src) => src.startsWith("app.js"));
+const retirementScriptIndex = scriptSources.findIndex((src) => src.startsWith("retirement-engine.js"));
+assert.ok(retirementScriptIndex >= 0 && retirementScriptIndex < appScriptIndex);
 assert.ok(reviewEngineScriptIndex >= 0);
 assert.ok(appScriptIndex > reviewEngineScriptIndex);
-assert.equal(scriptSources[reviewEngineScriptIndex], "ai-review-export-engine.js?v=20260907-account-valuation-v3");
-assert.equal(scriptSources[appScriptIndex], "app.js?v=20260907-account-valuation-v9");
+assert.equal(scriptSources[reviewEngineScriptIndex], "ai-review-export-engine.js?v=20260911-monthly-review-v3");
+assert.equal(scriptSources[appScriptIndex], "app.js?v=20260911-performance-source-v9");
 
-// buildAiReviewInput maps existing deterministic calculations into the engine allowlist contract.
+// The browser delegates saved-valuation assembly to the same pure producer API.
 const inputSource = sourceBetween("function buildAiReviewInput", "function aiReviewMarkdown");
-[
-  "generatedAt",
-  "asOfDate",
-  "snapshotId",
-  "snapshotCreatedAt",
-  "valuationStatus",
-  "dataQuality",
-  "marketPositionCount",
-  "pricedPositionCount",
-  "missingPriceCount",
-  "portfolio",
-  "totalMarketValueKRW",
-  "allocation",
-  "positions",
-  "concentration",
-  "targetComparison",
-  "performance",
-  "goal",
-  "reviewStatus"
-].forEach((field) => assert.match(inputSource, new RegExp(`\\b${field}\\b`), `${field} mapping should exist`));
-
-const positionSource = sourceBetween("function aiReviewSnapshotPositions", "function aiReviewSnapshotConcentration");
-[
-  "assetType",
-  "market",
-  "ticker",
-  "kind",
-  "accountClass",
-  "accountName",
-  "valuationMode",
-  "quantity",
-  "appliedPrice",
-  "priceCurrency",
-  "priceAsOf",
-  "sessionStatus",
-  "fxRate",
-  "fxAsOf",
-  "fxSessionStatus",
-  "marketValueKRW",
-  "weightPct",
-  "quality"
-]
-  .forEach((field) => assert.match(positionSource, new RegExp(`\\b${field}\\b`), `${field} position field should exist`));
-assert.match(positionSource, /snapshot\.valuation\.positions/, "positions must come from the latest stored valuation");
-assert.doesNotMatch(positionSource, /assetValue\(/, "snapshot valuation must not be replaced with current asset values");
-assert.doesNotMatch(positionSource, /priceForAsset\(/, "snapshot valuation must not be replaced with current prices");
+assert.match(inputSource, /buildSnapshotReviewInput/);
+assert.match(inputSource, /latestAiReviewSnapshot/);
+assert.doesNotMatch(inputSource, /assetValue\(|priceForAsset\(/);
 
 const markdownSource = sourceBetween("function aiReviewMarkdown", "function exportAiReviewPackage");
 assert.match(markdownSource, /```json/);

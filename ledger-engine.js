@@ -1416,10 +1416,49 @@
     };
   }
 
+  function fingerprintLedger(events) {
+    if (!Array.isArray(events)) throw new Error("INVALID_LEDGER_EVENTS");
+    const canonical = JSON.stringify((events || [])
+      .map((event) => {
+        const result = normalizeLedgerEvent(event);
+        if (!result.ok) throw new Error("INVALID_LEDGER_EVENT");
+        return result.event;
+      })
+      .sort(compareLedgerEventIds));
+    let h1 = 1779033703;
+    let h2 = 3144134277;
+    let h3 = 1013904242;
+    let h4 = 2773480762;
+    for (let index = 0; index < canonical.length; index += 1) {
+      const code = canonical.charCodeAt(index);
+      h1 = h2 ^ Math.imul(h1 ^ code, 597399067);
+      h2 = h3 ^ Math.imul(h2 ^ code, 2869860233);
+      h3 = h4 ^ Math.imul(h3 ^ code, 951274213);
+      h4 = h1 ^ Math.imul(h4 ^ code, 2716044179);
+    }
+    h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067);
+    h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233);
+    h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213);
+    h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179);
+    const digest = [h1, h2, h3, h4]
+      .map((value) => (value >>> 0).toString(16).padStart(8, "0"))
+      .join("");
+    return `cyrb128-v1:${digest}`;
+  }
+
+  function compareLedgerEventIds(a, b) {
+    const left = String(a?.eventId || "");
+    const right = String(b?.eventId || "");
+    if (left < right) return -1;
+    if (left > right) return 1;
+    return 0;
+  }
+
   return Object.freeze({
     TRANSACTION_EVENT_TYPES,
     INTERNAL_EVENT_TYPES,
     normalizeLedgerEvent,
+    fingerprintLedger,
     validateLedger,
     projectLedger,
     createOpeningBalanceEvent
