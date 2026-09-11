@@ -30,7 +30,7 @@
     "test:prices": "node tests/app-prices.test.mjs",
     "test:symbols": "node tests/app-symbols.test.mjs",
     "test:price-requests": "python3 tests/generate-prices-requests.test.py",
-    "test:firestore": "firebase emulators:exec --only firestore \"node tests/firestore-rules.test.mjs\"",
+    "test:firestore": "firebase emulators:exec --only firestore \"node tests/firestore-rules.test.mjs && node tests/reader-rules.test.mjs\"",
     "tickers:review": "node scripts/manage_us_tickers.mjs",
     "test": "npm run check:js && npm run test:decision && npm run test:action && npm run test:action-app && npm run test:ledger && npm run test:performance && npm run test:broker-csv && npm run test:stage5 && npm run test:ai-review && npm run test:history && npm run test:history-race && npm run test:product && npm run test:investment && npm run test:prices && npm run test:price-fallback && npm run test:symbols && npm run test:cloud && npm run test:cloud-history-gc && npm run test:cloud-conflict && npm run test:cloud-auth-race && npm run test:cloud-prices && npm run test:data && npm run test:price-requests && npm run test:firestore"
   },
