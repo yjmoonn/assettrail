@@ -212,6 +212,8 @@ let cloud = {
   schemaBlockSource: null,
   schemaBlockVersion: null,
   runTransaction: null,
+  functions: null,
+  requestPriceRefresh: null,
   collection: null,
   getDocs: null,
   deleteDoc: null,
@@ -2256,6 +2258,16 @@ async function initFirebase() {
     const appModule = modules.app || await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js");
     const authModule = modules.auth || await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js");
     const firestoreModule = modules.firestore || await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js");
+    let functionsModule = modules.functions || null;
+    const runningInNodeTest = typeof process !== "undefined" && Boolean(process.versions?.node);
+    const runningInJsdom = String(window.navigator?.userAgent || "").toLowerCase().includes("jsdom");
+    if (!functionsModule && !runningInNodeTest && !runningInJsdom && ["http:", "https:"].includes(window.location?.protocol)) {
+      try {
+        functionsModule = await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-functions.js");
+      } catch (error) {
+        console.warn("가격 최신화 함수가 아직 배포되지 않았습니다.", error);
+      }
+    }
 
     const app = appModule.initializeApp(firebaseConfig);
     cloud.auth = authModule.getAuth(app);
@@ -2272,6 +2284,10 @@ async function initFirebase() {
     cloud.setDoc = firestoreModule.setDoc;
     cloud.deleteDoc = firestoreModule.deleteDoc || null;
     cloud.runTransaction = firestoreModule.runTransaction || null;
+    if (functionsModule?.getFunctions && functionsModule?.httpsCallable) {
+      cloud.functions = functionsModule.getFunctions(app);
+      cloud.requestPriceRefresh = functionsModule.httpsCallable(cloud.functions, "requestPriceRefresh");
+    }
     cloud.enabled = true;
     cloud.ready = true;
 
@@ -12770,8 +12786,45 @@ els.ledgerFilterToggle?.addEventListener("click", () => {
   els.ledgerFilterToggle.setAttribute("aria-expanded", String(open));
 });
 
+async function requestPriceRefreshFromApp() {
+  const previousGeneratedAt = priceBook.generatedAt;
+  const loaded = await initPrices({ createPerformanceObservation: false });
+  if (!loaded) return;
+
+  const validUntil = Date.parse(priceBook.finalCloseCertificate?.validUntil || "");
+  if (Number.isFinite(validUntil) && validUntil > Date.now()) {
+    setPriceStatus("최신 확정 종가", true);
+    return;
+  }
+  if (!cloud.user || !cloud.requestPriceRefresh) {
+    setPriceStatus("로그인 후 가격 최신화 가능");
+    return;
+  }
+
+  setPriceStatus("가격 최신화 요청 중");
+  try {
+    const result = await cloud.requestPriceRefresh({ baselineGeneratedAt: previousGeneratedAt || null });
+    const baseline = previousGeneratedAt || "";
+    const deadline = Date.now() + 10 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 15000));
+      setPriceStatus("가격 생성 중");
+      await initPrices({ createPerformanceObservation: false });
+      if (priceBook.generatedAt && priceBook.generatedAt !== baseline) {
+        await initPrices({ createPerformanceObservation: true });
+        setPriceStatus("가격 최신화 완료", true);
+        return;
+      }
+    }
+    setPriceStatus(result?.data?.runUrl ? "가격 생성 지연 · GitHub Actions 확인" : "가격 최신화 시간 초과");
+  } catch (error) {
+    console.error(error);
+    setPriceStatus(error?.code === "functions/unauthenticated" ? "로그인 후 가격 최신화 가능" : "가격 최신화 실패");
+  }
+}
+
 els.priceRefreshBtn?.addEventListener("click", () => {
-  initPrices();
+  requestPriceRefreshFromApp();
 });
 
 els.dashboardSnapshotBtn?.addEventListener("click", () => {
