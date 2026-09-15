@@ -16,6 +16,24 @@
 
 ## 현재 제품 방향 (2026-09-07)
 
+2026-09-11 reader 실행 연결: `createReaderExporter`가 전용 identity 갱신 → owner 경로 GET → 일관성 검사 → V3 조립을 연결한다. 동시 export 거절, bounded reads, 인증 캐시/무효화, 잘못된 문맥의 네트워크 호출 전 거절을 검수했다. 실제 reader 등록·내구성 credential callback·Rules 운영 반영은 아직 필요하다. [세션](sessions/2026-09-11-reader-export-wiring.md).
+
+2026-09-11 reader 인증 갱신: 고정 refresh endpoint·identity 확인·메모리 캐시·rotation 저장 callback을 구현하고 합성 실패/동시성 테스트를 통과했다. [계약과 경계](sessions/2026-09-11-reader-token-refresh.md). 실제 등록·저장소·무인 인증은 아직 연결하지 않았다.
+
+2026-09-11 전용 reader 규칙: 운영 rules를 바꾸지 않는 제안 생성기와 에뮬레이터 검수를 추가했다. 지정 사용자 primary·ledger/history 읽기만 허용하고 다른 경로·모든 쓰기·만료된 읽기를 거절한다. [경계와 미완료 항목](sessions/2026-09-11-scoped-reader-rules.md). 실제 identity 등록·갱신과 Rules 배포는 미실행이다.
+
+2026-09-11 V3 실행 진입점: 검증된 source receipt와 전체 V3 조립을 offline CLI/읽기 전용 함수로 연결했다. 해시·원장·시각 검사와 비공개 출력/덮어쓰기 거절 테스트를 통과했다. [실행 계약과 검증 경계](sessions/2026-09-11-read-only-v3-entrypoint.md). 무인 인증과 운영 배포는 아직 완료되지 않았다.
+
+2026-09-11 성과 source 분리: 원장/평가점 지문·항등식·현금흐름 경계와 V3 성과를 독립 엔진으로 공유했다. 실제 source로 브라우저 없는 전체 V3 조립도 이전 검증본과 일치했고 전체 npm test exit 0을 확인했다. [검수 경계](sessions/2026-09-11-performance-source.md). PR CI·worker 진입점·무인 인증은 후속이며 운영 배포는 하지 않는다.
+
+2026-09-11 월간 점검 맥락: 명시한 generatedAt/timeZone과 저장 snapshots로 reviewStatus를 만드는 순수 API를 앱에 연결했다. [검증과 경계](sessions/2026-09-11-monthly-review-context.md). 실제 native V3 일치와 전체 npm test exit 0을 확인했다. PR CI·무인 인증·성과 dataset 분리·운영 배포는 완료되지 않았다.
+
+2026-09-11 은퇴 계산 분리: `retirement-engine.js`로 기본값·검증·계산·V3 goal 맥락을 옮겨 앱이 재사용한다. 실제 서버 입력 goal과 기존 V3 일치 및 48개 이전 계산 결과 대조, 전체 npm test exit 0을 확인했다. [세션 기록](sessions/2026-09-11-retirement-engine.md). PR CI·성과/월간 검토 맥락 분리·무인 인증은 후속 확인하며 운영 배포는 하지 않는다.
+
+2026-09-11 읽기 전용 source 후속: 원장 지문을 기존 엔진에 공유하고 primary·ledger·history 일관성 검사와 Firestore GET transport를 추가했다. [구현·검수 경계](sessions/2026-09-11-read-only-source.md). 실제 identity 등록과 경제적 잔액·평가 검증은 아직 남아 있으며 운영 자료/원장/Rules는 변경하지 않았다.
+
+2026-09-11 후속 개발: 저장 평가의 V3 입력 구성을 기존 순수 엔진으로 분리하고 앱에서 재사용한다. [공통 입력 구성](sessions/2026-09-11-shared-review-input.md)에 계약·검수·다음 작업을 기록했다. 읽기 전용 worker의 인증과 Firestore source 조립, 실제 원본 V3 대조는 남아 있다. 운영 배포나 원장 변경은 수행하지 않는다.
+
 - 목적은 현재 자산, 지난 기록 이후 변화, 현금흐름과 투자 성과, 은퇴 목표 거리를
   월 1회 5분 안에 점검하는 것이다.
 - 현재 IA는 `홈 / 자산 / 기록 / 목표`와 우측 상단 `설정`이다. 포트폴리오·의사결정·

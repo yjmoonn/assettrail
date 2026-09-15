@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 
 const html = readFileSync("index.html", "utf8");
-const appSource = readFileSync("app.js", "utf8");
+const appSource = [readFileSync("retirement-engine.js", "utf8"), [readFileSync("performance-source-engine.js", "utf8"), readFileSync("app.js", "utf8")].join("\n")].join("\n");
 const engineSource = [
   "decision-engine.js",
   "action-engine.js",
