@@ -333,21 +333,25 @@ def test_krx_completed_row_keeps_the_reported_close():
     assert entry[1]["sessionStatus"] == "FINAL_CLOSE"
 
 
-def test_krx_open_row_is_never_certified_as_the_current_completed_session():
+def test_krx_nxt_open_row_uses_regular_close_for_confirmed_session():
     item = {
         "itemCode": "005930",
         "stockName": "삼성전자",
         "closePrice": "74,000",
         "compareToPreviousClosePrice": "1,000",
         "localTradedAt": "2026-11-19T15:45:00+09:00",
-        "marketStatus": "OPEN"
+        "marketStatus": "OPEN",
+        "overMarketPriceInfo": {"overPrice": "74,500", "overPriceRaw": "74500"}
     }
-    assert generate_prices.build_krx_price_entry(
+    entry = generate_prices.build_krx_price_entry(
         item,
         "KRX KOSPI",
         "2026-11-19",
         now=datetime(2026, 11, 19, 6, 45, tzinfo=timezone.utc)
-    ) is None
+    )
+    assert entry[1]["close"] == 74000.0
+    assert entry[1]["date"] == "2026-11-19"
+    assert entry[1]["sessionStatus"] == "FINAL_CLOSE"
 
 
 def test_krx_intraday_row_without_previous_change_is_not_certified():
@@ -1024,7 +1028,7 @@ if __name__ == "__main__":
     test_fx_session_metadata_probe_is_separate_from_daily_quote_rows()
     test_krx_intraday_row_is_rewound_to_the_latest_completed_session()
     test_krx_completed_row_keeps_the_reported_close()
-    test_krx_open_row_is_never_certified_as_the_current_completed_session()
+    test_krx_nxt_open_row_uses_regular_close_for_confirmed_session()
     test_krx_intraday_row_without_previous_change_is_not_certified()
     test_krx_completed_session_uses_calendar_rows_and_live_close_state()
     test_krx_delayed_close_stays_on_previous_session_while_market_is_open()

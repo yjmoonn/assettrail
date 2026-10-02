@@ -839,12 +839,9 @@ def build_krx_price_entry(item, source, completed_session_date, now=None):
     if not item_calendar_date:
         return None
     current_date = resolve_aware_now(now).astimezone(KST).date()
-    if (
-        item_calendar_date == completed_date
-        and item_calendar_date == current_date
-        and str(item.get("marketStatus") or "").strip().upper() != "CLOSE"
-    ):
-        return None
+    # `closePrice` is the regular-session close. Naver can report the individual
+    # instrument as OPEN during NXT after-hours trading, while exposing that
+    # separate quote under `overMarketPriceInfo`; only use `closePrice` here.
     if item_calendar_date > completed_date:
         if item_calendar_date != current_date:
             return None
@@ -906,11 +903,46 @@ def fetch_naver_category_prices(path, source, completed_session_date, now=None):
     return prices
 
 
+def fetch_naver_completed_close_prices(path, source, completed_session_date, now=None):
+    """Fetch every listed instrument, even when intraday rows fail close validation."""
+    prices = {}
+    page = 1
+    total_count = None
+
+    while total_count is None or (page - 1) * NAVER_PAGE_SIZE < total_count:
+        response = requests.get(
+            f"https://m.stock.naver.com/api/stocks/{path}",
+            params={"page": page, "pageSize": NAVER_PAGE_SIZE},
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://m.stock.naver.com/"},
+            timeout=20
+        )
+        response.raise_for_status()
+        data = response.json()
+        stocks = data.get("stocks") or []
+        total_count = int(data.get("totalCount") or ((page - 1) * NAVER_PAGE_SIZE + len(stocks)))
+        if not stocks:
+            break
+
+        for item in stocks:
+            entry = build_krx_price_entry(
+                item,
+                source,
+                completed_session_date,
+                now=now
+            )
+            if entry:
+                ticker, price = entry
+                prices[ticker] = price
+        page += 1
+
+    return prices
+
+
 def fetch_all_krx_prices(completed_session_date, now=None):
     prices = {}
 
     for category in NAVER_STOCK_CATEGORIES:
-        prices.update(fetch_naver_category_prices(
+        prices.update(fetch_naver_completed_close_prices(
             f"marketValue/{category}",
             f"KRX {category}",
             completed_session_date,
@@ -918,7 +950,7 @@ def fetch_all_krx_prices(completed_session_date, now=None):
         ))
 
     for category in NAVER_ETX_CATEGORIES:
-        prices.update(fetch_naver_category_prices(
+        prices.update(fetch_naver_completed_close_prices(
             category,
             f"KRX {category.upper()}",
             completed_session_date,
