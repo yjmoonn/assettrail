@@ -12786,19 +12786,20 @@ els.ledgerFilterToggle?.addEventListener("click", () => {
   els.ledgerFilterToggle.setAttribute("aria-expanded", String(open));
 });
 
-async function requestPriceRefreshFromApp() {
+async function requestPriceRefreshFromApp({ createPerformanceObservation = true } = {}) {
   const previousGeneratedAt = priceBook.generatedAt;
   const loaded = await initPrices({ createPerformanceObservation: false });
-  if (!loaded) return;
+  if (!loaded) return { ok: false, reason: "price-load-failed" };
 
   const validUntil = Date.parse(priceBook.finalCloseCertificate?.validUntil || "");
-  if (Number.isFinite(validUntil) && validUntil > Date.now()) {
+  const heldCertificateIssue = finalCloseCertificateIssue(heldMarketAssets());
+  if (!heldCertificateIssue && Number.isFinite(validUntil) && validUntil > Date.now()) {
     setPriceStatus("최신 확정 종가", true);
-    return;
+    return { ok: true, alreadyFresh: true };
   }
   if (!cloud.user || !cloud.requestPriceRefresh) {
     setPriceStatus("로그인 후 가격 최신화 가능");
-    return;
+    return { ok: false, reason: "authentication-required" };
   }
 
   setPriceStatus("가격 최신화 요청 중");
@@ -12811,15 +12812,23 @@ async function requestPriceRefreshFromApp() {
       setPriceStatus("가격 생성 중");
       await initPrices({ createPerformanceObservation: false });
       if (priceBook.generatedAt && priceBook.generatedAt !== baseline) {
-        await initPrices({ createPerformanceObservation: true });
+        const refreshed = await initPrices({ createPerformanceObservation });
+        if (!refreshed) return { ok: false, reason: "price-load-failed" };
         setPriceStatus("가격 최신화 완료", true);
-        return;
+        return { ok: true };
       }
     }
     setPriceStatus(result?.data?.runUrl ? "가격 생성 지연 · GitHub Actions 확인" : "가격 최신화 시간 초과");
+    return { ok: false, reason: "timeout", runUrl: result?.data?.runUrl || null };
   } catch (error) {
     console.error(error);
     setPriceStatus(error?.code === "functions/unauthenticated" ? "로그인 후 가격 최신화 가능" : "가격 최신화 실패");
+    return {
+      ok: false,
+      reason: ["functions/unauthenticated", "functions/permission-denied"].includes(error?.code)
+        ? "authentication-required"
+        : "request-failed"
+    };
   }
 }
 
@@ -12921,8 +12930,9 @@ async function saveAssetSnapshot({ monthlyReview = false } = {}) {
       return false;
     }
 
+    let saveContext = null;
     if (heldMarketAssets().length) {
-      const saveContext = {
+      saveContext = {
         authGeneration: cloud.authGeneration,
         economicStateFingerprint: snapshotSaveEconomicStateFingerprint(),
         storageKey: activeStorageKey
@@ -12947,7 +12957,34 @@ async function saveAssetSnapshot({ monthlyReview = false } = {}) {
       alert("가격을 확인하는 동안 장기 기록 저장소를 사용할 수 없게 되어 조회 기록을 저장하지 않았습니다.");
       return false;
     }
-    const readiness = snapshotReadiness();
+    let readiness = snapshotReadiness();
+    if (!readiness.ok
+        && finalCloseCertificateIssue(heldMarketAssets()).includes("인증이 만료되었습니다")) {
+      const refreshResult = await requestPriceRefreshFromApp({ createPerformanceObservation: false });
+      if (!refreshResult.ok) {
+        const message = refreshResult.reason === "authentication-required"
+          ? "최신 확정 종가 인증이 만료되어 조회 기록을 저장하지 않았습니다. 로그인한 상태에서 설정의 가격표 > 가격 최신화를 실행한 뒤 다시 저장하세요."
+          : refreshResult.reason === "timeout"
+            ? "최신 확정 종가 인증이 만료되어 자동 가격 최신화를 요청했지만 10분 안에 완료되지 않았습니다. 가격표 상태를 확인한 뒤 다시 저장하세요."
+            : "최신 확정 종가 인증이 만료되어 조회 기록을 저장하지 않았습니다. 설정의 가격표 > 가격 최신화를 실행한 뒤 다시 저장하세요.";
+        alert(message);
+        return false;
+      }
+      if (saveContext && (saveContext.storageKey !== activeStorageKey
+          || saveContext.authGeneration !== cloud.authGeneration)) {
+        alert("가격을 갱신하는 동안 사용자 데이터 영역이 변경되어 조회 기록을 저장하지 않았습니다. 현재 계정에서 다시 저장하세요.");
+        return false;
+      }
+      if (saveContext && saveContext.economicStateFingerprint !== snapshotSaveEconomicStateFingerprint()) {
+        alert("가격을 갱신하는 동안 자산·원장 또는 저장 기록이 변경되어 조회 기록을 저장하지 않았습니다. 변경된 내용을 확인한 뒤 다시 저장하세요.");
+        return false;
+      }
+      if (historyStorage.blocked) {
+        alert("가격을 갱신하는 동안 장기 기록 저장소를 사용할 수 없게 되어 조회 기록을 저장하지 않았습니다.");
+        return false;
+      }
+      readiness = snapshotReadiness();
+    }
     if (!readiness.ok) {
       alert(readiness.message);
       return false;

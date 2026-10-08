@@ -23,6 +23,7 @@
 | `npm run test:stage5` | 일몰한 외부 데이터·ETF·기존 AI 엔진의 저장 호환, 로컬 격리 및 US 티커 운영 CLI 회귀 검증 |
 | `npm run test:investment` | 기존 의사결정·관심종목 데이터가 v9 마이그레이션과 백업에서 보존되고 레거시 편집 화면은 노출되지 않는지 검증 |
 | `npm run test:prices` | 포트폴리오 가격 계산, 가격 방법론과 KOSPI·S&P 500 metadata 처리 검증 |
+| `npm run test:workflow` | 가격 예약 시각, 데이터 전용 실행의 CI 생략, 생성 재시도와 코드 변경 CI 게이트 검증 |
 | `npm run test:price-fallback` | 가격 데이터가 없거나 오래된 경우의 fallback 상태 검증 |
 | `npm run test:symbols` | 분리된 종목 디렉터리의 지연 로딩과 실패 격리 검증 |
 | `npm run test:cloud` | 주 문서, 세대별 원장 이벤트와 history chunk의 일관된 클라우드 동기화 검증 |
@@ -104,7 +105,7 @@ firebase emulators:exec --only firestore "node tests/firestore-rules.test.mjs"
 | `scripts/generate_prices.py`, 벤치마크 metadata, `tickers.json`, `requirements.txt` | `npm run test:price-requests`, `npm run test:prices`, `npm run test:performance` |
 | Firebase Auth 또는 Firestore 동기화 | `npm run test:cloud`, `npm run test:cloud-prices`, `npm run test:firestore` |
 | `firestore.rules` | `npm run test:firestore`, 가능하면 `npm test` |
-| GitHub Actions 배포 동작 | `.github/workflows/deploy-pages.yml` 검토 후 변경 입력과 관련된 로컬 테스트 |
+| GitHub Actions 배포 동작 | `.github/workflows/deploy-pages.yml` 검토 후 변경 입력과 관련된 로컬 테스트. 코드 push/PR은 전체 CI를 거치며, 예약·가격 생성 수동 실행은 전체 앱 테스트 대신 가격 생성 품질 검사를 수행한다. |
 
 ## 수동 UI 확인
 

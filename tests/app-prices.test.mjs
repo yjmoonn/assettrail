@@ -948,7 +948,8 @@ const expiredCertificateGuard = await runSnapshotGuardScenario({
   }],
   priceData: finalCloseManifest(100, { validUntil: "2026-07-30T00:30:00.000Z" })
 });
-assert.match(expiredCertificateGuard.alerts[0], /KRX 시장 최신 확정 종가 인증이 만료되었습니다/);
+assert.match(expiredCertificateGuard.alerts[0], /인증이 만료되어 조회 기록을 저장하지 않았습니다/);
+assert.match(expiredCertificateGuard.alerts[0], /로그인한 상태에서 설정의 가격표 > 가격 최신화/);
 assert.equal(expiredCertificateGuard.stored.snapshots.length, 0);
 
 const exactCutoffGuard = await runSnapshotGuardScenario({
@@ -962,7 +963,7 @@ const exactCutoffGuard = await runSnapshotGuardScenario({
   }],
   priceData: finalCloseManifest(100, { validUntil: "2026-07-30T01:00:00.000Z" })
 });
-assert.match(exactCutoffGuard.alerts[0], /KRX 시장 최신 확정 종가 인증이 만료되었습니다/);
+assert.match(exactCutoffGuard.alerts[0], /인증이 만료되어 조회 기록을 저장하지 않았습니다/);
 assert.equal(exactCutoffGuard.stored.snapshots.length, 0);
 
 const unheldMarketExpiryIgnored = await runSnapshotGuardScenario({
@@ -1014,7 +1015,7 @@ const requiredFxExpiryGuard = await runSnapshotGuardScenario({
   }],
   priceData: usCertificateWithExpiredFx
 });
-assert.match(requiredFxExpiryGuard.alerts[0], /FX 시장 최신 확정 종가 인증이 만료되었습니다/);
+assert.match(requiredFxExpiryGuard.alerts[0], /인증이 만료되어 조회 기록을 저장하지 않았습니다/);
 assert.equal(requiredFxExpiryGuard.stored.snapshots.length, 0);
 
 function deferred() {
@@ -1027,7 +1028,7 @@ function deferred() {
   return { promise, reject, resolve };
 }
 
-async function createSnapshotRefreshHarness(refreshFetch) {
+async function createSnapshotRefreshHarness(refreshFetch, { initialPriceData } = {}) {
   const scenarioDom = new JSDOM(html, {
     pretendToBeVisual: true,
     runScripts: "outside-only",
@@ -1054,12 +1055,13 @@ async function createSnapshotRefreshHarness(refreshFetch) {
   scenarioWindow.fetch = async (url, options) => {
     fetchCalls.push({ options, url: String(url) });
     if (fetchCalls.length === 1) {
-      return { ok: true, json: async () => finalCloseManifest(100) };
+      return { ok: true, json: async () => initialPriceData || finalCloseManifest(100) };
     }
     return refreshFetch({ call: fetchCalls.length, options, url: String(url) });
   };
 
   scenarioWindow.eval(`${appCode}
+    let snapshotPriceRefreshRequests = [];
     const originalSnapshotRefreshPerformance = refreshPerformanceObservation;
     let snapshotRefreshPerformanceSources = [];
     refreshPerformanceObservation = function snapshotRefreshPerformanceProbe(options = {}) {
@@ -1099,6 +1101,21 @@ async function createSnapshotRefreshHarness(refreshFetch) {
       resetPerformanceSources() {
         snapshotRefreshPerformanceSources = [];
       },
+      enablePriceRefresh(failureCode = "") {
+        cloud.user = { uid: "snapshot-refresh-test-user" };
+        cloud.requestPriceRefresh = async (payload) => {
+          snapshotPriceRefreshRequests.push(JSON.parse(JSON.stringify(payload)));
+          if (failureCode) {
+            const error = new Error("price refresh request failed");
+            error.code = failureCode;
+            throw error;
+          }
+          return { data: { accepted: true, runUrl: "https://github.com/yjmoonn/assettrail/actions" } };
+        };
+      },
+      priceRefreshRequests() {
+        return JSON.parse(JSON.stringify(snapshotPriceRefreshRequests));
+      },
       snapshots() {
         return JSON.parse(JSON.stringify(state.snapshots));
       }
@@ -1112,6 +1129,74 @@ async function createSnapshotRefreshHarness(refreshFetch) {
   );
   scenarioWindow.__snapshotRefreshTestApi.resetPerformanceSources();
   return { alerts, dom: scenarioDom, fetchCalls, window: scenarioWindow };
+}
+
+// 만료된 가격 인증은 저장 시 최신 가격 생성 workflow를 요청하고, 갱신된 가격으로 저장한다.
+{
+  const expiredPrices = finalCloseManifest(100, {
+    validUntil: "2026-07-31T00:00:00.000Z",
+    validUntilByMarket: { KRX: "2026-07-30T00:30:00.000Z" }
+  });
+  const refreshedPrices = finalCloseManifest(120);
+  refreshedPrices.generatedAt = "2026-07-30T01:01:00.000Z";
+  const harness = await createSnapshotRefreshHarness(
+    async ({ call }) => ({
+      ok: true,
+      json: async () => call >= 4 ? refreshedPrices : expiredPrices
+    }),
+    { initialPriceData: expiredPrices }
+  );
+  const { window: scenarioWindow } = harness;
+  const realSetTimeout = scenarioWindow.setTimeout.bind(scenarioWindow);
+  scenarioWindow.setTimeout = (callback, delay, ...args) => {
+    if (delay === 15000) {
+      scenarioWindow.queueMicrotask(() => callback(...args));
+      return 1;
+    }
+    return realSetTimeout(callback, delay, ...args);
+  };
+  scenarioWindow.__snapshotRefreshTestApi.enablePriceRefresh();
+  scenarioWindow.document.querySelector("#snapshotBtn").click();
+  await waitUntil(
+    scenarioWindow,
+    () => scenarioWindow.__snapshotRefreshTestApi.snapshots().length === 1,
+    `만료된 가격 인증이 자동 갱신된 뒤 조회 기록이 저장되지 않았습니다. fetch=${harness.fetchCalls.length}, alerts=${JSON.stringify(harness.alerts)}, requests=${JSON.stringify(scenarioWindow.__snapshotRefreshTestApi.priceRefreshRequests())}, status=${scenarioWindow.document.querySelector("#priceStatus").textContent}`
+  );
+
+  assert.equal(harness.fetchCalls.length, 5);
+  assert.deepEqual(JSON.parse(JSON.stringify(scenarioWindow.__snapshotRefreshTestApi.priceRefreshRequests())), [{
+    baselineGeneratedAt: "2026-07-30T00:00:00.000Z"
+  }]);
+  assert.equal(scenarioWindow.__snapshotRefreshTestApi.snapshots()[0].total, 240);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(scenarioWindow.__snapshotRefreshTestApi.performanceSources())),
+    ["USER_SNAPSHOT"]
+  );
+  assert.deepEqual(harness.alerts, []);
+  harness.dom.window.close();
+}
+
+// 가격 최신화 요청 자체가 거부되면 화면의 오래된 가격으로 우회 저장하지 않는다.
+{
+  const expiredPrices = finalCloseManifest(100, { validUntil: "2026-07-30T00:30:00.000Z" });
+  const harness = await createSnapshotRefreshHarness(
+    async () => ({ ok: true, json: async () => expiredPrices }),
+    { initialPriceData: expiredPrices }
+  );
+  const { window: scenarioWindow } = harness;
+  scenarioWindow.__snapshotRefreshTestApi.enablePriceRefresh("functions/internal");
+  scenarioWindow.document.querySelector("#snapshotBtn").click();
+  await waitUntil(
+    scenarioWindow,
+    () => harness.alerts.length > 0,
+    "가격 최신화 요청 실패 경고가 표시되지 않았습니다."
+  );
+
+  assert.equal(scenarioWindow.__snapshotRefreshTestApi.priceRefreshRequests().length, 1);
+  assert.match(harness.alerts[0], /설정의 가격표 > 가격 최신화/);
+  assert.equal(scenarioWindow.__snapshotRefreshTestApi.snapshots().length, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(scenarioWindow.__snapshotRefreshTestApi.performanceSources())), []);
+  harness.dom.window.close();
 }
 
 // 저장은 반드시 저장 직전 가격표를 기다리고, 중복 클릭은 하나의 저장으로 합친다.
