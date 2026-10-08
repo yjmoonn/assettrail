@@ -11,8 +11,8 @@ on:
     # Yahoo KRW=X closes at 23:59 London time; cover both UTC offsets.
     - cron: "20 23 * * 1-5"
     - cron: "20 0 * * 2-6"
-    # 15:45 KST follows a normal KRX close; 16:40 covers delayed special sessions.
-    - cron: "45 6 * * 1-5"
+    # 15:40 KST is the normal KRX close-confirmation cutoff; 16:40 covers delayed special sessions.
+    - cron: "40 6 * * 1-5"
     - cron: "40 7 * * 1-5"
   push:
     branches:
@@ -42,6 +42,9 @@ env:
 
 jobs:
   test:
+    if: >-
+      github.event_name != 'schedule' &&
+      (github.event_name != 'workflow_dispatch' || inputs.generate_prices == false)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -88,6 +91,7 @@ jobs:
           npm run test:product
           npm run test:investment
           npm run test:prices
+          npm run test:workflow
           npm run test:price-fallback
           npm run test:symbols
           npm run test:cloud
@@ -142,7 +146,11 @@ jobs:
 
   deploy:
     needs: test
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: >-
+      always() &&
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped')
     concurrency:
       group: pages
       cancel-in-progress: false
@@ -224,7 +232,20 @@ jobs:
 
       - name: Generate prices
         if: steps.price_mode.outputs.generate == 'true'
-        run: python scripts/generate_prices.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            echo "Price generation attempt ${attempt}/3"
+            if python scripts/generate_prices.py; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              echo "::warning::Price generation failed; retrying in 30 seconds."
+              sleep 30
+            fi
+          done
+          exit 1
 
       - name: Reuse deployed prices
         if: steps.price_mode.outputs.generate != 'true'
