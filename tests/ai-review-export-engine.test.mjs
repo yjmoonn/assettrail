@@ -562,4 +562,17 @@ for (const ticker of ["0167A", "0167A00", "016-A0", "016가A0"]) {
   assert.equal(result.dataQuality.issues.includes("INVALID_POSITION"), true);
 }
 
+{
+  const input = fixture();
+  const us = input.portfolio.positions.find(row => row.market === "US");
+  us.fxSessionStatus = "DELAYED_CLOSE";
+  us.quality = "STALE";
+  input.dataQuality.status = "STALE";
+  const result = engine.buildReviewPackage(input);
+  assert.equal(result.portfolio.positions.find(row => row.market === "US").fxSessionStatus, "DELAYED_CLOSE");
+  assert.equal(engine.validateReviewPackage(result).ok, true);
+  assert.match(JSON.stringify(engine.getFixedPrompt()), /잠정 평가/);
+  us.quality = "VERIFIED";
+  assert.ok(engine.buildReviewPackage(input).dataQuality.issues.includes("INVALID_POSITION"));
+}
 console.log("ai-review-export-engine tests passed");

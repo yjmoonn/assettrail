@@ -285,3 +285,22 @@ firebase emulators:exec --only firestore "node tests/firestore-rules.test.mjs"
 - 일반·전체 테스트가 네트워크나 모델을 호출하지 않아 API 키·ChatGPT 로그인·모델
   사용량이 필요하지 않은가
 - 현재 분석 UI는 표시되지 않고 설정의 기존 확장 데이터 백업·복원만 접근 가능한가
+
+
+## 지연 환율 실제 브라우저 저장 검증
+
+`tests/app-delayed-fx-browser.test.mjs`는 Chromium + 실제 Firestore Emulator Rules를 사용한다.
+Playwright가 설치된 검증 환경에서 실행한다 (`PLAYWRIGHT_MODULE`은 외부 설치의 ESM 진입점,
+`CHROMIUM_PATH`는 Chromium 실행파일을 지정할 수 있다).
+
+```sh
+npx firebase emulators:exec --only firestore --project demo-assettrail-fx \
+  "node tests/app-delayed-fx-browser.test.mjs"
+```
+
+가상 사용자만 사용하고 외부 네트워크를 차단한다. Emulator 연결은 로컬 HTTP proxy로
+같은 origin에 연결하며 인증서 예외나 브라우저 보안 해제 옵션을 사용하지 않는다.
+실제 버튼 클릭 → IndexedDB → Firestore chunk/활성 포인터 쓰기 → 앱 재조회 → 별도
+브라우저 context의 클라우드 재로딩을 확인한다. 중복 클릭·환율 근거·기존 기록·원장 불변,
+신규 환율 회복, 1440/1280/390/430px 표시, 비소유자/비로그인 읽기·쓰기 거부를 검증한다.
+운영 계정 인증 및 운영 Firestore 쓰기는 실행하지 않는다.

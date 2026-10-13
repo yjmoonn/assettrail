@@ -111,6 +111,7 @@
       "첨부된 ASSETTRAIL_AI_REVIEW_V3 데이터만 근거로 사용하세요.",
       "먼저 dataQuality를 확인하고 LIMITED, STALE, INCOMPLETE, UNAVAILABLE 또는 UNKNOWN인 영역은 한계를 밝히고 결론을 유보하세요.",
       "snapshotId, snapshotCreatedAt, valuationStatus를 먼저 확인하고 SNAPSHOT_VALUATION_AVAILABLE 또는 MISSING_SNAPSHOT_ACCOUNT_NAMES인 경우에만 portfolio.positions의 평가액을 저장 시점 근거로 사용하세요.",
+      "fxSessionStatus가 DELAYED_CLOSE이면 저장 당시 환율 지연에 따른 잠정 평가입니다. fxAsOf를 실제 기준일로 사용하고 최신 확정 평가로 표현하지 마세요.",
       "시장 자산의 quantity, appliedPrice, priceCurrency, priceAsOf, sessionStatus와 미국 자산의 fxRate, fxAsOf, fxSessionStatus를 함께 검산하세요.",
       "portfolio.positions의 marketValueKRW 합계가 portfolio.totalMarketValueKRW와 일치하는지 확인하세요.",
       "CASH와 MANUAL의 marketValueKRW는 valuationMode가 MANUAL_AMOUNT인 저장 금액이며 시장가격으로 해석하지 마세요.",
@@ -718,7 +719,8 @@
           || priceCurrency !== (market === "US" ? "USD" : "KRW")
           || !priceAsOf
           || sessionStatus !== "FINAL_CLOSE"
-          || (market === "US" && (!(fxRate > 0) || !fxAsOf || fxSessionStatus !== "FINAL_CLOSE"))
+          || (market === "US" && (!(fxRate > 0) || !fxAsOf || !["FINAL_CLOSE", "DELAYED_CLOSE"].includes(fxSessionStatus)))
+          || (fxSessionStatus === "DELAYED_CLOSE" && quality !== "STALE")
           || !numbersClose(expectedValue, marketValueKRW)) {
         addIssue(issues, "INVALID_POSITION");
         return;
@@ -1341,7 +1343,8 @@
                 || !validNullableNumber(row?.fxRate, { min: 0, max: 1e9 })
                 || !(row?.fxRate > 0)
                 || !validDateKey(row?.fxAsOf)
-                || row?.fxSessionStatus !== "FINAL_CLOSE";
+                || !["FINAL_CLOSE", "DELAYED_CLOSE"].includes(row?.fxSessionStatus)
+                || (row?.fxSessionStatus === "DELAYED_CLOSE" && row?.quality !== "STALE");
             } else {
               modeInvalid = modeInvalid
                 || row?.fxRate !== null
