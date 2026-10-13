@@ -6765,7 +6765,7 @@ h3 { font-weight: 700; }
   }
 }
 
-/* Keep the provisional FX notice clear of the desktop sticky navigation. */
+/* Keep missing-FX errors clear of the desktop sticky navigation. */
 @media (min-width: 721px) {
   main:has(> #fxValuationNotice:not([hidden])) {
     scroll-margin-top: 96px;
@@ -6790,4 +6790,13 @@ h3 { font-weight: 700; }
 .snapshot-fx-date,
 .snapshot-fx-evidence summary {
   white-space: nowrap;
+}
+
+.current-fx-details summary {
+  cursor: pointer;
+  min-height: 44px;
+  align-content: center;
+}
+.current-fx-details dd {
+  overflow-wrap: anywhere;
 }

@@ -89,11 +89,28 @@ try {
  await page.waitForFunction(() => window.browserFx?.ready());
  await page.evaluate(() => browserFx.flush());
  const before = await page.evaluate(() => ({ snapshots: browserFx.snapshots(), events: browserFx.events() }));
+ for (const width of [1440, 1280, 390, 430]) {
+  await page.setViewportSize({ width, height: 1000 });
+  for (const view of ['DASHBOARD', 'ASSETS', 'JOURNAL', 'GOALS', 'SETTINGS']) {
+   await page.locator(`[data-nav-view=${view}]`).first().click();
+   assert.equal(await page.locator('#fxValuationNotice').isVisible(), false);
+   assert.equal(await page.locator('#priceAlert').isVisible(), false);
+   assert.doesNotMatch(await page.locator('body').innerText(), /잠정 평가 중입니다|이 금액과 환율 기준일|새 환율은 현재 평가에만/);
+  }
+  assert.equal(await page.locator('#currentFxDetails').getAttribute('open'), null);
+  await page.locator('#currentFxDetails summary').click();
+  assert.match(await page.locator('#currentFxEvidence').innerText(), /2026-07-29[\s\S]*yfinance KRW=X[\s\S]*조회 시각[\s\S]*환율 지연 · 잠정 평가/);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.screenshot({ path: `/tmp/assettrail-fx-details-${width}.png`, fullPage: true });
+  await page.locator('#currentFxDetails summary').click();
+ }
+
  await page.locator('[data-nav-view=ASSETS]').first().click();
  await page.locator('#snapshotBtn').click();
  await page.locator('#snapshotBtn').dispatchEvent('click');
  await page.waitForFunction(() => !browserFx.busy());
  await page.evaluate(() => browserFx.flush());
+ assert.doesNotMatch(await page.locator('#appNotice').innerText(), /환율|잠정/);
  const remote = await page.evaluate(() => browserFx.remote());
  assert.equal(remote.schemaVersion, 10);
  assert.equal(remote.snapshots.length, 2);
@@ -143,7 +160,7 @@ try {
  assert.deepEqual(dialogs, []);
  assert.deepEqual(errors, []);
  assert.deepEqual(external.filter(x => !x.includes('fonts.googleapis.com') && !x.includes('fonts.gstatic.com') && !x.includes('cdn.jsdelivr.net')), []);
- console.log('PASS: Chromium click → IndexedDB → real Firestore Rules/chunks → app readback; duplicate click, FX provenance, recovery, historical immutability, 4 widths, unauthorized/guest denial.');
+ console.log('PASS: Chromium click → IndexedDB → real Firestore Rules/chunks → app readback; duplicate click, FX provenance, recovery, historical immutability, 4 widths, no global/asset FX delay banners or repeated success notices, accessible current FX details, unauthorized/guest denial.');
 } finally {
  clearTimeout(timeout); await browser.close(); await env.cleanup(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
 }
