@@ -1,5 +1,5 @@
 const STORAGE_KEY = "finance-ledger-retirement-v1";
-const STATE_SCHEMA_VERSION = 9;
+const STATE_SCHEMA_VERSION = 10;
 const CLOUD_DOC_ID = "primary";
 const CLOUD_PAYLOAD_MAX_BYTES = 900 * 1024;
 const CLOUD_TRANSACTION_EVENT_LIMIT = 400;
@@ -1759,13 +1759,28 @@ function normalizeSnapshotFx(value) {
   const rate = Number(usdkrw.rate);
   const date = normalizeDateKey(usdkrw.date);
   const sessionStatus = String(usdkrw.sessionStatus || "").trim().toUpperCase();
-  if (!(rate > 0) || !date || sessionStatus !== FINAL_CLOSE_STATUS) return {};
+  if (!Number.isFinite(rate) || !(rate > 0) || !date
+      || ![FINAL_CLOSE_STATUS, DELAYED_CLOSE_STATUS].includes(sessionStatus)) return {};
+  const hasEvidence = usdkrw.provisional !== undefined;
+  const delayed = sessionStatus === DELAYED_CLOSE_STATUS;
+  const expectedSession = normalizeDateKey(usdkrw.expectedSession);
+  const retrievedAt = normalizeStoredDate(usdkrw.retrievedAt);
+  if (delayed && (!hasEvidence || rate < 500 || rate > 3000
+      || usdkrw.source !== "yfinance KRW=X" || !expectedSession || date >= expectedSession
+      || !retrievedAt || date > retrievedAt.slice(0, 10))) return {};
+  if (hasEvidence && (usdkrw.provisional !== delayed
+      || usdkrw.freshnessStatus !== (delayed ? "DELAYED" : "CURRENT"))) return {};
   return {
     USDKRW: {
       rate,
       date,
       sessionStatus,
-      source: String(usdkrw.source || "").slice(0, IMPORT_STRING_LIMITS.short)
+      source: String(usdkrw.source || "").slice(0, IMPORT_STRING_LIMITS.short),
+      ...(hasEvidence ? {
+        expectedSession, retrievedAt,
+        freshnessStatus: usdkrw.freshnessStatus,
+        provisional: delayed
+      } : {})
     }
   };
 }
@@ -1845,7 +1860,8 @@ function normalizeSnapshotValuationPosition(position, schemaVersion = SNAPSHOT_V
     const fxRate = Number(position.fxRate);
     const fxAsOf = normalizeDateKey(position.fxAsOf);
     const fxSessionStatus = String(position.fxSessionStatus || "").trim().toUpperCase();
-    if (!(fxRate > 0) || !fxAsOf || fxSessionStatus !== FINAL_CLOSE_STATUS) return null;
+    if (!Number.isFinite(fxRate) || !(fxRate > 0) || !fxAsOf
+        || ![FINAL_CLOSE_STATUS, DELAYED_CLOSE_STATUS].includes(fxSessionStatus)) return null;
     Object.assign(normalized, { fxRate, fxAsOf, fxSessionStatus });
     if (!snapshotNumbersClose(marketValueKRW, quantity * appliedPrice * fxRate)) return null;
   } else if (!snapshotNumbersClose(marketValueKRW, quantity * appliedPrice)) {
@@ -4247,6 +4263,7 @@ function normalizeFx(fx) {
     actualDate && expectedDate && actualDate < expectedDate
     && businessDaysSince(expectedDate) >= 0
     && Number.isFinite(retrievedAt) && retrievedAt <= Date.now() + 5 * 60 * 1000
+    && actualDate <= new Date(retrievedAt).toISOString().slice(0, 10)
     && usdkrw?.source === "yfinance KRW=X" && usdkrw?.freshnessStatus === "DELAYED"
   );
   return {
@@ -4733,7 +4750,7 @@ function fxDelayMessage() {
   const severity = age > PRICE_STALE_DAYS ? "환율 장기 지연" : "환율 갱신 지연";
   return `${severity} · Yahoo USD/KRW ${fx.date} 종가 ${formatPlainNumber(Math.round(fx.rate * 100) / 100)}원으로 잠정 평가 중입니다. `
     + `기대 기준일 ${fx.expectedSession || priceBook.finalCloseCertificate?.expectedFxSession || "확인 필요"}. `
-    + "주식 가격은 계속 갱신되며 새 환율을 받으면 자동 반영됩니다. 확정 조회 기록은 환율 갱신 후 저장할 수 있습니다.";
+    + "이 금액과 환율 기준일로 조회 기록을 저장할 수 있습니다. 새 환율은 현재 평가에만 반영되며 저장한 기록은 유지됩니다.";
 }
 
 function renderFxValuationNotice() {
@@ -5937,7 +5954,7 @@ function aiReviewSnapshotPositions(snapshot, total) {
         ? (() => {
             const age = businessDaysSince(position.priceAsOf);
             if (!Number.isFinite(age) || age < 0) return "UNAVAILABLE";
-            return age > PRICE_STALE_DAYS ? "STALE" : "VERIFIED";
+            return position.fxSessionStatus === DELAYED_CLOSE_STATUS || age > PRICE_STALE_DAYS ? "STALE" : "VERIFIED";
           })()
         : "VERIFIED"
     };
@@ -7375,7 +7392,10 @@ function buildSnapshotValuation() {
       : NOT_APPLICABLE,
     valuationTiming: hasMarketAssets ? priceBook.dataPolicy.valuationTiming : MANUAL_AMOUNT_ONLY,
     fx: assets.some((asset) => assetType(asset) === "US")
-      ? { USDKRW: usdkrw }
+      ? { USDKRW: { ...usdkrw,
+          freshnessStatus: isFxDelayed() ? "DELAYED" : "CURRENT",
+          provisional: isFxDelayed()
+        } }
       : {},
     positions
   });
@@ -7442,6 +7462,20 @@ function finalCloseCertificateIssue(heldAssets, { includeFx = true } = {}) {
   return "";
 }
 
+function snapshotUsesValidDelayedFx() {
+  const fx = priceBook.fx?.USDKRW;
+  const certificate = priceBook.finalCloseCertificate;
+  return Boolean(fx?.sessionStatus === DELAYED_CLOSE_STATUS
+    && normalizeFx({ USDKRW: fx }).USDKRW
+    && certificate?.status === PARTIAL_CLOSE_STATUS
+    && normalizeDateKey(certificate.expectedFxSession) === fx.expectedSession
+    && !certificate.marketSessions?.FX);
+}
+
+function snapshotCertificateIssue() {
+  return finalCloseCertificateIssue(heldMarketAssets(), { includeFx: !snapshotUsesValidDelayedFx() });
+}
+
 function snapshotReadiness() {
   if (!state.assets.length) {
     return { ok: false, message: "조회 기록을 저장하려면 자산을 먼저 등록하세요.", warnings: [] };
@@ -7470,7 +7504,7 @@ function snapshotReadiness() {
   const hasUsAssets = heldMarketAssetsForSnapshot.some((asset) => assetType(asset) === "US");
   const issues = [];
 
-  const certificateIssue = finalCloseCertificateIssue(heldMarketAssetsForSnapshot);
+  const certificateIssue = snapshotCertificateIssue();
   if (certificateIssue) issues.push(certificateIssue);
   if (priceBook.dataPolicy.valuationTiming !== LATEST_COMPLETED_SESSION) {
     issues.push("가격표가 최근 완료된 시장 세션 기준인지 확인할 수 없습니다.");
@@ -7552,7 +7586,8 @@ function snapshotReadiness() {
       warnings: []
     };
   }
-  return { ok: true, message: "", warnings: [] };
+  return { ok: true, message: "", warnings: hasUsAssets && isFxDelayed()
+    ? [`환율 지연 · ${fxDate} 종가 기준 잠정 평가로 저장했습니다.`] : [] };
 }
 
 function deterministicFingerprint(prefix, value) {
@@ -10010,7 +10045,8 @@ function renderHistory() {
       const row = document.createElement("tr");
       row.innerHTML = `
         <td class="history-when">${escapeHtml(when.day)}${when.time ? `<small>${escapeHtml(when.time)}</small>` : ""}</td>
-        <td class="number">${money(snapshot.total)}</td>
+        <td class="number">${money(snapshot.total)}${snapshot.valuation?.fx?.USDKRW?.provisional
+          ? `<div class="snapshot-fx-evidence">환율 지연 · 잠정 평가<br>환율 기준 <span class="snapshot-fx-date">${escapeHtml(snapshot.valuation.fx.USDKRW.date)}</span><details><summary>근거 보기</summary>${escapeHtml(snapshot.valuation.fx.USDKRW.source)}<br>조회 ${escapeHtml(formatDate(snapshot.valuation.fx.USDKRW.retrievedAt))}</details></div>` : ""}</td>
         <td class="number ${change > 0 ? "positive" : change < 0 ? "negative" : ""}">${change > 0 ? "+" : ""}${money(change)}</td>
         <td class="number ${rate > 0 ? "positive" : rate < 0 ? "negative" : ""}">${rate > 0 ? "+" : ""}${percent(rate)}</td>
         <td>${escapeHtml(snapshot.note || "")}</td>
@@ -13027,7 +13063,7 @@ async function saveAssetSnapshot({ monthlyReview = false } = {}) {
     }
     let readiness = snapshotReadiness();
     if (!readiness.ok
-        && finalCloseCertificateIssue(heldMarketAssets()).includes("인증이 만료되었습니다")) {
+        && snapshotCertificateIssue().includes("인증이 만료되었습니다")) {
       const refreshResult = await requestPriceRefreshFromApp({ createPerformanceObservation: false });
       if (!refreshResult.ok) {
         const message = refreshResult.reason === "authentication-required"
@@ -14035,6 +14071,14 @@ function validateImportedSnapshotValuation(valuation, snapshot, prefix) {
     if (!normalizeDateKey(fx.date)) throw new Error(`${prefix}.valuation.fx.USDKRW.date가 올바르지 않습니다.`);
     assertImportString(fx.sessionStatus, `${prefix}.valuation.fx.USDKRW.sessionStatus`, IMPORT_STRING_LIMITS.short);
     assertImportString(fx.source, `${prefix}.valuation.fx.USDKRW.source`, IMPORT_STRING_LIMITS.short);
+    if (fx.provisional !== undefined) {
+      assertImportString(fx.freshnessStatus, `${prefix}.valuation.fx.USDKRW.freshnessStatus`, IMPORT_STRING_LIMITS.short);
+      assertImportDate(fx.retrievedAt, `${prefix}.valuation.fx.USDKRW.retrievedAt`);
+      if (fx.provisional && (Date.parse(fx.retrievedAt) > Date.parse(snapshot.createdAt) + 5 * 60 * 1000
+          || fx.date > String(snapshot.createdAt).slice(0, 10))) {
+        throw new Error(`${prefix}.valuation.fx.USDKRW의 환율 근거가 저장 시점보다 미래입니다.`);
+      }
+    }
   }
 
   const normalized = normalizeSnapshotValuation(valuation);

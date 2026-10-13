@@ -50,11 +50,11 @@ window.eval(`${code}\nwindow.fxTest = {
   events: () => JSON.stringify(state.events), performance: () => JSON.stringify(state.performanceObservations),
   krxReadiness: () => finalCloseCertificateIssue(heldMarketAssets().filter(asset => assetType(asset) === 'KRX')),
   details: () => assetValueDetail(state.assets[0]), normalize: (fx) => normalizeFx(fx),
-  refresh: () => requestPriceRefreshFromApp()
+  refresh: () => requestPriceRefreshFromApp(), renderHistory: () => renderHistory()
 };`);
 for (let i = 0; i < 100 && !window.fxTest.book().loaded; i++) await new Promise((resolve) => setTimeout(resolve, 10));
 const api = window.fxTest;
-const snapshots = api.snapshots();
+let snapshots = api.snapshots();
 const events = api.events();
 const performance = api.performance();
 assert.equal(api.total(), 260030);
@@ -62,8 +62,8 @@ assert.equal(api.book().fx.USDKRW.date, "2026-07-29");
 assert.equal(api.book().fx.USDKRW.expectedSession, "2026-07-30");
 assert.equal(api.book().fx.USDKRW.retrievedAt, "2026-07-30T00:00:01Z");
 assert.equal(api.book().finalCloseCertificate.marketSessions.FX, null);
-assert.equal(api.readiness().ok, false);
-assert.match(api.readiness().message, /잠정 평가/);
+assert.equal(api.readiness().ok, true);
+assert.match(api.readiness().warnings[0], /잠정 평가/);
 assert.equal(api.krxReadiness(), "");
 assert.equal(api.observation().completeness, "INCOMPLETE");
 assert.equal(api.observe(), null);
@@ -72,9 +72,23 @@ assert.match(window.document.querySelector("#fxValuationNotice").textContent, /2
 assert.match(api.details(), /환율 기준 2026-07-29.*잠정 평가/);
 assert.equal((await api.refresh()).provisional, true);
 window.document.querySelector("#snapshotBtn").click();
-for (let i = 0; i < 100 && !alerts.length; i++) await new Promise((resolve) => setTimeout(resolve, 10));
-assert.match(alerts[0], /잠정 평가/);
-assert.equal(api.snapshots(), snapshots);
+window.document.querySelector("#snapshotBtn").click();
+for (let i = 0; i < 100 && window.document.querySelector("#snapshotBtn").disabled; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+assert.deepEqual(alerts, []);
+const records = JSON.parse(api.snapshots());
+assert.equal(records.length, 2, "double click saves once");
+const saved = records.find(row => row.id !== "prior-synthetic");
+assert.equal(saved.total, 260030);
+assert.equal(saved.valuation.fx.USDKRW.date, "2026-07-29");
+assert.equal(saved.valuation.fx.USDKRW.source, "yfinance KRW=X");
+assert.equal(saved.valuation.fx.USDKRW.retrievedAt, "2026-07-30T00:00:01.000Z");
+assert.equal(saved.valuation.fx.USDKRW.provisional, true);
+assert.equal(saved.valuation.fx.USDKRW.freshnessStatus, "DELAYED");
+assert.equal(saved.valuation.positions[0].fxSessionStatus, "DELAYED_CLOSE");
+assert.deepEqual(JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1")).snapshots, records);
+api.renderHistory();
+assert.match(window.document.querySelector("#historyRows").textContent, /환율 지연.*잠정 평가.*2026-07-29/);
+snapshots = api.snapshots();
 assert.equal(api.events(), events);
 
 // Long delays strengthen the warning without blocking ordinary valuations.
@@ -82,7 +96,7 @@ response = manifest({ actual: "2026-06-01" });
 assert.equal(await api.load(), true);
 assert.equal(api.total(), 260030);
 assert.match(window.document.querySelector("#fxValuationNotice").textContent, /환율 장기 지연.*2026-06-01/);
-assert.equal(api.readiness().ok, false);
+assert.equal(api.readiness().ok, true);
 assert.equal(api.snapshots(), snapshots);
 assert.equal(api.events(), events);
 
@@ -105,12 +119,24 @@ assert.equal(api.snapshots(), snapshots);
 assert.equal(api.events(), events);
 
 for (const entry of [
+  { ...manifest().fx.USDKRW, rate: NaN },
+  { ...manifest().fx.USDKRW, rate: -1 },
+  { ...manifest().fx.USDKRW, rate: 0 },
+  { ...manifest().fx.USDKRW, source: "other-provider" },
+  { ...manifest().fx.USDKRW, retrievedAt: "2026-07-31T00:00:00Z" },
   { date: "2026-07-31", rate: 1300, sessionStatus: "FINAL_CLOSE" },
   { date: "2026-07-30", rate: 1300, sessionStatus: "INTRADAY" },
   { date: "2026-07-29", rate: 5000, sessionStatus: "DELAYED_CLOSE" },
   { date: "2026-07-29", rate: Infinity, sessionStatus: "DELAYED_CLOSE" },
   { date: "invalid", rate: 1300, sessionStatus: "DELAYED_CLOSE" }
-]) assert.equal(api.normalize({ USDKRW: entry }).USDKRW, null);
+]) {
+  assert.equal(api.normalize({ USDKRW: entry }).USDKRW, null);
+  response = manifest();
+  response.fx.USDKRW = entry;
+  await api.load();
+  assert.equal(api.readiness().ok, false);
+  assert.equal(api.snapshots(), snapshots);
+}
 assert.equal(api.normalize({}).USDKRW, null);
 dom.window.close();
-console.log("Delayed FX valuation, recording guards, provenance, warnings and recovery passed.");
+console.log("Delayed FX valuation, snapshot saving, provenance, warnings and recovery passed.");

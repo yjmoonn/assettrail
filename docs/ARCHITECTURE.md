@@ -76,7 +76,7 @@ AssetTrail은 로그아웃 상태의 로컬 사용과 로그인 상태의 클라
 가리키는 세대의 하위 컬렉션에서 이벤트를 읽는다. 이 구조는 이벤트 증가가 주 문서의
 900KB 안전 한도를 소진하지 않게 한다.
 
-저장 데이터는 현재 `schemaVersion: 9`를 사용한다. 버전이 없거나 v1~v8인 기존 데이터는
+저장 데이터는 현재 `schemaVersion: 10`를 사용한다. 버전이 없거나 v1~v8인 기존 데이터는
 검증 가능한 원본 백업을 먼저 만든 뒤 v9로 마이그레이션한다. 기존 자산마다 원장
 기준일의 `OPENING_BALANCE`를 만들며 매수 시점과 과거 환율을 추정하지 않는다. v5→v6은
 빈 `performanceObservations`를 추가할 뿐 과거 `snapshots`를 수익률 평가점으로 복제하지
@@ -604,7 +604,7 @@ USD/KRW는 같은 Yahoo 공급자의 가장 최근 가용 완료 일봉을 표�
 가격표는 FX 인증일·만료가 null인 `PARTIAL_FINAL_CLOSE`로 발행한다. 이 경우 환율의
 7일 freshness는 전체 가격 갱신을 차단하지 않는다. 주식 품질 기준은 그대로 유지한다.
 앱은 잠정 평가와 환율 지연을 표시하고 장기 지연은 경고를 강화한다. 지연 환율이 필요한
-조회 기록·성과 평가점의 확정 저장은 막지만 기존 기록·원장은 바꾸지 않는다. 새 환율을
+조회 기록은 잠정 상태와 당시 환율 근거로 저장하며, 확정 성과 평가점 생성은 막는다. 기존 기록·원장은 바꾸지 않는다. 새 환율을
 받으면 정상 평가로 복귀한다. 유효한 환율이 전혀 없거나 비정상·미래·장중 자료뿐이면
 정상 환율로 대체하지 않는다. ECB 기준환율과 분봉 재구성은 사용하지 않는다.
 
@@ -638,3 +638,20 @@ KRX 로그인 세션 없이 배포할 수 있도록 yfinance의 조정 전 `Clos
 - `docs/archive/DATA_AND_PRICES.md`
 - `docs/archive/OPERATIONS.md`
 - `docs/archive/TODO.md`
+
+
+## 2026-10-13 지연 환율 조회기록 저장 계약
+
+Yahoo의 검증된 `DELAYED_CLOSE`는 조회기록 저장에 사용할 수 있다. 주식 시장의
+확정 종가 인증·만료 검사는 그대로 적용하며, 환율의 출처·기대일·조회시각과 부분 인증이
+일치하는 경우에만 FX 최신 인증을 대신한다. 값 없음·NaN·음수·미래·장중 환율은 거부한다.
+`assettrail.snapshot-valuation.v2.fx.USDKRW`는 기존 rate/date/source/sessionStatus에
+expectedSession/retrievedAt/freshnessStatus/provisional을 추가 보존한다. 포지션의
+fxAsOf와 fxSessionStatus도 당시 값을 담는다. 기존 v1/v2 기록에 새 근거를 소급 생성하지 않는다.
+
+주 상태 v10은 기존 백업·검증 후 승격 경로를 사용한다. v9 이하 앱은 미래 버전 보호로
+v10 동기화를 중단하므로, 잠정 근거를 누락한 구버전 쓰기를 막는다. history chunk v1과
+Firestore Rules는 변경하지 않는다. Rules는 본인 경로와 chunk 구조를 검사하고,
+앱은 세대 활성화 전 digest 및 평가 근거를 재검증한다. 새 환율은 현재 평가에만 반영한다.
+조회 목록은 모바일에서도 잠정·환율일을 표시하고 출처·조회시각은 펼쳐 볼 수 있다.
+잠정 기록은 확정 성과 평가점으로 승격하지 않으며 AI 내보내기에도 DELAYED_CLOSE/STALE을 유지한다.

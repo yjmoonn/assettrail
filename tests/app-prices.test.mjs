@@ -396,7 +396,7 @@ assert.match(window.document.querySelector("#historySummary").textContent, /기�
 assert.match(window.document.querySelector("#historySummary").textContent, /1회/);
 assert.match(window.document.querySelector("#appNotice").textContent, /조회 기록을 저장했습니다/);
 const savedAfterSnapshot = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
-assert.equal(savedAfterSnapshot.schemaVersion, 9);
+assert.equal(savedAfterSnapshot.schemaVersion, 10);
 assert.equal(savedAfterSnapshot.snapshots[0].assets, undefined);
 assert.deepEqual(
   Object.keys(savedAfterSnapshot.snapshots[0]).sort(),

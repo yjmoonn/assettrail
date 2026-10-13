@@ -6771,3 +6771,23 @@ h3 { font-weight: 700; }
     scroll-margin-top: 96px;
   }
 }
+
+.snapshot-fx-evidence {
+  max-width: 180px;
+  margin: 6px 0 0 auto;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.snapshot-fx-evidence summary {
+  cursor: pointer;
+  min-height: 44px;
+  align-content: center;
+}
+
+.snapshot-fx-date,
+.snapshot-fx-evidence summary {
+  white-space: nowrap;
+}
