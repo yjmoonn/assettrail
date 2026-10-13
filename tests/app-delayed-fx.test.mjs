@@ -50,7 +50,7 @@ window.eval(`${code}\nwindow.fxTest = {
   events: () => JSON.stringify(state.events), performance: () => JSON.stringify(state.performanceObservations),
   krxReadiness: () => finalCloseCertificateIssue(heldMarketAssets().filter(asset => assetType(asset) === 'KRX')),
   details: () => assetValueDetail(state.assets[0]), normalize: (fx) => normalizeFx(fx),
-  refresh: () => requestPriceRefreshFromApp(), renderHistory: () => renderHistory()
+  refresh: () => requestPriceRefreshFromApp(), notices: () => renderPriceNotice(), renderHistory: () => renderHistory()
 };`);
 for (let i = 0; i < 100 && !window.fxTest.book().loaded; i++) await new Promise((resolve) => setTimeout(resolve, 10));
 const api = window.fxTest;
@@ -68,13 +68,17 @@ assert.equal(api.krxReadiness(), "");
 assert.equal(api.observation().completeness, "INCOMPLETE");
 assert.equal(api.observe(), null);
 assert.equal(api.performance(), performance);
-assert.match(window.document.querySelector("#fxValuationNotice").textContent, /2026-07-29.*잠정 평가/);
+assert.equal(window.document.querySelector("#fxValuationNotice").hidden, true);
+api.notices();
+assert.equal(window.document.querySelector("#priceAlert").hidden, true);
+assert.match(window.document.querySelector("#currentFxEvidence").textContent, /2026-07-29.*yfinance KRW=X.*조회 시각.*환율 지연.*잠정 평가/);
 assert.match(api.details(), /환율 기준 2026-07-29.*잠정 평가/);
 assert.equal((await api.refresh()).provisional, true);
 window.document.querySelector("#snapshotBtn").click();
 window.document.querySelector("#snapshotBtn").click();
 for (let i = 0; i < 100 && window.document.querySelector("#snapshotBtn").disabled; i++) await new Promise((resolve) => setTimeout(resolve, 10));
 assert.deepEqual(alerts, []);
+assert.doesNotMatch(window.document.querySelector("#appNotice").textContent, /환율|잠정/);
 const records = JSON.parse(api.snapshots());
 assert.equal(records.length, 2, "double click saves once");
 const saved = records.find(row => row.id !== "prior-synthetic");
@@ -91,11 +95,15 @@ assert.match(window.document.querySelector("#historyRows").textContent, /환율 
 snapshots = api.snapshots();
 assert.equal(api.events(), events);
 
-// Long delays strengthen the warning without blocking ordinary valuations.
+// Long delays stay in details without a repeated banner.
 response = manifest({ actual: "2026-06-01" });
 assert.equal(await api.load(), true);
 assert.equal(api.total(), 260030);
-assert.match(window.document.querySelector("#fxValuationNotice").textContent, /환율 장기 지연.*2026-06-01/);
+assert.equal(window.document.querySelector("#fxValuationNotice").hidden, true);
+api.notices();
+assert.equal(window.document.querySelector("#priceAlert").hidden, true);
+assert.equal(window.document.querySelector("#opsStatus").classList.contains("has-issues"), false);
+assert.match(window.document.querySelector("#currentFxEvidence").textContent, /2026-06-01.*잠정 평가/);
 assert.equal(api.readiness().ok, true);
 assert.equal(api.snapshots(), snapshots);
 assert.equal(api.events(), events);
@@ -135,6 +143,7 @@ for (const entry of [
   response.fx.USDKRW = entry;
   await api.load();
   assert.equal(api.readiness().ok, false);
+  assert.equal(window.document.querySelector("#fxValuationNotice").hidden, false);
   assert.equal(api.snapshots(), snapshots);
 }
 assert.equal(api.normalize({}).USDKRW, null);
