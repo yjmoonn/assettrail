@@ -27,7 +27,7 @@
     "test:cloud-prices": "node tests/app-cloud-prices.test.mjs",
     "test:data": "node tests/app-data-durability.test.mjs",
     "test:price-fallback": "node tests/app-price-fallback.test.mjs",
-    "test:prices": "node tests/app-prices.test.mjs",
+    "test:prices": "node tests/app-prices.test.mjs && node tests/app-delayed-fx.test.mjs",
     "test:workflow": "node tests/deploy-workflow.test.mjs",
     "test:symbols": "node tests/app-symbols.test.mjs",
     "test:price-requests": "python3 tests/generate-prices-requests.test.py",

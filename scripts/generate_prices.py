@@ -18,6 +18,7 @@ from pykrx import stock
 
 KST = ZoneInfo("Asia/Seoul")
 NEW_YORK = ZoneInfo("America/New_York")
+FX_ZONE = ZoneInfo("Europe/London")
 NAVER_STOCK_CATEGORIES = ("KOSPI", "KOSDAQ")
 NAVER_ETX_CATEGORIES = ("etf", "etn")
 NAVER_PAGE_SIZE = 100
@@ -43,6 +44,8 @@ BENCHMARK_PRICE_BASIS = "price_index_level"
 DISTRIBUTION_TREATMENT = "excluded"
 VALUATION_TIMING = "LATEST_COMPLETED_SESSION"
 FINAL_CLOSE_STATUS = "FINAL_CLOSE"
+DELAYED_CLOSE_STATUS = "DELAYED_CLOSE"
+PARTIAL_CLOSE_STATUS = "PARTIAL_FINAL_CLOSE"
 KRX_CLOSE_CONFIRMATION_DELAY = timedelta(minutes=10)
 US_CLOSE_CONFIRMATION_DELAY = timedelta(minutes=15)
 FX_CLOSE_CONFIRMATION_DELAY = timedelta(minutes=15)
@@ -209,6 +212,9 @@ def fx_session_evidence_from_metadata(metadata, now=None):
     except (KeyError, ValueError) as error:
         raise RuntimeError("Yahoo FX session timezone is invalid") from error
 
+    if market_zone != FX_ZONE:
+        raise RuntimeError("Yahoo FX session timezone is unsupported")
+
     regular = (metadata.get("currentTradingPeriod") or {}).get("regular")
     if not isinstance(regular, dict):
         raise RuntimeError("Yahoo FX regular trading period is missing")
@@ -325,6 +331,7 @@ def price_methodology_metadata():
         "distributionTreatment": DISTRIBUTION_TREATMENT,
         "totalReturn": False,
         "valuationTiming": VALUATION_TIMING,
+        "fxValuationTiming": "LATEST_AVAILABLE_COMPLETED_SESSION",
         "benchmarkBasis": BENCHMARK_PRICE_BASIS,
         "quoteCurrencyByMarket": {
             "KRX": "KRW",
@@ -360,23 +367,26 @@ def build_final_close_certificate(
         market: validity.get(market) if isinstance(validity.get(market), str) else None
         for market in ("KRX", "US", "FX")
     }
-    parsed_validity = [
-        parse_iso_instant(value)
-        for value in normalized_validity.values()
-    ]
+    fx_entry = output.get("fx", {}).get("USDKRW")
+    delayed_fx = isinstance(fx_entry, dict) and fx_entry.get("sessionStatus") == DELAYED_CLOSE_STATUS
+    certified_markets = ("KRX", "US") if delayed_fx else ("KRX", "US", "FX")
+    if delayed_fx:
+        normalized_validity["FX"] = None
+    parsed_validity = [parse_iso_instant(normalized_validity[market]) for market in certified_markets]
     global_valid_until = (
         utc_iso(min(parsed_validity))
         if all(value is not None for value in parsed_validity)
         else None
     )
     return {
-        "status": FINAL_CLOSE_STATUS,
+        "status": PARTIAL_CLOSE_STATUS if delayed_fx else FINAL_CLOSE_STATUS,
+        **({"expectedFxSession": parse_trade_date(sessions.get("FX"))} if delayed_fx else {}),
         "checkedAt": generated_at,
         # Retained for older clients; current clients validate only held markets.
         "validUntil": global_valid_until,
         "validUntilByMarket": normalized_validity,
         "marketSessions": {
-            market: parse_trade_date(sessions.get(market))
+            market: parse_trade_date(sessions.get(market)) if market in certified_markets else None
             for market in ("KRX", "US", "FX")
         }
     }
@@ -401,7 +411,11 @@ def final_close_contract_failures(output):
         failures.append("methodology valuation timing is not certified")
 
     certificate = output.get("finalCloseCertificate")
-    if not isinstance(certificate, dict) or certificate.get("status") != FINAL_CLOSE_STATUS:
+    fx_entry = output.get("fx", {}).get("USDKRW")
+    delayed_fx = isinstance(fx_entry, dict) and fx_entry.get("sessionStatus") == DELAYED_CLOSE_STATUS
+    expected_status = PARTIAL_CLOSE_STATUS if delayed_fx else FINAL_CLOSE_STATUS
+    certified_markets = ("KRX", "US") if delayed_fx else ("KRX", "US", "FX")
+    if not isinstance(certificate, dict) or certificate.get("status") != expected_status:
         failures.append("final close certificate is missing or invalid")
         return failures
 
@@ -422,7 +436,7 @@ def final_close_contract_failures(output):
     else:
         parsed_market_validity = {
             market: parse_iso_instant(valid_until_by_market.get(market))
-            for market in ("KRX", "US", "FX")
+            for market in certified_markets
         }
         if any(value is None for value in parsed_market_validity.values()):
             failures.append("final close certificate market validity timestamps are invalid")
@@ -446,7 +460,7 @@ def final_close_contract_failures(output):
         return failures
     parsed_sessions = {
         market: parse_calendar_date(sessions.get(market))
-        for market in ("KRX", "US", "FX")
+        for market in certified_markets
     }
     if any(value is None for value in parsed_sessions.values()):
         failures.append("final close certificate market session dates are invalid")
@@ -455,7 +469,7 @@ def final_close_contract_failures(output):
         local_dates = {
             "KRX": checked_at.astimezone(KST).date(),
             "US": checked_at.astimezone(NEW_YORK).date(),
-            "FX": checked_at.astimezone(NEW_YORK).date()
+            "FX": checked_at.astimezone(FX_ZONE).date()
         }
         for market, session_date in parsed_sessions.items():
             if session_date > local_dates[market]:
@@ -485,7 +499,20 @@ def final_close_contract_failures(output):
     fx_entry = output.get("fx", {}).get("USDKRW")
     if isinstance(fx_entry, dict):
         fx_date = parse_calendar_date(fx_entry.get("date"))
-        if fx_date and fx_date != parsed_sessions["FX"]:
+        if delayed_fx:
+            expected_date = parse_calendar_date(certificate.get("expectedFxSession"))
+            retrieved_at = parse_iso_instant(fx_entry.get("retrievedAt"))
+            if (not expected_date or not fx_date or not fx_date < expected_date
+                    or fx_entry.get("expectedSession") != certificate.get("expectedFxSession")
+                    or fx_entry.get("freshnessStatus") != "DELAYED"
+                    or fx_entry.get("source") != "yfinance KRW=X"
+                    or not retrieved_at or not checked_at or retrieved_at < checked_at
+                    or expected_date > checked_at.astimezone(FX_ZONE).date()
+                    or sessions.get("FX") is not None
+                    or not isinstance(valid_until_by_market, dict)
+                    or valid_until_by_market.get("FX") is not None):
+                failures.append("delayed USDKRW evidence is invalid or incorrectly certified")
+        elif fx_date and fx_date != parsed_sessions["FX"]:
             failures.append("USDKRW date does not match certified FX session")
     return failures
 
@@ -547,9 +574,11 @@ def validate_price_quality(
     if (
         not is_positive_finite_number(usdkrw_rate)
         or not MIN_USDKRW_RATE <= float(usdkrw_rate) <= MAX_USDKRW_RATE
-        or not is_fresh_date(usdkrw_date, quality_date)
+        or not parse_calendar_date(usdkrw_date)
+        or parse_calendar_date(usdkrw_date) > quality_date
         or not isinstance(usdkrw, dict)
-        or usdkrw.get("sessionStatus") != FINAL_CLOSE_STATUS
+        or usdkrw.get("sessionStatus") not in {FINAL_CLOSE_STATUS, DELAYED_CLOSE_STATUS}
+        or (usdkrw.get("sessionStatus") == FINAL_CLOSE_STATUS and not is_fresh_date(usdkrw_date, quality_date))
     ):
         failures.append("USDKRW is missing, stale, or outside the valid date/rate range")
 
@@ -1077,7 +1106,7 @@ def close_series_from_frame(frame, symbol=None):
     return closes if not closes.empty else None
 
 
-def select_latest_completed_close(frame, completed_session_date, symbol=None):
+def select_latest_completed_close(frame, completed_session_date, symbol=None, market_zone=None, value_range=None):
     closes = close_series_from_frame(frame, symbol=symbol)
     if closes is None:
         return None
@@ -1086,11 +1115,14 @@ def select_latest_completed_close(frame, completed_session_date, symbol=None):
         return None
     candidates = []
     for row_index, value in closes.items():
+        # Aware indexes describe instants; naive daily labels are venue dates.
+        if market_zone is not None and getattr(row_index, "tzinfo", None) is not None:
+            row_index = row_index.astimezone(market_zone)
         row_date = row_index.date() if hasattr(row_index, "date") else parse_calendar_date(str(row_index)[:10])
         if not isinstance(row_date, date) or row_date > session_limit:
             continue
         close = value.item() if hasattr(value, "item") else value
-        if is_positive_finite_number(close):
+        if is_positive_finite_number(close) and (value_range is None or value_range[0] <= float(close) <= value_range[1]):
             candidates.append((row_date, float(close)))
     if not candidates:
         return None
@@ -1124,24 +1156,59 @@ def fetch_us_close(ticker, lookback_days, completed_session_date, us_symbols=Non
 
 
 def fetch_usdkrw(lookback_days, completed_session_date):
-    frame = yf.download(
-        "KRW=X",
-        period=f"{lookback_days}d",
-        interval="1d",
-        auto_adjust=False,
-        progress=False,
-        threads=False
-    )
+    expected = parse_calendar_date(completed_session_date)
+    if expected is None:
+        raise ValueError("FX completed session date is invalid")
 
-    selected = select_latest_completed_close(frame, completed_session_date, symbol="KRW=X")
-    if not selected:
-        return None
+    latest_available = None
+    fetch_errors = []
+    # A range response can omit a completed daily row. Retry that exact venue
+    # date once, without changing the independently determined session or cutoff.
+    queries = (
+        {"period": f"{lookback_days}d"},
+        {"start": expected.isoformat(), "end": (expected + timedelta(days=1)).isoformat()},
+        {"period": "max"}
+    )
+    selected = None
+    for query in queries:
+        # Do not impose the normal short lookback as a fallback expiry. Search
+        # provider history if no valid completed quote was found in that window.
+        if query.get("period") == "max" and selected:
+            break
+        try:
+            frame = yf.download(
+                "KRW=X", **query, interval="1d", auto_adjust=False,
+                progress=False, threads=False, ignore_tz=False, repair=False
+            )
+            candidate = select_latest_completed_close(
+                frame, completed_session_date, symbol="KRW=X", market_zone=FX_ZONE,
+                value_range=(MIN_USDKRW_RATE, MAX_USDKRW_RATE)
+            )
+        except Exception as error:
+            fetch_errors.append(type(error).__name__)
+            continue
+        if candidate:
+            latest_available = max(latest_available or candidate["date"], candidate["date"])
+            if selected is None or candidate["date"] > selected["date"]:
+                selected = candidate
+            if candidate["date"] == completed_session_date:
+                break
+    if selected is None:
+        raise RuntimeError(
+            "FX_COMPLETED_CLOSE_UNAVAILABLE: "
+            f"expected={completed_session_date}, latestAvailable={latest_available or 'none'}; "
+            "missing provider row is not holiday evidence; "
+            f"fetchErrors={','.join(fetch_errors) or 'none'}"
+        )
 
     return {
         "date": selected["date"],
         "rate": selected["close"],
         "source": "yfinance KRW=X",
-        "sessionStatus": FINAL_CLOSE_STATUS
+        "sessionStatus": FINAL_CLOSE_STATUS if selected["date"] == completed_session_date else DELAYED_CLOSE_STATUS,
+        "freshnessStatus": "CURRENT" if selected["date"] == completed_session_date else "DELAYED",
+        "expectedSession": completed_session_date,
+        "retrievedAt": utc_iso(datetime.now(timezone.utc))
     }
 
 

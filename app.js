@@ -39,6 +39,8 @@ const LEGACY_SNAPSHOT_VALUATION_SCHEMA = "assettrail.snapshot-valuation.v1";
 const SNAPSHOT_VALUATION_POSITION_LIMIT = 500;
 const SNAPSHOT_ITEM_MAX_BYTES = 220 * 1024;
 const FINAL_CLOSE_STATUS = "FINAL_CLOSE";
+const DELAYED_CLOSE_STATUS = "DELAYED_CLOSE";
+const PARTIAL_CLOSE_STATUS = "PARTIAL_FINAL_CLOSE";
 const LATEST_COMPLETED_SESSION = "LATEST_COMPLETED_SESSION";
 const MANUAL_AMOUNT_ONLY = "MANUAL_AMOUNT_ONLY";
 const NOT_APPLICABLE = "NOT_APPLICABLE";
@@ -461,6 +463,7 @@ const els = {
   retirementProgressBar: document.querySelector("#retirementProgressBar"),
   retirementProgressLabel: document.querySelector("#retirementProgressLabel"),
   priceStatus: document.querySelector("#priceStatus"),
+  fxValuationNotice: document.querySelector("#fxValuationNotice"),
   priceRefreshBtn: document.querySelector("#priceRefreshBtn"),
   syncStatus: document.querySelector("#syncStatus"),
   syncDetail: document.querySelector("#syncDetail"),
@@ -2121,7 +2124,7 @@ async function initPrices({ createPerformanceObservation = true } = {}) {
     if (createPerformanceObservation) {
       refreshPerformanceObservation({ source: "AUTOMATIC_PRICE_CLOSE" });
     }
-    setPriceStatus(priceBook.generatedAt ? `가격 ${compactDateTime(priceBook.generatedAt)}` : "가격 완료", true);
+    setPriceStatus(isFxDelayed() ? "주식 갱신 · 환율 지연" : priceBook.generatedAt ? `가격 ${compactDateTime(priceBook.generatedAt)}` : "가격 완료", !isFxDelayed());
     render(false);
     return true;
   } catch (error) {
@@ -4128,6 +4131,7 @@ function normalizePriceBook(data) {
   const nextBook = {
     benchmarks: normalizeBenchmarks(data?.benchmarks),
     dataPolicy: {
+      fxValuationTiming: normalizeSessionStatus(data?.methodology?.fxValuationTiming || data?.dataPolicy?.fxValuationTiming),
       distributionTreatment: String(
         data?.methodology?.distributionTreatment
           || data?.dataPolicy?.distributionTreatment
@@ -4190,6 +4194,7 @@ function normalizeFinalCloseCertificate(value) {
     status: normalizeSessionStatus(value.status),
     checkedAt: typeof value.checkedAt === "string" ? value.checkedAt : null,
     validUntil: typeof value.validUntil === "string" ? value.validUntil : null,
+    expectedFxSession: normalizeDateKey(value.expectedFxSession) || null,
     validUntilByMarket: {
       KRX: typeof validUntilByMarket.KRX === "string" ? validUntilByMarket.KRX : null,
       US: typeof validUntilByMarket.US === "string" ? validUntilByMarket.US : null,
@@ -4235,13 +4240,28 @@ function normalizeFx(fx) {
   const usdkrw = typeof fx?.USDKRW === "number" ? { rate: fx.USDKRW } : fx?.USDKRW;
   const rate = Number(usdkrw?.rate || usdkrw?.close || usdkrw?.value || 0);
   const sessionStatus = normalizeSessionStatus(usdkrw?.sessionStatus);
+  const actualDate = normalizeDateKey(usdkrw?.date || usdkrw?.asOf || usdkrw?.updatedAt);
+  const expectedDate = normalizeDateKey(usdkrw?.expectedSession);
+  const retrievedAt = Date.parse(usdkrw?.retrievedAt || "");
+  const validDelayedEvidence = sessionStatus !== DELAYED_CLOSE_STATUS || (
+    actualDate && expectedDate && actualDate < expectedDate
+    && businessDaysSince(expectedDate) >= 0
+    && Number.isFinite(retrievedAt) && retrievedAt <= Date.now() + 5 * 60 * 1000
+    && usdkrw?.source === "yfinance KRW=X" && usdkrw?.freshnessStatus === "DELAYED"
+  );
   return {
-    USDKRW: Number.isFinite(rate) && rate > 0
+    USDKRW: validDelayedEvidence && Number.isFinite(rate) && rate >= 500 && rate <= 3000
+      && normalizeDateKey(usdkrw?.date || usdkrw?.asOf || usdkrw?.updatedAt)
+      && businessDaysSince(usdkrw?.date || usdkrw?.asOf || usdkrw?.updatedAt) >= 0
+      && (!sessionStatus || [FINAL_CLOSE_STATUS, DELAYED_CLOSE_STATUS].includes(sessionStatus))
       ? {
           date: usdkrw?.date || usdkrw?.asOf || usdkrw?.updatedAt || null,
           rate,
           ...(sessionStatus ? { sessionStatus } : {}),
-          source: usdkrw?.source || null
+          source: usdkrw?.source || null,
+          expectedSession: normalizeDateKey(usdkrw?.expectedSession) || null,
+          retrievedAt: typeof usdkrw?.retrievedAt === "string" ? usdkrw.retrievedAt : null,
+          freshnessStatus: normalizeSessionStatus(usdkrw?.freshnessStatus)
         }
       : null
   };
@@ -4694,6 +4714,38 @@ function assetCost(asset) {
 
 function priceMultiplier(type) {
   return type === "US" ? usdKrwRate() : 1;
+}
+
+function isFxDelayed() {
+  const fx = priceBook.fx?.USDKRW;
+  const expected = normalizeDateKey(fx?.expectedSession || priceBook.finalCloseCertificate?.expectedFxSession
+    || priceBook.finalCloseCertificate?.marketSessions?.FX);
+  const actual = normalizeDateKey(fx?.date);
+  return Boolean(fx && (priceBook.finalCloseCertificate?.status === PARTIAL_CLOSE_STATUS
+    || fx.sessionStatus === DELAYED_CLOSE_STATUS
+    || fx.freshnessStatus === "DELAYED" || (actual && expected && actual < expected)));
+}
+
+function fxDelayMessage() {
+  const fx = priceBook.fx?.USDKRW;
+  if (!isFxDelayed()) return "";
+  const age = businessDaysSince(fx.date);
+  const severity = age > PRICE_STALE_DAYS ? "환율 장기 지연" : "환율 갱신 지연";
+  return `${severity} · Yahoo USD/KRW ${fx.date} 종가 ${formatPlainNumber(Math.round(fx.rate * 100) / 100)}원으로 잠정 평가 중입니다. `
+    + `기대 기준일 ${fx.expectedSession || priceBook.finalCloseCertificate?.expectedFxSession || "확인 필요"}. `
+    + "주식 가격은 계속 갱신되며 새 환율을 받으면 자동 반영됩니다. 확정 조회 기록은 환율 갱신 후 저장할 수 있습니다.";
+}
+
+function renderFxValuationNotice() {
+  const notice = els.fxValuationNotice;
+  if (!notice) return;
+  const hasUs = heldMarketAssets().some((asset) => assetType(asset) === "US");
+  const message = hasUs && priceBook.loaded
+    ? !usdKrwRate() ? "유효한 USD/KRW 환율이 없어 미국 자산의 원화 평가금액을 계산할 수 없습니다. 주식 가격 갱신 상태와 환율 자료를 확인하세요."
+      : fxDelayMessage()
+    : "";
+  notice.hidden = !message;
+  notice.textContent = message;
 }
 
 function usdKrwRate() {
@@ -6453,6 +6505,7 @@ function renderView(view) {
 }
 
 function renderAllViews() {
+  renderFxValuationNotice();
   markAllViewsDirty();
   APP_VIEWS.forEach((view) => renderView(view));
   setActiveView(uiState.activeView, { scroll: false });
@@ -6460,6 +6513,7 @@ function renderAllViews() {
 }
 
 function render(syncCloud = true) {
+  renderFxValuationNotice();
   markAllViewsDirty();
   renderView(uiState.activeView);
   setActiveView(uiState.activeView, { scroll: false });
@@ -7344,9 +7398,12 @@ function snapshotItemByteLength(snapshot) {
   return new Blob([JSON.stringify(snapshot)]).size;
 }
 
-function finalCloseCertificateIssue(heldAssets) {
+function finalCloseCertificateIssue(heldAssets, { includeFx = true } = {}) {
   const certificate = priceBook.finalCloseCertificate;
-  if (!certificate || certificate.status !== FINAL_CLOSE_STATUS) {
+  if (includeFx && heldAssets.some((asset) => assetType(asset) === "US") && isFxDelayed()) {
+    return "환율 갱신 지연으로 현재 금액은 잠정 평가입니다. 확정 조회 기록은 새 환율을 받은 뒤 저장하세요.";
+  }
+  if (!certificate || ![FINAL_CLOSE_STATUS, PARTIAL_CLOSE_STATUS].includes(certificate.status)) {
     return "가격표의 최신 확정 종가 인증을 확인할 수 없습니다.";
   }
 
@@ -7358,7 +7415,7 @@ function finalCloseCertificateIssue(heldAssets) {
   }
 
   const requiredMarkets = new Set(heldAssets.map((asset) => assetType(asset)));
-  if (requiredMarkets.has("US")) requiredMarkets.add("FX");
+  if (includeFx && requiredMarkets.has("US")) requiredMarkets.add("FX");
   const invalidValidityMarkets = [...requiredMarkets].filter((market) => {
     const marketValidUntil = Date.parse(
       certificate.validUntilByMarket?.[market] || certificate.validUntil || ""
@@ -7457,7 +7514,7 @@ function snapshotReadiness() {
   if (hasUsAssets && !(usdKrwRate() > 0)) {
     issues.push("미국 자산 평가에 필요한 USD/KRW 환율이 없습니다.");
   }
-  if (hasUsAssets && priceBook.fx?.USDKRW?.sessionStatus !== FINAL_CLOSE_STATUS) {
+  if (hasUsAssets && !isFxDelayed() && priceBook.fx?.USDKRW?.sessionStatus !== FINAL_CLOSE_STATUS) {
     issues.push("미국 자산 평가에 필요한 USD/KRW 환율이 확정값이 아닙니다.");
   }
 
@@ -7479,7 +7536,7 @@ function snapshotReadiness() {
     issues.push("USD/KRW 환율의 기준일을 확인할 수 없습니다.");
   } else if (hasUsAssets && fxDays < 0) {
     issues.push("USD/KRW 환율의 기준일이 미래입니다.");
-  } else if (hasUsAssets && fxDays > PRICE_STALE_DAYS) {
+  } else if (hasUsAssets && !isFxDelayed() && fxDays > PRICE_STALE_DAYS) {
     issues.push(`USD/KRW 환율이 평일 기준 ${Math.floor(fxDays)}일 전이라 오래되었습니다.`);
   }
   if (hasUsAssets && fxDate
@@ -7491,7 +7548,7 @@ function snapshotReadiness() {
   if (issues.length) {
     return {
       ok: false,
-      message: `${issues.join(" ")} 정확한 총자산을 계산할 수 없어 조회 기록을 저장하지 않았습니다.`,
+      message: `${issues.join(" ")} ${hasUsAssets && isFxDelayed() ? "잠정 평가 금액은 화면에서 계속 확인할 수 있습니다. 조회 기록은 저장하지 않았습니다." : "정확한 총자산을 계산할 수 없어 조회 기록을 저장하지 않았습니다."}`,
       warnings: []
     };
   }
@@ -7723,6 +7780,9 @@ function currentPerformanceObservation({ source = "AUTOMATIC_PRICE_CLOSE", snaps
   const date = performanceValuationDate();
   const issueCodes = [];
   const fatalIssues = [];
+  if (isFxDelayed() && heldMarketAssets().some((asset) => assetType(asset) === "US")) {
+    fatalIssues.push("FX_DELAYED_PROVISIONAL");
+  }
   const priceDates = performancePriceDates();
   if (new Set(priceDates).size > 1) fatalIssues.push("MARKET_CUTOFF_MISMATCH");
   if (priceBook.dataPolicy.priceBasis !== "UNADJUSTED_CLOSE"
@@ -7882,7 +7942,7 @@ function renderPriceNotice() {
   const isFxStale = Number.isFinite(fxDays) && (fxDays < 0 || fxDays > PRICE_STALE_DAYS);
 
   if (!missing.length && !errors.length && !freshness.stale.length && !freshness.undated.length
-      && !freshness.future.length && !isFxStale) {
+      && !freshness.future.length && !isFxStale && !isFxDelayed()) {
     els.priceAlert.hidden = true;
     els.priceAlert.textContent = "";
     renderOpsStatus();
@@ -7890,6 +7950,7 @@ function renderPriceNotice() {
   }
 
   const parts = [];
+  if (isFxDelayed()) parts.push(fxDelayMessage());
   if (freshness.stale.length) {
     const oldestDays = Math.max(...freshness.stale.map((item) => item.age));
     parts.push(`보유 종목 종가 ${freshness.stale.length}개가 최대 ${Math.floor(oldestDays)}일 전 기준입니다.`);
@@ -7933,7 +7994,7 @@ function renderOpsStatus() {
   const latestPriceDate = latestMarketPriceDate();
   const staleDays = businessDaysSince(normalizeDateKey(latestPriceDate));
   const fxDays = businessDaysSince(fx?.date);
-  const hasIssues = errorCount > 0
+  const hasIssues = isFxDelayed() || errorCount > 0
     || !priceBook.generatedAt
     || !latestPriceDate
     || (Number.isFinite(staleDays) && (staleDays < 0 || staleDays > PRICE_STALE_DAYS))
@@ -7943,7 +8004,7 @@ function renderOpsStatus() {
     `가격표 ${priceBook.generatedAt ? shortDateTime(priceBook.generatedAt) : "생성일 없음"}`,
     `최근 종가 ${latestPriceDate ? shortDate(latestPriceDate) : "기준일 없음"}`,
     `오류 ${errorCount}건`,
-    fx?.rate ? `환율 ${formatPlainNumber(fx.rate)}원${fx.date ? ` · ${shortDate(fx.date)}` : ""}` : "환율 없음"
+    fx?.rate ? `환율 ${formatPlainNumber(fx.rate)}원${fx.date ? ` · ${shortDate(fx.date)}` : ""}${isFxDelayed() ? " · 갱신 지연 · 잠정 평가" : ""}` : "환율 없음"
   ];
   els.opsStatus.hidden = false;
   els.opsStatus.classList.toggle("has-issues", hasIssues);
@@ -7965,7 +8026,9 @@ function assetValueDetail(asset) {
   const price = type === "US" ? usd(Number(asset.currentPrice || 0)) : formatPlainNumber(asset.currentPrice);
   const fx = type === "US" && usdKrwRate() ? ` · 환율 ${formatPlainNumber(usdKrwRate())}원` : "";
   const date = asset.priceDate ? ` · ${escapeHtml(shortDate(asset.priceDate))}` : "";
-  return `<small class="sub-value">종가 ${price}${fx}${date}</small>`;
+  const delayed = type === "US" && isFxDelayed();
+  const fxBasis = delayed ? ` · 환율 기준 ${escapeHtml(priceBook.fx.USDKRW.date)} · 잠정 평가` : "";
+  return `<small class="sub-value${delayed ? " warning" : ""}">종가 ${price}${fx}${date}${fxBasis}</small>`;
 }
 
 function renderBreakdown() {
@@ -12793,6 +12856,11 @@ async function requestPriceRefreshFromApp({ createPerformanceObservation = true 
 
   const validUntil = Date.parse(priceBook.finalCloseCertificate?.validUntil || "");
   const heldCertificateIssue = finalCloseCertificateIssue(heldMarketAssets());
+  if (isFxDelayed() && !finalCloseCertificateIssue(heldMarketAssets(), { includeFx: false })
+      && Number.isFinite(validUntil) && validUntil > Date.now()) {
+    setPriceStatus("주식 갱신 · 환율 지연");
+    return { ok: true, provisional: true };
+  }
   if (!heldCertificateIssue && Number.isFinite(validUntil) && validUntil > Date.now()) {
     setPriceStatus("최신 확정 종가", true);
     return { ok: true, alreadyFresh: true };
@@ -12814,7 +12882,7 @@ async function requestPriceRefreshFromApp({ createPerformanceObservation = true 
       if (priceBook.generatedAt && priceBook.generatedAt !== baseline) {
         const refreshed = await initPrices({ createPerformanceObservation });
         if (!refreshed) return { ok: false, reason: "price-load-failed" };
-        setPriceStatus("가격 최신화 완료", true);
+        setPriceStatus(isFxDelayed() ? "주식 갱신 · 환율 지연" : "가격 최신화 완료", !isFxDelayed());
         return { ok: true };
       }
     }
