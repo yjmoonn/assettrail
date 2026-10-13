@@ -6764,3 +6764,10 @@ h3 { font-weight: 700; }
     line-height: 1.2;
   }
 }
+
+/* Keep the provisional FX notice clear of the desktop sticky navigation. */
+@media (min-width: 721px) {
+  main:has(> #fxValuationNotice:not([hidden])) {
+    scroll-margin-top: 96px;
+  }
+}

@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <title>AssetTrail · 자산 히스토리 & 은퇴 플래너</title>
     <link rel="icon" href="assettrail-mark.svg?v=20260820-vault-v1" type="image/svg+xml" sizes="any">
-    <link rel="stylesheet" href="styles.css?v=20260819-header-hierarchy-v1">
+    <link rel="stylesheet" href="styles.css?v=20261013-delayed-fx">
   </head>
   <body>
     <div class="app">
@@ -36,6 +36,7 @@
         <button class="app-nav-item" type="button" data-nav-view="GOALS" tabindex="-1"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"></circle></svg><span class="nav-label">목표</span></button>
       </nav>
       <main>
+        <div class="notice" id="fxValuationNotice" role="status" aria-live="polite" hidden></div>
         <p class="sr-only" id="viewAnnounce" role="status" aria-live="polite"></p>
         <section class="dashboard-hero" aria-label="요약 지표" data-app-section="DASHBOARD">
           <div class="hero-main">
@@ -1736,6 +1737,6 @@
     <script src="ai-report-engine.js?v=20260807-stage5"></script>
     <script src="ai-review-export-engine.js?v=20260907-account-valuation-v3"></script>
     <script src="history-repository.js?v=20260819-history-v1"></script>
-    <script type="module" src="app.js?v=20260907-account-valuation-v9"></script>
+    <script type="module" src="app.js?v=20261013-delayed-fx"></script>
   </body>
 </html>

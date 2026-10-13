@@ -648,6 +648,7 @@ def test_methodology_explicitly_excludes_distributions_and_total_return():
         "distributionTreatment": "excluded",
         "totalReturn": False,
         "valuationTiming": "LATEST_COMPLETED_SESSION",
+        "fxValuationTiming": "LATEST_AVAILABLE_COMPLETED_SESSION",
         "benchmarkBasis": "price_index_level",
         "quoteCurrencyByMarket": {
             "KRX": "KRW",
@@ -1018,6 +1019,237 @@ def test_price_quality_failure_preserves_existing_artifacts():
         assert symbols_output_path.read_text(encoding="utf-8") == "existing symbols\n"
 
 
+def test_fx_missing_expected_close_is_not_certified_or_published():
+    # Synthetic reconstruction of the observed gap, not archived incident data.
+    frame = pd.DataFrame({"Close": [1342.99, float("nan"), 1341.88]},
+                         index=pd.to_datetime(["2026-10-09", "2026-10-12", "2026-10-13"]))
+    metadata = yahoo_fx_metadata(
+        datetime(2026, 10, 12, 23, tzinfo=timezone.utc),
+        datetime(2026, 10, 13, 22, 59, tzinfo=timezone.utc)
+    )
+    evidence = generate_prices.fx_session_evidence_from_metadata(
+        metadata, now=datetime(2026, 10, 13, 7, 9, tzinfo=timezone.utc)
+    )
+    assert evidence["completedSession"] == "2026-10-12"
+    # The old selector returns Friday even though certification requires Monday.
+    assert generate_prices.select_latest_completed_close(frame, evidence["completedSession"])["date"] == "2026-10-09"
+    with patch.object(generate_prices.yf, "download", return_value=frame) as download:
+        entry = generate_prices.fetch_usdkrw(10, evidence["completedSession"])
+        assert entry["sessionStatus"] == "DELAYED_CLOSE"
+        assert entry["freshnessStatus"] == "DELAYED"
+        assert entry["date"] == "2026-10-09"
+        assert entry["expectedSession"] == "2026-10-12"
+        assert entry["source"] == "yfinance KRW=X"
+        assert generate_prices.parse_iso_instant(entry["retrievedAt"])
+    assert download.call_count == 2
+    assert download.call_args.kwargs["start"] == "2026-10-12"
+    assert download.call_args.kwargs["end"] == "2026-10-13"
+    assert evidence["completedSession"] == "2026-10-12"
+
+    output = valid_output()
+    output["fx"]["USDKRW"]["date"] = "2026-07-28"
+    assert_quality_fails(output, {"US": []}, "USDKRW date does not match certified FX session")
+    with tempfile.TemporaryDirectory() as directory:
+        prices, symbols = Path(directory) / "prices.json", Path(directory) / "symbols.json"
+        prices.write_text("existing prices")
+        symbols.write_text("existing symbols")
+        try:
+            generate_prices.publish_price_artifacts(
+                output, {"US": []}, prices, symbols,
+                quality_options={"min_krx_count": 3, "today": QUALITY_TODAY}
+            )
+        except generate_prices.PriceQualityError:
+            pass
+        else:
+            raise AssertionError("mismatched FX was published")
+        assert prices.read_text() == "existing prices"
+        assert symbols.read_text() == "existing symbols"
+
+
+def test_fx_exact_day_retry_recovers_only_the_expected_close():
+    old = pd.DataFrame({"Close": [1342.99]}, index=pd.to_datetime(["2026-10-09"]))
+    recovered = pd.DataFrame({"Close": [1344.0, 1341.88]},
+                             index=pd.to_datetime(["2026-10-12", "2026-10-13"]))
+    for first in (old, RuntimeError("temporary provider failure")):
+        with patch.object(generate_prices.yf, "download", side_effect=[first, recovered]) as download:
+            entry = generate_prices.fetch_usdkrw(10, "2026-10-12")
+        assert entry["date"] == "2026-10-12"
+        assert entry["rate"] == 1344.0
+        assert entry["sessionStatus"] == "FINAL_CLOSE"
+        assert download.call_count == 2
+
+
+def test_fx_venue_dates_preserve_utc_dst_and_naive_daily_labels():
+    for label, expected in (
+        ("2026-10-11T23:00:00Z", "2026-10-12"),
+        ("2026-12-01T00:00:00Z", "2026-12-01"),
+        ("2026-10-12", "2026-10-12")
+    ):
+        frame = pd.DataFrame({"Close": [1344.0]}, index=pd.to_datetime([label]))
+        with patch.object(generate_prices.yf, "download", return_value=frame) as download:
+            entry = generate_prices.fetch_usdkrw(10, expected)
+        assert entry["date"] == expected
+        assert download.call_count == 1
+        assert download.call_args.kwargs["ignore_tz"] is False
+
+
+def test_fx_missing_and_intraday_only_rows_fail_closed():
+    for frame in (
+        pd.DataFrame(),
+        pd.DataFrame({"Close": [1341.0]}, index=pd.to_datetime(["2026-10-13"])),
+        pd.DataFrame({"Close": [float("nan")]}, index=pd.to_datetime(["2026-10-12"])),
+        pd.DataFrame({"Close": [float("inf")]}, index=pd.to_datetime(["2026-10-12"]))
+    ):
+        with patch.object(generate_prices.yf, "download", return_value=frame):
+            try:
+                generate_prices.fetch_usdkrw(10, "2026-10-12")
+            except RuntimeError as error:
+                assert "expected=2026-10-12, latestAvailable=none" in str(error)
+            else:
+                raise AssertionError("missing/invalid close was certified")
+
+
+def test_fx_weekend_and_us_holiday_do_not_redefine_venue_session():
+    # Labor Day closes XNYS, but is not evidence of an FX venue holiday.
+    now = datetime(2026, 9, 7, 23, 16, tzinfo=timezone.utc)
+    assert generate_prices.latest_completed_us_session_evidence(now)["completedSession"] == "2026-09-04"
+    metadata = yahoo_fx_metadata(datetime(2026, 9, 6, 23, tzinfo=timezone.utc),
+                                 datetime(2026, 9, 7, 22, 59, tzinfo=timezone.utc))
+    assert generate_prices.fx_session_evidence_from_metadata(metadata, now)["completedSession"] == "2026-09-07"
+    friday = yahoo_fx_metadata(datetime(2026, 10, 8, 23, tzinfo=timezone.utc),
+                               datetime(2026, 10, 9, 22, 59, tzinfo=timezone.utc))
+    weekend = generate_prices.fx_session_evidence_from_metadata(
+        friday, datetime(2026, 10, 11, 12, tzinfo=timezone.utc))
+    assert weekend == {"completedSession": "2026-10-09", "nextCutoffAt": "2026-10-12T23:15:00Z"}
+    with patch.object(generate_prices.yf, "download", return_value=pd.DataFrame(
+        {"Close": [1342.99]}, index=pd.to_datetime(["2026-10-09"]))) as download:
+        assert generate_prices.fetch_usdkrw(10, weekend["completedSession"])["date"] == "2026-10-09"
+        assert download.call_count == 1
+    try:
+        generate_prices.fx_session_evidence_from_metadata(friday, datetime(2026, 10, 13, 7, tzinfo=timezone.utc))
+    except RuntimeError as error:
+        assert "next close cutoff is not in the future" in str(error)
+    else:
+        raise AssertionError("stale FX metadata was accepted")
+
+
+def test_fx_holiday_gaps_and_unknown_timezones_are_not_inferred():
+    # Even a familiar holiday needs independent venue evidence, not a missing row.
+    frame = pd.DataFrame({"Close": [1344.0]}, index=pd.to_datetime(["2026-12-31"]))
+    with patch.object(generate_prices.yf, "download", return_value=frame):
+        entry = generate_prices.fetch_usdkrw(10, "2027-01-01")
+        assert entry["date"] == "2026-12-31"
+        assert entry["expectedSession"] == "2027-01-01"
+        assert entry["sessionStatus"] == "DELAYED_CLOSE"
+    metadata = yahoo_fx_metadata(datetime(2026, 10, 12, 23, tzinfo=timezone.utc),
+                                 datetime(2026, 10, 13, 22, 59, tzinfo=timezone.utc),
+                                 timezone_name="America/New_York")
+    try:
+        generate_prices.fx_session_evidence_from_metadata(
+            metadata, datetime(2026, 10, 13, 7, tzinfo=timezone.utc))
+    except RuntimeError as error:
+        assert "timezone is unsupported" in str(error)
+    else:
+        raise AssertionError("FX venue timezone changed without validation")
+
+
+def test_fx_exact_but_stale_close_still_fails_quality():
+    output = valid_output()
+    output["fx"]["USDKRW"]["date"] = "2026-07-27"
+    output["finalCloseCertificate"]["marketSessions"]["FX"] = "2026-07-27"
+    assert_quality_fails(output, {"US": []}, "USDKRW is missing, stale")
+
+
+def test_fx_certificate_date_check_uses_london_not_new_york():
+    output = valid_output()
+    output["generatedAt"] = "2026-12-02T00:16:00Z"
+    certificate = output["finalCloseCertificate"]
+    certificate["checkedAt"] = output["generatedAt"]
+    certificate["validUntilByMarket"] = dict.fromkeys(("KRX", "US", "FX"), "2026-12-03T00:15:00Z")
+    certificate["validUntil"] = "2026-12-03T00:15:00Z"
+    certificate["marketSessions"]["FX"] = "2026-12-02"
+    output["fx"]["USDKRW"]["date"] = "2026-12-02"
+    assert not generate_prices.final_close_contract_failures(output)
+    certificate["marketSessions"]["FX"] = "2026-12-03"
+    assert "FX certified session is after the certificate check date" in generate_prices.final_close_contract_failures(output)
+
+
+def delayed_output(fx_date="2026-07-28"):
+    output = valid_output()
+    output["fx"]["USDKRW"].update({
+        "date": fx_date, "source": "yfinance KRW=X", "sessionStatus": "DELAYED_CLOSE",
+        "freshnessStatus": "DELAYED", "expectedSession": FRESH_TRADE_DATE,
+        "retrievedAt": output["generatedAt"]
+    })
+    output["finalCloseCertificate"] = generate_prices.build_final_close_certificate(
+        output, output["generatedAt"],
+        market_sessions={market: FRESH_TRADE_DATE for market in ("KRX", "US", "FX")},
+        valid_until_by_market={market: "2026-07-30T06:40:00Z" for market in ("KRX", "US", "FX")}
+    )
+    return output
+
+
+def test_delayed_fx_publishes_current_stocks_without_certifying_fx():
+    for actual in ("2026-07-28", "2026-06-01"):
+        output = delayed_output(actual)
+        certificate = output["finalCloseCertificate"]
+        assert certificate["status"] == "PARTIAL_FINAL_CLOSE"
+        assert certificate["marketSessions"] == {"KRX": FRESH_TRADE_DATE, "US": FRESH_TRADE_DATE, "FX": None}
+        assert certificate["validUntilByMarket"]["FX"] is None
+        assert certificate["expectedFxSession"] == FRESH_TRADE_DATE
+        assert generate_prices.validate_price_quality(output, {"US": []}, min_krx_count=3, today=QUALITY_TODAY)["usdkrw"] == 1385.25
+        with tempfile.TemporaryDirectory() as directory:
+            prices = Path(directory) / "prices.json"
+            generate_prices.publish_price_artifacts(output, {"US": []}, prices, Path(directory) / "symbols.json",
+                quality_options={"min_krx_count": 3, "today": QUALITY_TODAY})
+            saved = json.loads(prices.read_text())
+            assert saved["fx"]["USDKRW"]["date"] == actual
+            assert saved["fx"]["USDKRW"]["expectedSession"] == FRESH_TRADE_DATE
+            assert saved["prices"]["US"]["AAPL"]["date"] == FRESH_TRADE_DATE
+
+
+def test_delayed_fx_evidence_and_stock_quality_are_not_relaxed():
+    for field, value in (("date", "2026-07-30"), ("expectedSession", "2026-07-28"),
+                         ("retrievedAt", None), ("source", "other"), ("freshnessStatus", "CURRENT")):
+        output = delayed_output()
+        output["fx"]["USDKRW"][field] = value
+        assert_quality_fails(output, {"US": []}, "delayed USDKRW evidence is invalid")
+    for rate in (0, float("inf"), 100, 5000):
+        output = delayed_output()
+        output["fx"]["USDKRW"]["rate"] = rate
+        assert_quality_fails(output, {"US": []}, "USDKRW is missing")
+    output = delayed_output()
+    output["finalCloseCertificate"]["marketSessions"]["FX"] = "2026-07-28"
+    assert_quality_fails(output, {"US": []}, "incorrectly certified")
+    output = delayed_output()
+    output["prices"]["KRX"] = {}
+    assert_quality_fails(output, {"US": []}, "KRX fresh price count")
+
+
+def test_fx_history_search_has_no_short_fallback_expiry_and_recovers():
+    old = pd.DataFrame({"Close": [1300.0]}, index=pd.to_datetime(["2026-06-01"]))
+    with patch.object(generate_prices.yf, "download", side_effect=[pd.DataFrame(), pd.DataFrame(), old]) as download:
+        entry = generate_prices.fetch_usdkrw(10, FRESH_TRADE_DATE)
+    assert entry["date"] == "2026-06-01"
+    assert entry["sessionStatus"] == "DELAYED_CLOSE"
+    assert download.call_args.kwargs["period"] == "max"
+    current = pd.DataFrame({"Close": [1400.0]}, index=pd.to_datetime([FRESH_TRADE_DATE]))
+    with patch.object(generate_prices.yf, "download", return_value=current):
+        entry = generate_prices.fetch_usdkrw(10, FRESH_TRADE_DATE)
+    assert entry["sessionStatus"] == "FINAL_CLOSE"
+    assert entry["freshnessStatus"] == "CURRENT"
+    assert entry["date"] == FRESH_TRADE_DATE
+    output = valid_output()
+    output["fx"]["USDKRW"] = entry
+    certificate = generate_prices.build_final_close_certificate(output, output["generatedAt"],
+        market_sessions=dict.fromkeys(("KRX", "US", "FX"), FRESH_TRADE_DATE),
+        valid_until_by_market=dict.fromkeys(("KRX", "US", "FX"), "2026-07-30T06:40:00Z"))
+    output["finalCloseCertificate"] = certificate
+    assert certificate["status"] == "FINAL_CLOSE"
+    assert certificate["marketSessions"]["FX"] == FRESH_TRADE_DATE
+    assert generate_prices.validate_price_quality(output, {"US": []}, min_krx_count=3, today=QUALITY_TODAY)["usdkrw"] == 1400.0
+
+
 if __name__ == "__main__":
     test_main_uses_only_the_trusted_ticker_file()
     test_trusted_ticker_file_covers_required_us_portfolio()
@@ -1057,3 +1289,15 @@ if __name__ == "__main__":
     test_price_quality_excludes_stale_us_entries()
     test_price_and_symbol_artifacts_are_separated_and_minified()
     test_price_quality_failure_preserves_existing_artifacts()
+
+    test_fx_missing_expected_close_is_not_certified_or_published()
+    test_fx_exact_day_retry_recovers_only_the_expected_close()
+    test_fx_venue_dates_preserve_utc_dst_and_naive_daily_labels()
+    test_fx_missing_and_intraday_only_rows_fail_closed()
+    test_fx_weekend_and_us_holiday_do_not_redefine_venue_session()
+    test_fx_exact_but_stale_close_still_fails_quality()
+    test_fx_certificate_date_check_uses_london_not_new_york()
+    test_fx_holiday_gaps_and_unknown_timezones_are_not_inferred()
+    test_delayed_fx_publishes_current_stocks_without_certifying_fx()
+    test_delayed_fx_evidence_and_stock_quality_are_not_relaxed()
+    test_fx_history_search_has_no_short_fallback_expiry_and_recovers()

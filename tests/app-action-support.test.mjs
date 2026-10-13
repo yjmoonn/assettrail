@@ -43,7 +43,7 @@ function installBrowserStubs(window) {
     ok: true,
     json: async () => ({
       generatedAt: "2099-01-02T00:00:00.000Z",
-      fx: { USDKRW: { date: "2099-01-01", rate: 1000 } },
+      fx: { USDKRW: { date: new Date().toISOString().slice(0, 10), rate: 1000 } },
       prices: {
         KRX: {
           "005930": {
