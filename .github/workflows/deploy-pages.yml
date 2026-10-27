@@ -11,6 +11,8 @@ on:
     # Yahoo KRW=X closes at 23:59 London time; cover both UTC offsets.
     - cron: "20 23 * * 1-5"
     - cron: "20 0 * * 2-6"
+    # Two bounded follow-ups after FX confirmation (10:20/11:20 KST).
+    - cron: "20 1,2 * * 2-6"
     # 15:40 KST is the normal KRX close-confirmation cutoff; 16:40 covers delayed special sessions.
     - cron: "40 6 * * 1-5"
     - cron: "40 7 * * 1-5"
@@ -229,6 +231,17 @@ jobs:
       - name: Install price dependencies
         if: steps.price_mode.outputs.generate == 'true'
         run: pip install -r requirements.txt
+
+      - name: Load previous valid prices for partial updates
+        if: steps.price_mode.outputs.generate == 'true'
+        shell: bash
+        run: |
+          if curl --fail --silent --show-error --location --retry 2 \
+            "$PAGES_URL/prices.json?v=${{ github.run_id }}" --output prices.previous.json; then
+            if python -m json.tool prices.previous.json >/dev/null; then
+              mv prices.previous.json prices.json
+            fi
+          fi
 
       - name: Generate prices
         if: steps.price_mode.outputs.generate == 'true'

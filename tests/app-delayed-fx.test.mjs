@@ -147,5 +147,29 @@ for (const entry of [
   assert.equal(api.snapshots(), snapshots);
 }
 assert.equal(api.normalize({}).USDKRW, null);
+// A delayed stock market must not label a current FX quote as delayed or certify a snapshot.
+response = manifest({ actual: "2026-07-30", rate: 1400, delayed: false });
+response.marketStatus = {
+  KRX: { status: "CURRENT", actualDates: { "2026-07-30": 1 } },
+  US: { status: "DELAYED", expectedSession: "2026-07-30", actualDates: { "2026-07-29": 1 } },
+  FX: { status: "CURRENT", actualDates: { "2026-07-30": 1 } }
+};
+response.prices.US.AAPL.date = "2026-07-29";
+response.finalCloseCertificate.status = "PARTIAL_FINAL_CLOSE";
+response.finalCloseCertificate.marketSessions.US = null;
+response.finalCloseCertificate.validUntilByMarket.US = null;
+await api.load();
+assert.equal(api.total(), 280030);
+assert.equal(api.readiness().ok, false);
+assert.match(api.readiness().message, /US.*지연/);
+assert.equal(api.krxReadiness(), "");
+assert.equal(api.observation().completeness, "INCOMPLETE");
+assert.doesNotMatch(api.details(), /환율.*잠정/);
+assert.match(window.document.querySelector("#priceStatus").textContent, /US 2026-07-29.*지연/);
+assert.equal((await api.refresh()).provisional, true);
+assert.equal(api.snapshots(), snapshots);
+response = manifest({ actual: "2026-07-30", rate: 1400, delayed: false });
+await api.load();
+assert.equal(api.readiness().ok, true);
 dom.window.close();
 console.log("Delayed FX valuation, snapshot saving, provenance, warnings and recovery passed.");

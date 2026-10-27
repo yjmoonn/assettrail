@@ -11,3 +11,6 @@ assert.match(workflow, /if: steps\.price_mode\.outputs\.generate == 'true'[\s\S]
 assert.match(workflow, /github\.event_name != 'pull_request'/);
 
 console.log("Deploy workflow scheduling, retries, and CI gates passed.");
+
+assert.match(workflow, /20 1,2 \* \* 2-6/);
+assert.ok(workflow.indexOf("Load previous valid prices") < workflow.indexOf("name: Generate prices"));

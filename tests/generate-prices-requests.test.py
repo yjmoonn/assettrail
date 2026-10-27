@@ -1250,6 +1250,113 @@ def test_fx_history_search_has_no_short_fallback_expiry_and_recovers():
     assert generate_prices.validate_price_quality(output, {"US": []}, min_krx_count=3, today=QUALITY_TODAY)["usdkrw"] == 1400.0
 
 
+def test_partial_market_publication():
+    import copy
+    today = date(2026, 7, 30)
+    tickers = {"KRX": [], "US": ["AAPL", "MSFT", "TSLA"]}
+    def fixture():
+        result = valid_output()
+        result["fx"]["USDKRW"].update(source="yfinance KRW=X", retrievedAt="2026-07-29T22:30:48Z")
+        return result
+    def reconcile(result, previous=None):
+        return generate_prices.reconcile_markets(result, previous, tickers, min_krx_count=3)
+    def check(result):
+        return generate_prices.validate_price_quality(result, tickers, min_krx_count=3, today=today)
+    normal = reconcile(fixture())
+    check(normal)
+    assert all(s["status"] == "CURRENT" for s in normal["marketStatus"].values())
+    for market in ("KRX", "US", "FX"):
+        result = fixture()
+        if market == "FX":
+            result["fx"] = {}
+        else:
+            result["prices"][market] = {}
+        partial = reconcile(result, normal)
+        check(partial)
+        assert partial["marketStatus"][market]["status"] == "DELAYED"
+        assert partial["finalCloseCertificate"]["marketSessions"][market] is None
+        assert partial["finalCloseCertificate"]["validUntilByMarket"][market] is None
+        assert all(s["status"] == "CURRENT" for m, s in partial["marketStatus"].items() if m != market)
+        if market == "FX":
+            assert partial["fx"] == normal["fx"]  # Original retrieval provenance preserved.
+        else:
+            assert partial["prices"][market] == normal["prices"][market]
+    result = fixture()
+    result["finalCloseCertificate"]["marketSessions"]["US"] = "2026-07-30"
+    result = reconcile(result)
+    check(result)
+    assert result["marketStatus"]["US"]["status"] == "DELAYED"
+    with tempfile.TemporaryDirectory() as directory:
+        prices_path = Path(directory) / "prices.json"
+        symbols_path = Path(directory) / "symbols.json"
+        generate_prices.publish_price_artifacts(result, tickers, prices_path, symbols_path,
+            quality_options={"min_krx_count": 3, "today": today})
+        published = json.loads(prices_path.read_text())
+        assert published["marketStatus"] == result["marketStatus"]
+        assert published["finalCloseCertificate"]["marketSessions"]["US"] is None
+    assert result["marketStatus"]["US"]["actualDates"] == {FRESH_TRADE_DATE: 3}
+    assert result["marketStatus"]["FX"]["status"] == "CURRENT"
+    result = fixture()
+    result["fx"]["USDKRW"]["date"] = "2026-07-28"
+    result = reconcile(result)
+    check(result)
+    assert result["fx"]["USDKRW"]["sessionStatus"] == "DELAYED_CLOSE"
+    assert result["finalCloseCertificate"]["expectedFxSession"] == FRESH_TRADE_DATE
+    for market in ("KRX", "US", "FX"):
+        result = fixture()
+        if market == "FX":
+            result["fx"] = {}
+        else:
+            result["prices"][market] = {}
+        result = reconcile(result)
+        check(result)
+        assert result["marketStatus"][market]["status"] == "MISSING"
+    for value in (float("nan"), float("inf"), -10, 0, True):
+        result = fixture()
+        result["prices"]["US"]["AAPL"]["close"] = value
+        result["prices"]["US"]["BAD/SYMBOL"] = copy.deepcopy(normal["prices"]["US"]["AAPL"])
+        result["prices"]["US"]["MSFT"]["date"] = "2027-01-01"
+        result = reconcile(result, normal)
+        check(result)
+        assert "BAD/SYMBOL" not in result["prices"]["US"]
+        assert result["prices"]["US"]["AAPL"] == normal["prices"]["US"]["AAPL"]
+        assert result["prices"]["US"]["MSFT"] == normal["prices"]["US"]["MSFT"]
+        result["prices"]["US"]["AAPL"]["close"] = value
+        try:
+            check(result)
+        except generate_prices.PriceQualityError:
+            pass
+        else:
+            raise AssertionError("invalid partial input accepted")
+    result = fixture()
+    result["prices"] = {"KRX": {}, "US": {}}
+    result["fx"] = {}
+    try:
+        reconcile(result)
+    except generate_prices.PriceQualityError:
+        pass
+    else:
+        raise AssertionError("empty publication accepted")
+    result = fixture()
+    result["fx"]["USDKRW"]["date"] = "2026-07-28"
+    result = reconcile(result, normal)
+    check(result)
+    assert result["fx"]["USDKRW"]["date"] == FRESH_TRADE_DATE
+    assert result["marketStatus"]["FX"]["status"] == "DELAYED"
+    for invalid in ({"rate": 0}, {"rate": float("nan")}, {"date": "2027-01-01"},
+                    {"date": "2026-02-30"}, {"retrievedAt": "2027-01-01T00:00:00Z"}):
+        result = fixture()
+        result["fx"]["USDKRW"].update(invalid)
+        result = reconcile(result, normal)
+        check(result)
+        assert result["fx"] == normal["fx"]
+        assert result["marketStatus"]["FX"]["status"] == "DELAYED"
+    result = reconcile(fixture())
+    check(result)
+    assert result["finalCloseCertificate"]["status"] == generate_prices.FINAL_CLOSE_STATUS
+    print("Partial markets, previous values, missing data, invalid input and recovery passed")
+
+
 if __name__ == "__main__":
     test_main_uses_only_the_trusted_ticker_file()
     test_trusted_ticker_file_covers_required_us_portfolio()
@@ -1301,3 +1408,5 @@ if __name__ == "__main__":
     test_delayed_fx_publishes_current_stocks_without_certifying_fx()
     test_delayed_fx_evidence_and_stock_quality_are_not_relaxed()
     test_fx_history_search_has_no_short_fallback_expiry_and_recovers()
+
+    test_partial_market_publication()
