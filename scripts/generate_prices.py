@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import argparse
+import copy
+from collections import Counter
 import html
 import json
 import math
@@ -287,6 +289,8 @@ def fetch_latest_completed_fx_session_evidence(now=None):
 
 
 def is_positive_finite_number(value):
+    if isinstance(value, bool):
+        return False
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -557,13 +561,14 @@ def validate_price_quality(
     today=None
 ):
     quality_date = resolve_quality_date(today)
-    failures = final_close_contract_failures(output)
+    partial = isinstance(output.get("marketStatus"), dict)
+    failures = partial_contract_failures(output, quality_date) if partial else final_close_contract_failures(output)
     krx_prices = output.get("prices", {}).get("KRX", {})
     valid_krx_count = sum(
         1 for entry in krx_prices.values()
         if is_valid_price_entry(entry, quality_date)
     )
-    if valid_krx_count < min_krx_count:
+    if valid_krx_count < min_krx_count and (not partial or output["marketStatus"]["KRX"]["status"] == "CURRENT"):
         failures.append(
             f"KRX fresh price count {valid_krx_count} is below minimum {min_krx_count}"
         )
@@ -571,7 +576,7 @@ def validate_price_quality(
     usdkrw = output.get("fx", {}).get("USDKRW")
     usdkrw_rate = usdkrw.get("rate") if isinstance(usdkrw, dict) else None
     usdkrw_date = usdkrw.get("date") if isinstance(usdkrw, dict) else None
-    if (
+    if (not partial or output["marketStatus"]["FX"]["status"] == "CURRENT") and (
         not is_positive_finite_number(usdkrw_rate)
         or not MIN_USDKRW_RATE <= float(usdkrw_rate) <= MAX_USDKRW_RATE
         or not parse_calendar_date(usdkrw_date)
@@ -599,7 +604,7 @@ def validate_price_quality(
             min(len(requested_us), min_us_success_count),
             required_by_rate
         )
-        if len(successful_us) < required_us_count:
+        if len(successful_us) < required_us_count and (not partial or output["marketStatus"]["US"]["status"] == "CURRENT"):
             failures.append(
                 "US baseline fresh price coverage "
                 f"{len(successful_us)}/{len(requested_us)} is below required "
@@ -611,7 +616,7 @@ def validate_price_quality(
 
     return {
         "krx": valid_krx_count,
-        "usdkrw": float(usdkrw_rate),
+        "usdkrw": float(usdkrw_rate) if usdkrw_rate is not None else None,
         "usRequested": len(requested_us),
         "usSucceeded": len(successful_us),
         "usRequired": required_us_count
@@ -635,6 +640,7 @@ def build_price_artifacts(output, output_path, symbols_output_path):
         "generatedAt": generated_at,
         "methodology": price_methodology_metadata(),
         "finalCloseCertificate": output.get("finalCloseCertificate"),
+        **({"marketStatus": output["marketStatus"]} if "marketStatus" in output else {}),
         "fx": output.get("fx", {}),
         "prices": output.get("prices", {"KRX": {}, "US": {}}),
         "benchmarks": output.get("benchmarks", {}),
@@ -1300,6 +1306,146 @@ def fetch_benchmarks(lookback_days, completed_sessions, today=None):
     return benchmarks, errors
 
 
+def usable_market_rows(rows, market, today):
+    """Validate identity/value/date even when freshness cannot be certified."""
+    result = {}
+    for ticker, entry in (rows if isinstance(rows, dict) else {}).items():
+        identity_ok = bool(re.fullmatch(r"[0-9A-Z]{6}" if market == "KRX" else r"[A-Z0-9][A-Z0-9.\-^=]{0,19}", ticker))
+        trade_date = parse_calendar_date(entry.get("date")) if isinstance(entry, dict) else None
+        if (identity_ok and isinstance(entry, dict) and is_positive_finite_number(entry.get("close"))
+                and trade_date and trade_date <= today and entry.get("sessionStatus") == FINAL_CLOSE_STATUS):
+            result[ticker] = copy.deepcopy(entry)
+    return result
+
+
+def usable_fx(entry, today):
+    if not isinstance(entry, dict):
+        return False
+    trade_date = parse_calendar_date(entry.get("date"))
+    retrieved = parse_iso_instant(entry.get("retrievedAt"))
+    expected = parse_calendar_date(entry.get("expectedSession"))
+    rate = entry.get("rate")
+    return bool(isinstance(rate, (int, float)) and is_positive_finite_number(rate)
+                and MIN_USDKRW_RATE <= rate <= MAX_USDKRW_RATE
+                and trade_date and trade_date <= today
+                and entry.get("sessionStatus") in {FINAL_CLOSE_STATUS, DELAYED_CLOSE_STATUS}
+                and entry.get("source") == "yfinance KRW=X"
+                and retrieved and trade_date <= retrieved.date() <= today
+                and (entry["sessionStatus"] != DELAYED_CLOSE_STATUS
+                     or (expected and trade_date < expected <= today
+                         and entry.get("freshnessStatus") == "DELAYED")))
+
+
+def reconcile_markets(output, previous, tickers, min_krx_count=MIN_KRX_PRICE_COUNT):
+    """Publish independent markets; retained rows never receive a new certificate."""
+    previous = previous if isinstance(previous, dict) else {}
+    previous = {key: value for key, value in previous.items() if isinstance(value, dict)}
+    cert = output["finalCloseCertificate"]
+    today = parse_iso_instant(output["generatedAt"]).astimezone(KST).date()
+    states = {}
+    for market in ("KRX", "US", "FX"):
+        expected = cert.get("marketSessions", {}).get(market)
+        if market == "FX":
+            expected = expected or cert.get("expectedFxSession")
+            row = output.get("fx", {}).get("USDKRW")
+            valid = usable_fx(row, today)
+            rows = {"USDKRW": row} if valid else {}
+            collected_dates = dict(Counter(e["date"] for e in rows.values()))
+            old = previous.get("fx", {}).get("USDKRW")
+            if usable_fx(old, today) and (not rows or old["date"] > rows["USDKRW"]["date"]):
+                rows = {"USDKRW": copy.deepcopy(old)}
+            current = valid and row["date"] == expected and row["sessionStatus"] == FINAL_CLOSE_STATUS
+            if rows and rows["USDKRW"] is not row:
+                current = False
+            if rows and expected and rows["USDKRW"]["date"] < expected:
+                rows["USDKRW"].update(sessionStatus=DELAYED_CLOSE_STATUS, freshnessStatus="DELAYED", expectedSession=expected)
+            output["fx"] = rows
+        else:
+            raw = output["prices"].get(market, {})
+            rows = usable_market_rows(raw, market, today)
+            collected_dates = dict(Counter(e["date"] for e in rows.values()))
+            if len(rows) != len(raw):
+                output.setdefault("errors", []).append({"type": market, "ticker": "VALIDATION", "error": "invalid identity, value, date or close status excluded"})
+            requested = {normalize_us_ticker(t) for t in tickers.get("US", [])}
+            required = max(min(len(requested), MIN_US_SUCCESS_COUNT), math.ceil(len(requested) * MIN_US_SUCCESS_RATE))
+            coverage = len(rows) >= min_krx_count if market == "KRX" else len(requested & rows.keys()) >= required
+            current = (bool(expected) and len(rows) == len(raw) and coverage
+                       and latest_entry_date(rows) == expected
+                       and all(e["date"] <= expected and is_fresh_date(e["date"], today) for e in rows.values()))
+            if not current:
+                old_rows = usable_market_rows(previous.get("prices", {}).get(market, {}), market, today)
+                # Keep every independently valid collected close, fill missing older values.
+                for ticker, entry in old_rows.items():
+                    if ticker not in rows or entry["date"] > rows[ticker]["date"]:
+                        rows[ticker] = entry
+            output["prices"][market] = rows
+        cutoff = parse_iso_instant(cert["validUntilByMarket"].get(market))
+        current = current and cutoff is not None and cutoff > parse_iso_instant(output["generatedAt"])
+        counts = dict(sorted(Counter(e["date"] for e in rows.values()).items()))
+        states[market] = {"status": "CURRENT" if current else "DELAYED" if rows else "MISSING",
+                          "expectedSession": expected, "actualDates": counts, "collectedDates": collected_dates}
+        print(f"MARKET {market}: expected={expected} collectedDates={collected_dates} publishedDates={counts} status={states[market]['status']}", file=sys.stderr)
+        if not current:
+            cert["marketSessions"][market] = None
+            cert["validUntilByMarket"][market] = None
+    if not any(state["actualDates"] for state in states.values()):
+        raise PriceQualityError("No valid market data or previous values are available")
+    output["marketStatus"] = states
+    current_markets = [m for m, state in states.items() if state["status"] == "CURRENT"]
+    cert["status"] = FINAL_CLOSE_STATUS if len(current_markets) == 3 else PARTIAL_CLOSE_STATUS
+    cert["validUntil"] = min((cert["validUntilByMarket"][m] for m in current_markets), default=None)
+    if states["FX"]["status"] != "CURRENT":
+        cert["expectedFxSession"] = states["FX"]["expectedSession"]
+    return output
+
+
+def partial_contract_failures(output, today):
+    failures = []
+    states = output.get("marketStatus")
+    cert = output.get("finalCloseCertificate", {})
+    checked = parse_iso_instant(output.get("generatedAt"))
+    if not checked or cert.get("checkedAt") != output.get("generatedAt"):
+        failures.append("partial certificate check time is invalid")
+    if output.get("methodology", {}).get("valuationTiming") != VALUATION_TIMING:
+        failures.append("partial methodology is invalid")
+    current = []
+    for market in ("KRX", "US", "FX"):
+        state = states.get(market, {})
+        rows = output.get("fx", {}) if market == "FX" else output.get("prices", {}).get(market, {})
+        if market == "FX":
+            valid = not rows or (set(rows) == {"USDKRW"} and usable_fx(rows["USDKRW"], today))
+        else:
+            valid = len(usable_market_rows(rows, market, today)) == len(rows)
+        if not valid:
+            failures.append(f"{market} invalid retained data")
+        if state.get("actualDates") != dict(Counter(e.get("date") for e in rows.values())):
+            failures.append(f"{market} actual dates do not match rows")
+        if state.get("status") == "CURRENT":
+            current.append(market)
+            session = cert.get("marketSessions", {}).get(market)
+            cutoff = parse_iso_instant(cert.get("validUntilByMarket", {}).get(market))
+            if (not parse_calendar_date(session) or session != state.get("expectedSession")
+                    or not cutoff or not checked or cutoff <= checked
+                    or parse_calendar_date(session) > checked.astimezone({"KRX": KST, "US": NEW_YORK, "FX": FX_ZONE}[market]).date()
+                    or latest_entry_date(rows) != session
+                    or any(e.get("sessionStatus") != FINAL_CLOSE_STATUS or e["date"] > session
+                           or not is_fresh_date(e["date"], today) for e in rows.values())):
+                failures.append(f"{market} invalid current certification")
+        elif state.get("status") in {"DELAYED", "MISSING"}:
+            if bool(rows) != (state["status"] == "DELAYED"):
+                failures.append(f"{market} invalid availability")
+            if cert.get("marketSessions", {}).get(market) or cert.get("validUntilByMarket", {}).get(market):
+                failures.append(f"{market} delayed data must not be certified")
+        else:
+            failures.append(f"{market} missing availability state")
+    expected_status = FINAL_CLOSE_STATUS if len(current) == 3 else PARTIAL_CLOSE_STATUS
+    if cert.get("status") != expected_status:
+        failures.append("partial certificate status is invalid")
+    if cert.get("validUntil") != min((cert["validUntilByMarket"][m] for m in current), default=None):
+        failures.append("partial global validity is invalid")
+    return failures
+
+
 def build_prices(tickers, lookback_days):
     collection_now = datetime.now(timezone.utc)
     prices = {"KRX": {}, "US": {}}
@@ -1433,7 +1579,11 @@ def main():
     symbols_output = args.symbols_output or default_symbols_output(args.output)
 
     tickers = read_tickers(args.tickers)
-    output = build_prices(tickers, args.lookback_days)
+    try:
+        previous = json.loads(Path(args.output).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        previous = {}
+    output = reconcile_markets(build_prices(tickers, args.lookback_days), previous, tickers)
 
     for error in output["errors"]:
         print(f"{error['type']} {error['ticker']}: {error['error']}", file=sys.stderr)
@@ -1452,7 +1602,7 @@ def main():
         "Price quality passed: "
         f"KRX {quality['krx']}, "
         f"US {quality['usSucceeded']}/{quality['usRequested']}, "
-        f"USDKRW {quality['usdkrw']:.2f}"
+        f"USDKRW {quality['usdkrw']}"
     )
 
     return 0

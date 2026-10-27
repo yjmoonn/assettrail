@@ -2142,7 +2142,7 @@ async function initPrices({ createPerformanceObservation = true } = {}) {
     if (createPerformanceObservation) {
       refreshPerformanceObservation({ source: "AUTOMATIC_PRICE_CLOSE" });
     }
-    setPriceStatus(isFxDelayed() ? "주식 갱신 · 환율 지연" : priceBook.generatedAt ? `가격 ${compactDateTime(priceBook.generatedAt)}` : "가격 완료", !isFxDelayed());
+    setPriceStatus(delayedMarketSummary() || (isFxDelayed() ? "주식 갱신 · 환율 지연" : priceBook.generatedAt ? `가격 ${compactDateTime(priceBook.generatedAt)}` : "가격 완료"), !delayedMarketSummary() && !isFxDelayed());
     render(false);
     return true;
   } catch (error) {
@@ -4168,6 +4168,7 @@ function normalizePriceBook(data) {
     },
     errors: Array.isArray(data?.errors) ? data.errors : [],
     finalCloseCertificate: normalizeFinalCloseCertificate(data?.finalCloseCertificate),
+    marketStatus: isPlainObject(data?.marketStatus) ? data.marketStatus : {},
     fx: normalizeFx(data?.fx),
     generatedAt: data?.generatedAt || data?.updatedAt || data?.date || null,
     loaded: true,
@@ -4740,9 +4741,21 @@ function isFxDelayed() {
   const expected = normalizeDateKey(fx?.expectedSession || priceBook.finalCloseCertificate?.expectedFxSession
     || priceBook.finalCloseCertificate?.marketSessions?.FX);
   const actual = normalizeDateKey(fx?.date);
-  return Boolean(fx && (priceBook.finalCloseCertificate?.status === PARTIAL_CLOSE_STATUS
+  return Boolean(fx && ((priceBook.marketStatus?.FX
+    ? priceBook.marketStatus.FX.status !== "CURRENT"
+    : priceBook.finalCloseCertificate?.status === PARTIAL_CLOSE_STATUS)
     || fx.sessionStatus === DELAYED_CLOSE_STATUS
     || fx.freshnessStatus === "DELAYED" || (actual && expected && actual < expected)));
+}
+
+function delayedMarketSummary() {
+  return ["KRX", "US", "FX"].filter((market) =>
+    priceBook.marketStatus?.[market] && priceBook.marketStatus[market].status !== "CURRENT"
+  ).map((market) => {
+    const status = priceBook.marketStatus[market];
+    const dates = Object.keys(status.actualDates || {}).sort();
+    return `${market} ${dates.at(-1) || "자료 없음"} · ${status.status === "MISSING" ? "누락" : "지연"}`;
+  }).join(" / ");
 }
 
 function renderFxValuationNotice() {
@@ -7441,6 +7454,11 @@ function finalCloseCertificateIssue(heldAssets, { includeFx = true } = {}) {
 
   const requiredMarkets = new Set(heldAssets.map((asset) => assetType(asset)));
   if (includeFx && requiredMarkets.has("US")) requiredMarkets.add("FX");
+  const delayedMarkets = [...requiredMarkets].filter((market) =>
+    priceBook.marketStatus?.[market] && priceBook.marketStatus[market].status !== "CURRENT");
+  if (delayedMarkets.length) {
+    return `${delayedMarkets.join(", ")} 갱신 지연: 현재 금액은 이전 종가 미리보기입니다. 확정 기록은 최신 자료를 받은 뒤 저장하세요.`;
+  }
   const invalidValidityMarkets = [...requiredMarkets].filter((market) => {
     const marketValidUntil = Date.parse(
       certificate.validUntilByMarket?.[market] || certificate.validUntil || ""
@@ -7822,6 +7840,10 @@ function currentPerformanceObservation({ source = "AUTOMATIC_PRICE_CLOSE", snaps
   const fatalIssues = [];
   if (isFxDelayed() && heldMarketAssets().some((asset) => assetType(asset) === "US")) {
     fatalIssues.push("FX_DELAYED_PROVISIONAL");
+  }
+  if (heldMarketAssets().some((asset) => priceBook.marketStatus?.[assetType(asset)]
+      && priceBook.marketStatus[assetType(asset)].status !== "CURRENT")) {
+    fatalIssues.push("MARKET_DELAYED_PROVISIONAL");
   }
   const priceDates = performancePriceDates();
   if (new Set(priceDates).size > 1) fatalIssues.push("MARKET_CUTOFF_MISMATCH");
@@ -12896,6 +12918,11 @@ async function requestPriceRefreshFromApp({ createPerformanceObservation = true 
 
   const validUntil = Date.parse(priceBook.finalCloseCertificate?.validUntil || "");
   const heldCertificateIssue = finalCloseCertificateIssue(heldMarketAssets());
+  if (delayedMarketSummary() && Number.isFinite(validUntil) && validUntil > Date.now()
+      && !Object.values(priceBook.marketStatus || {}).some((entry) => entry.status === "MISSING")) {
+    setPriceStatus(delayedMarketSummary());
+    return { ok: true, provisional: true };
+  }
   if (isFxDelayed() && !finalCloseCertificateIssue(heldMarketAssets(), { includeFx: false })
       && Number.isFinite(validUntil) && validUntil > Date.now()) {
     setPriceStatus("주식 갱신 · 환율 지연");
@@ -12922,7 +12949,7 @@ async function requestPriceRefreshFromApp({ createPerformanceObservation = true 
       if (priceBook.generatedAt && priceBook.generatedAt !== baseline) {
         const refreshed = await initPrices({ createPerformanceObservation });
         if (!refreshed) return { ok: false, reason: "price-load-failed" };
-        setPriceStatus(isFxDelayed() ? "주식 갱신 · 환율 지연" : "가격 최신화 완료", !isFxDelayed());
+        setPriceStatus(delayedMarketSummary() || (isFxDelayed() ? "주식 갱신 · 환율 지연" : "가격 최신화 완료"), !delayedMarketSummary() && !isFxDelayed());
         return { ok: true };
       }
     }
