@@ -112,7 +112,7 @@ try {
  await page.evaluate(() => browserFx.flush());
  assert.doesNotMatch(await page.locator('#appNotice').innerText(), /환율|잠정/);
  const remote = await page.evaluate(() => browserFx.remote());
- assert.equal(remote.schemaVersion, 10);
+ assert.equal(remote.schemaVersion, 11);
  assert.equal(remote.snapshots.length, 2);
  const saved = remote.snapshots.find(s => s.id !== 'prior-synthetic');
  assert.equal(saved.total, 260000);

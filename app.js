@@ -1,5 +1,5 @@
 const STORAGE_KEY = "finance-ledger-retirement-v1";
-const STATE_SCHEMA_VERSION = 10;
+const STATE_SCHEMA_VERSION = 11;
 const CLOUD_DOC_ID = "primary";
 const CLOUD_PAYLOAD_MAX_BYTES = 900 * 1024;
 const CLOUD_TRANSACTION_EVENT_LIMIT = 400;
@@ -261,6 +261,7 @@ const els = {
   pageTitle: document.querySelector("#pageTitle"),
   pageSubtitle: document.querySelector("#pageSubtitle"),
   totalAsset: document.querySelector("#totalAsset"),
+  totalAssetLabel: document.querySelector(".hero-kicker"),
   assetCount: document.querySelector("#assetCount"),
   lastDelta: document.querySelector("#lastDelta"),
   lastDeltaRate: document.querySelector("#lastDeltaRate"),
@@ -3966,6 +3967,7 @@ function serializeAsset(asset) {
     accountClass: normalized.accountClass,
     manualSubtype: normalized.manualSubtype,
     amount: Number(normalized.amount || 0),
+    ...(normalized.type === "CASH" && normalized.cashBalanceKnown === false ? { cashBalanceKnown: false } : {}),
     quantity: Number(normalized.quantity || 0),
     averagePrice: Number(normalized.averagePrice || 0),
     note: String(normalized.note || ""),
@@ -4386,6 +4388,7 @@ function totalAssets() {
 
 function assetValue(asset) {
   const type = assetType(asset);
+  if (type === "CASH" && asset.cashBalanceKnown === false) return Math.max(0, Number(asset.amount || 0));
   if (isManualValuedType(type)) return Number(asset.amount || 0);
 
   const quantity = Number(asset.quantity || 0);
@@ -6569,6 +6572,8 @@ function renderSummary() {
   const firstChange = currentTotal - firstBase;
 
   els.totalAsset.textContent = money(currentTotal);
+  const cashIncomplete = state.assets.some((asset) => assetType(asset) === "CASH" && asset.cashBalanceKnown === false);
+  if (els.totalAssetLabel) els.totalAssetLabel.textContent = cashIncomplete ? "자산 합계 · 예수금 일부 미확인" : "현재 총자산";
   els.assetCount.textContent = `${state.assets.length}개 자산`;
   setSigned(els.lastDelta, lastChange);
   setSigned(els.lastDeltaRate, deltaRate(currentTotal, lastBase), percent);
@@ -7854,8 +7859,10 @@ function currentPerformanceObservation({ source = "AUTOMATIC_PRICE_CLOSE", snaps
 
   const projection = ledgerEngine().projectLedger(state.events, {
     baselineDate: state.ledgerMeta?.baselineDate || undefined,
+    unconfirmedCashAssetIds: state.assets.filter((asset) => assetType(asset) === "CASH" && asset.cashBalanceKnown === false).map((asset) => asset.id),
     asOfDate: date
   });
+  if (state.assets.some((asset) => assetType(asset) === "CASH" && asset.cashBalanceKnown === false)) fatalIssues.push("UNCONFIRMED_CASH_BALANCE");
   if (!projection.ok) fatalIssues.push("LEDGER_PROJECTION_FAILED");
   const activeEvents = activePerformanceLedgerEvents();
   if ((projection.warnings || []).some((warning) => warning.code === "UNCLASSIFIED_CASH_ADJUSTMENT")) {
@@ -8075,7 +8082,9 @@ function renderOpsStatus() {
 function assetValueDetail(asset) {
   const type = assetType(asset);
   if (type === "MANUAL") return `<small class="sub-value warning">수동평가 · 조회 시 직접 갱신 필요</small>`;
-  if (type === "CASH") return `<small class="sub-value">수동 입력 금액</small>`;
+  if (type === "CASH") return asset.cashBalanceKnown === false
+    ? `<small class="sub-value warning">기존 잔액 미확인 · 거래 증감 ${escapeHtml(money(asset.amount || 0))}</small>`
+    : `<small class="sub-value">수동 입력 금액</small>`;
   if (!isMarketType(type)) return "";
   if (marketPriceMissing(asset)) {
     const ticker = normalizeTicker(type, asset.ticker);
@@ -9217,7 +9226,8 @@ function projectLedgerState({
   tradeJournalEntries = []
 }) {
   const projection = ledgerEngine().projectLedger(events, {
-    baselineDate: ledgerMeta?.baselineDate || undefined
+    baselineDate: ledgerMeta?.baselineDate || undefined,
+    unconfirmedCashAssetIds: assets.filter((asset) => assetType(asset) === "CASH" && asset.cashBalanceKnown === false).map((asset) => asset.id)
   });
   const referenceErrors = ledgerReferenceErrors(events, assets, realizedTrades, tradeJournalEntries, projection.auditTrail);
   const errors = [...(projection.errors || []), ...referenceErrors];
@@ -10745,7 +10755,7 @@ function cashBalanceReasonOptions(delta, asset, openingEvent = undefined) {
     : [["WITHDRAWAL", "실제 출금"], ["FEE", "누락된 수수료"], ["TAX", "누락된 세금"]];
   const opening = openingEvent === undefined ? activeCashOpeningEvent(asset) : openingEvent;
   const openingOption = opening
-    ? [["OPENING_BALANCE", "최초 등록금액 오입력"]]
+    ? [["OPENING_BALANCE", asset.cashBalanceKnown === false ? "실제 잔액 확인" : "최초 등록금액 오입력"]]
     : [];
   return [...directionOptions, ...openingOption, ["CASH_ADJUSTMENT", "원인 미확인 · 성과 계산 제한"]];
 }
@@ -10773,7 +10783,7 @@ function cashBalanceDraft(strict = false, { openingEvent = undefined } = {}) {
   if (!rawActual || !Number.isFinite(actualAmount) || actualAmount < 0) {
     return { ok: false, message: strict ? "실제 예수금을 0원 이상으로 입력하세요." : "실제 예수금을 입력하세요." };
   }
-  if (Math.abs(delta) <= 0.01) return { ok: false, sameBalance: true, message: "현재 잔액과 실제 잔액이 같습니다." };
+  if (Math.abs(delta) <= 0.01 && asset.cashBalanceKnown !== false) return { ok: false, sameBalance: true, message: "현재 잔액과 실제 잔액이 같습니다." };
   const activeOpening = openingEvent === undefined ? activeCashOpeningEvent(asset) : openingEvent;
   const allowedReasons = new Set(cashBalanceReasonOptions(delta, asset, activeOpening).map(([value]) => value));
   if (!allowedReasons.has(reason)) return { ok: false, message: strict ? "차이가 생긴 이유를 선택하세요." : "차액에 맞는 이유를 선택하세요." };
@@ -10815,12 +10825,13 @@ function renderCashBalancePreview() {
   const previousReason = els.cashBalanceReason.value;
   if (!rawActual || !Number.isFinite(actualAmount) || actualAmount < 0) {
     els.cashBalanceReason.innerHTML = '<option value="">실제 잔액을 먼저 입력하세요</option>';
-  } else if (Math.abs(delta) <= 0.01) {
+  } else if (Math.abs(delta) <= 0.01 && asset?.cashBalanceKnown !== false) {
     els.cashBalanceReason.innerHTML = '<option value="">변경할 차액이 없습니다</option>';
   } else {
     const options = cashBalanceReasonOptions(delta, asset, openingEvent);
     els.cashBalanceReason.innerHTML = `<option value="">이유 선택</option>${options.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}`;
     if (options.some(([value]) => value === previousReason)) els.cashBalanceReason.value = previousReason;
+    else if (asset?.cashBalanceKnown === false && openingEvent) els.cashBalanceReason.value = "OPENING_BALANCE";
   }
   const reason = els.cashBalanceReason.value;
   els.cashBalanceSourceAssetField.hidden = reason !== "DIVIDEND";
@@ -10938,26 +10949,58 @@ function openCashLedgerHistory(asset) {
   showStatusNotice(`${asset.name}의 입출금·매매 연결을 거래 원장에서 확인하세요.`);
 }
 
-function renderCashAssetOptions(select, { preferredAccount = "", preserve = true } = {}) {
+function renderCashAssetOptions(select, { preferredAccount = "", preserve = true, automatic = false } = {}) {
   if (!select) return "";
   const previous = preserve ? select.value : "";
   const options = cashAssets();
-  select.innerHTML = options.length
-    ? `<option value="">CASH 계좌 선택</option>${options.map((asset) => `<option value="${escapeHtml(asset.id)}">${escapeHtml(asset.name)} · ${escapeHtml(asset.account || "계좌 미지정")} · ${escapeHtml(money(asset.amount || 0))}</option>`).join("")}`
+  select.innerHTML = options.length || automatic
+    ? `<option value="">${automatic ? "자동 · 같은 계좌 예수금 사용 또는 생성" : "CASH 계좌 선택"}</option>${options.map((asset) => `<option value="${escapeHtml(asset.id)}">${escapeHtml(asset.name)} · ${escapeHtml(asset.account || "계좌 미지정")} · ${escapeHtml(money(asset.amount || 0))}${asset.cashBalanceKnown === false ? " · 기존 잔액 미확인" : ""}</option>`).join("")}`
     : `<option value="">먼저 CASH 자산을 추가하세요</option>`;
   let selected = options.some((asset) => asset.id === previous) ? previous : "";
   if (!selected && preferredAccount) {
     const exact = options.filter((asset) => asset.account === preferredAccount);
     if (exact.length === 1) selected = exact[0].id;
   }
-  if (!selected && options.length === 1) selected = options[0].id;
+  if (!selected && options.length === 1 && !automatic) selected = options[0].id;
   select.value = selected;
-  select.disabled = options.length === 0;
+  select.disabled = options.length === 0 && !automatic;
   return selected;
 }
 
 function cashAssetFromSelect(select) {
   return state.assets.find((asset) => asset.id === select?.value && assetType(asset) === "CASH") || null;
+}
+
+function tradeCashAsset(select, asset) {
+  const selected = cashAssetFromSelect(select);
+  if (selected) return selected;
+  const matches = cashAssets().filter((cash) => cash.account === asset.account
+    && effectiveAccountClass(cash) === effectiveAccountClass(asset));
+  if (matches.length > 1) return null;
+  if (matches.length === 1) return matches[0];
+  return normalizeAsset({
+    id: uid(), name: "예수금", type: "CASH", account: asset.account || "",
+    accountClass: asset.accountClass, amount: 0, cashBalanceKnown: false,
+    quantity: 0, averagePrice: 0,
+    note: "매매대금 자동 집계 · 기존 예수금 잔액 미확인",
+    createdAt: new Date().toISOString()
+  });
+}
+
+function prepareTradeCash(result) {
+  let cash = state.assets.find((asset) => asset.id === result.cashAsset.id);
+  if (!cash) {
+    cash = result.cashAsset;
+    state.assets.push(cash);
+    const openingDate = state.ledgerMeta?.baselineDate || result.boughtAt || result.trade.soldAt;
+    const opening = unwrapLedgerResult(ledgerEngine().createOpeningBalanceEvent(cash, {
+      eventId: `opening-${cash.id}`, openingDate,
+      accountId: accountIdForAsset(cash),
+      note: "거래 증감 집계 시작 · 기존 예수금 미확인 (실제 0원 아님)"
+    }), "자동 예수금");
+    appendLedgerEvents([opening]);
+  }
+  if (result.cashShortfallKRW > 0 && !result.autoDeposit) cash.cashBalanceKnown = false;
 }
 
 function renderCashFlowOptions({ preserve = true } = {}) {
@@ -11127,7 +11170,7 @@ function showSellForm(asset) {
   els.sellAssetId.value = asset.id;
   els.sellDate.value = localDateInputValue();
   if (els.sellSettlementDate) els.sellSettlementDate.value = localDateInputValue();
-  renderCashAssetOptions(els.sellCashAssetId, { preferredAccount: asset.account, preserve: false });
+  renderCashAssetOptions(els.sellCashAssetId, { preferredAccount: asset.account, preserve: false, automatic: true });
   els.sellQuantity.value = formatPlainNumber(asset.quantity || 0);
   els.sellPrice.value = asset.currentPrice ? formatPlainNumber(asset.currentPrice) : "";
   els.sellFees.value = "";
@@ -11152,7 +11195,7 @@ function showBuyForm(asset) {
   els.buyAssetId.value = asset.id;
   els.buyDate.value = localDateInputValue();
   if (els.buySettlementDate) els.buySettlementDate.value = localDateInputValue();
-  renderCashAssetOptions(els.buyCashAssetId, { preferredAccount: asset.account, preserve: false });
+  renderCashAssetOptions(els.buyCashAssetId, { preferredAccount: asset.account, preserve: false, automatic: true });
   els.buyQuantity.value = "";
   els.buyPrice.value = asset.currentPrice ? formatPlainNumber(asset.currentPrice) : "";
   els.buyFees.value = "";
@@ -11184,7 +11227,7 @@ function renderSellPreview() {
     `매도금액 ${money(preview.trade.grossAmount)}`,
     `원가 ${money(preview.trade.costAmount)}`,
     `비용 ${money(preview.trade.fees + preview.trade.tax)}`,
-    `${preview.cashAsset.name} ${money(preview.cashAsset.amount || 0)} → ${money(Number(preview.cashAsset.amount || 0) + preview.netCashAmountKRW)}`,
+    `${preview.cashAsset.name}${preview.cashAsset.cashBalanceKnown === false ? " (기존 잔액 미확인 · 거래 증감)" : ""} ${money(preview.cashAsset.amount || 0)} → ${money(Number(preview.cashAsset.amount || 0) + preview.netCashAmountKRW)}`,
     `${gainLabel} ${gain > 0 ? "+" : ""}${money(gain)}${rate === null ? "" : ` (${rate > 0 ? "+" : ""}${percent(rate)})`}`
   ].join(" · ");
 }
@@ -11197,7 +11240,7 @@ function renderBuyPreview() {
     if (els.buyCashShortfallField) els.buyCashShortfallField.hidden = !hasShortfall;
     if (els.buyCashShortfallText) {
       els.buyCashShortfallText.textContent = hasShortfall
-        ? `부족한 ${money(preview.cashShortfallKRW)}을 같은 예수금에 입금한 뒤 매수를 함께 기록합니다.`
+        ? `실제 추가 입금이 있었다면 부족한 ${money(preview.cashShortfallKRW)}의 입금도 함께 기록합니다. 선택하지 않아도 매수를 저장합니다.`
         : "";
     }
     if (!hasShortfall && els.buyAutoDeposit) els.buyAutoDeposit.checked = false;
@@ -11208,16 +11251,16 @@ function renderBuyPreview() {
   if (els.buyCashShortfallField) els.buyCashShortfallField.hidden = !(preview.cashShortfallKRW > 0);
   if (els.buyCashShortfallText) {
     els.buyCashShortfallText.textContent = preview.cashShortfallKRW > 0
-      ? `부족한 ${money(preview.cashShortfallKRW)}을 같은 예수금에 입금한 뒤 매수를 함께 기록합니다.`
+      ? `실제 추가 입금이 있었다면 부족한 ${money(preview.cashShortfallKRW)}의 입금도 함께 기록합니다. 선택하지 않아도 매수를 저장합니다.`
       : "";
   }
   const type = assetType(preview.asset);
   const averageText = type === "US" ? usd(preview.nextAveragePrice) : formatPlainNumber(preview.nextAveragePrice);
   const previousAverageText = type === "US" ? usd(Number(preview.asset.averagePrice || 0)) : formatPlainNumber(preview.asset.averagePrice || 0);
   const cashStart = Number(preview.cashAsset.amount || 0);
-  const cashPath = preview.cashShortfallKRW > 0
+  const cashPath = preview.autoDeposit
     ? `${preview.cashAsset.name} ${money(cashStart)} + 입금 ${money(preview.cashShortfallKRW)} → ${money(cashStart + preview.cashShortfallKRW - preview.netCashAmountKRW)}`
-    : `${preview.cashAsset.name} ${money(cashStart)} → ${money(cashStart - preview.netCashAmountKRW)}`;
+    : `${preview.cashAsset.name}${preview.cashShortfallKRW > 0 || preview.cashAsset.cashBalanceKnown === false ? " (잔액 미확인 · 거래 증감)" : ""} ${money(cashStart)} → ${money(cashStart - preview.netCashAmountKRW)}`;
   els.buyPreview.className = "buy-preview positive";
   els.buyPreview.textContent = [
     `매수금액 ${money(preview.grossAmount + preview.fees)}`,
@@ -11241,14 +11284,14 @@ function parseSellForm(strict = true) {
   const tax = Math.max(0, parseAmount(els.sellTax?.value || 0));
   const soldAt = els.sellDate?.value || localDateInputValue();
   const settlementDate = els.sellSettlementDate?.value || soldAt;
-  const cashAsset = cashAssetFromSelect(els.sellCashAssetId);
+  const cashAsset = tradeCashAsset(els.sellCashAssetId, asset);
   const memo = els.sellMemo?.value.trim() || "";
 
   if (quantity <= 0) return { ok: false, message: strict ? "매도 수량은 0보다 커야 합니다." : "" };
   if (quantity > holdingQuantity + 0.0000001) return { ok: false, message: `보유 수량 ${formatPlainNumber(holdingQuantity)}주보다 많이 매도할 수 없습니다.` };
   if (sellPrice <= 0) return { ok: false, message: strict ? "매도가를 입력하세요." : "" };
   if (type === "US" && fxRate <= 0) return { ok: false, message: strict ? "달러 환율을 입력하세요." : "" };
-  if (!cashAsset) return { ok: false, message: strict ? "매도대금을 받을 CASH 계좌를 선택하세요." : "" };
+  if (!cashAsset) return { ok: false, message: "같은 계좌의 예수금 항목이 여러 개입니다. 사용할 항목을 선택하세요." };
   if (settlementDate < soldAt) return { ok: false, message: strict ? "결제일은 매도일보다 빠를 수 없습니다." : "" };
   if (memo.length > IMPORT_STRING_LIMITS.note) {
     return { ok: false, message: strict ? "매도 메모는 10,000자 이하로 입력하세요." : "" };
@@ -11302,13 +11345,13 @@ function parseBuyForm(strict = true) {
   const fees = Math.max(0, parseAmount(els.buyFees?.value || 0));
   const boughtAt = els.buyDate?.value || localDateInputValue();
   const settlementDate = els.buySettlementDate?.value || boughtAt;
-  const cashAsset = cashAssetFromSelect(els.buyCashAssetId);
+  const cashAsset = tradeCashAsset(els.buyCashAssetId, asset);
   const memo = els.buyMemo?.value.trim() || "";
 
   if (quantity <= 0) return { ok: false, message: strict ? "추가매수 수량은 0보다 커야 합니다." : "" };
   if (buyPrice <= 0) return { ok: false, message: strict ? "매수가를 입력하세요." : "" };
   if (type === "US" && fxRate <= 0) return { ok: false, message: strict ? "달러 환율을 입력하세요." : "" };
-  if (!cashAsset) return { ok: false, message: strict ? "매수대금을 결제할 CASH 계좌를 선택하세요." : "" };
+  if (!cashAsset) return { ok: false, message: "같은 계좌의 예수금 항목이 여러 개입니다. 사용할 항목을 선택하세요." };
   if (settlementDate < boughtAt) return { ok: false, message: strict ? "결제일은 매수일보다 빠를 수 없습니다." : "" };
   if (memo.length > IMPORT_STRING_LIMITS.note) {
     return { ok: false, message: strict ? "추가매수 메모는 10,000자 이하로 입력하세요." : "" };
@@ -11329,16 +11372,6 @@ function parseBuyForm(strict = true) {
     ? Math.round((rawCashShortfallKRW + Number.EPSILON) * 10_000) / 10_000
     : 0;
   const autoDeposit = cashShortfallKRW > 0 && Boolean(els.buyAutoDeposit?.checked);
-  if (cashShortfallKRW > 0 && !autoDeposit) {
-    return {
-      ok: false,
-      code: "CASH_SHORTFALL",
-      message: `선택한 CASH 잔액(${money(cashAsset.amount || 0)})보다 결제금액(${money(netCashAmountKRW)})이 ${money(cashShortfallKRW)} 부족합니다.`,
-      asset,
-      cashAsset,
-      cashShortfallKRW
-    };
-  }
 
   return {
     ok: true,
@@ -11446,8 +11479,8 @@ function validateAssetInput(asset, { allowZeroBalance = false } = {}) {
   if (String(asset.name).length > IMPORT_STRING_LIMITS.short) return "자산명은 500자 이하로 입력하세요.";
   if (String(asset.account || "").length > IMPORT_STRING_LIMITS.short) return "계좌명은 500자 이하로 입력하세요.";
   if (String(asset.note || "").length > IMPORT_STRING_LIMITS.note) return "자산 메모는 10,000자 이하로 입력하세요.";
-  if (isManualValuedType(type) && !(asset.amount > 0) && !allowZeroBalance) {
-    return "현금·수동 자산의 평가금액은 0보다 커야 합니다.";
+  if (isManualValuedType(type) && !(type === "CASH" ? asset.amount >= 0 : asset.amount > 0) && !allowZeroBalance) {
+    return "현금은 0원 이상, 수동 자산은 0원보다 큰 평가금액을 입력하세요.";
   }
   if (isMarketType(type) && !(asset.quantity > 0) && !allowZeroBalance) {
     return "시장가격 자산의 보유수량은 0보다 커야 합니다.";
@@ -12049,13 +12082,14 @@ els.buyForm?.addEventListener("submit", (event) => {
   }
 
   const baseSequence = ledgerSequence();
-  const depositEvent = result.cashShortfallKRW > 0
+  const depositEvent = result.autoDeposit
     ? createBuyShortfallDepositEvent(result, { sequence: baseSequence })
     : null;
   const ledgerEvent = createBuyLedgerEvent(result, { sequence: baseSequence + (depositEvent ? 1 : 0) });
   const ledgerEvents = depositEvent ? [depositEvent, ledgerEvent] : [ledgerEvent];
   const journalCreated = Boolean(els.buyJournalEnabled?.checked);
   const saved = commitLedgerMutation(() => {
+    prepareTradeCash(result);
     appendLedgerEvents(ledgerEvents);
     const updatedAsset = state.assets.find((asset) => asset.id === result.asset.id);
     if (journalCreated) state.tradeJournalEntries.push(createJournalEntryFromBuy(updatedAsset, result, ledgerEvent.eventId));
@@ -12089,6 +12123,7 @@ els.sellForm?.addEventListener("submit", (event) => {
   const trade = normalizeRealizedTrade({ ...result.trade, ledgerEventId: ledgerEvent.eventId });
   const journalCreated = Boolean(els.sellJournalEnabled?.checked);
   const saved = commitLedgerMutation(() => {
+    prepareTradeCash(result);
     appendLedgerEvents([ledgerEvent]);
     state.realizedTrades.push(trade);
     if (journalCreated) state.tradeJournalEntries.push(createJournalEntryFromTrade(asset, trade, ledgerEvent.eventId));
@@ -12607,7 +12642,10 @@ els.cashBalanceForm?.addEventListener("submit", (event) => {
     return;
   }
   const ledgerEvent = createCashBalanceEvent(draft);
-  const saved = commitLedgerMutation(() => appendLedgerEvents([ledgerEvent]));
+  const saved = commitLedgerMutation(() => {
+    if (draft.reason === "OPENING_BALANCE") draft.asset.cashBalanceKnown = true;
+    return appendLedgerEvents([ledgerEvent]);
+  });
   if (!saved.ok) return;
   resetCashBalanceForm();
   if (draft.reason === "OPENING_BALANCE") {
@@ -13146,7 +13184,9 @@ async function saveAssetSnapshot({ monthlyReview = false } = {}) {
       note: snapshotNote,
       source: monthlyReview ? "MONTHLY_REVIEW" : "QUICK_SNAPSHOT",
       nextReviewAt,
-      qualityIssues: readiness.warnings,
+      qualityIssues: [...readiness.warnings, ...state.assets
+        .filter((asset) => assetType(asset) === "CASH" && asset.cashBalanceKnown === false)
+        .map((asset) => `${asset.account || "계좌 미지정"} 예수금 잔액 미확인 · 거래 증감만 포함`)].slice(0, 20),
       typeTotals: Object.fromEntries(
         state.assets.reduce((map, asset) => {
           const type = assetType(asset);
@@ -13923,8 +13963,12 @@ function validateImportedAsset(asset, index) {
   assertImportDate(asset.createdAt, `${prefix}.createdAt`);
   assertImportDate(asset.updatedAt, `${prefix}.updatedAt`);
   ["amount", "quantity", "averagePrice"].forEach((field) => {
-    assertImportNumber(asset[field], `${prefix}.${field}`, { min: 0, max: 1e15 });
+    const min = field === "amount" && asset.type === "CASH" && asset.cashBalanceKnown === false ? -1e15 : 0;
+    assertImportNumber(asset[field], `${prefix}.${field}`, { min, max: 1e15 });
   });
+  if (asset.cashBalanceKnown !== undefined && (asset.type !== "CASH" || typeof asset.cashBalanceKnown !== "boolean")) {
+    throw new Error(`${prefix}.cashBalanceKnown은 CASH 자산의 확인 상태여야 합니다.`);
+  }
   if (!String(asset.id || "").trim()) throw new Error(`${prefix}.id가 없습니다.`);
   if (!String(asset.name || "").trim()) throw new Error(`${prefix}.name이 없습니다.`);
   if (asset.type !== undefined && !["KRX", "US", "CASH", "MANUAL"].includes(String(asset.type).toUpperCase())) {
@@ -13937,7 +13981,7 @@ function validateImportedAsset(asset, index) {
     if (!Object.hasOwn(asset, "quantity") || !Object.hasOwn(asset, "averagePrice")) {
       throw new Error(`${prefix}의 보유수량과 평단가가 없습니다.`);
     }
-  } else if (!Object.hasOwn(asset, "amount") || Number(asset.amount) < 0) {
+  } else if (!Object.hasOwn(asset, "amount") || (Number(asset.amount) < 0 && !(type === "CASH" && asset.cashBalanceKnown === false))) {
     throw new Error(`${prefix}.amount에 올바른 수동 평가금액이 필요합니다.`);
   }
 }

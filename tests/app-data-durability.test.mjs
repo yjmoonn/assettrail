@@ -251,7 +251,7 @@ function evalAppWithLedgerCloudTestApi(window) {
 
 for (const protectedRaw of [
   JSON.stringify({
-    schemaVersion: 11,
+    schemaVersion: 12,
     futureOnlyData: { mustRemain: true },
     assets: [],
     snapshots: []
@@ -432,12 +432,12 @@ for (const protectedRaw of [
   await waitForApp(window, 50);
 
   const migratedPrimary = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
-  assert.equal(migratedPrimary.schemaVersion, 10);
+  assert.equal(migratedPrimary.schemaVersion, 11);
   assert.equal(migratedPrimary.snapshots, undefined);
   assert.equal(migratedPrimary.performanceObservations, undefined);
   assert.equal(migratedPrimary.historyMeta.activeHistoryId, historyId);
   assert.equal(migratedPrimary.historyMeta.contentFingerprint, bundle.manifest.contentFingerprint);
-  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v7-to-v10`), v7Raw);
+  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v7-to-v11`), v7Raw);
   const portable = JSON.parse(window.eval("serializeStateFile(storageSafeState())"));
   assert.equal(portable.snapshots[0].id, historicalSnapshot.id);
   assert.deepEqual(portable.snapshots[0].valuation, SNAPSHOT_VALUATION_FIXTURE);
@@ -487,7 +487,7 @@ for (const protectedRaw of [
   await waitForApp(window, 50);
 
   assert.equal(window.localStorage.getItem(STORAGE_KEY), v7Raw);
-  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v7-to-v10`), v7Raw);
+  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v7-to-v11`), v7Raw);
   assert.equal(window.eval("persist()"), false);
   assert.match(window.document.querySelector("#appNotice").textContent, /장기 기록 저장소를 검증하지 못해|자동 저장을 중단/);
   dom.window.close();
@@ -610,7 +610,7 @@ for (const protectedRaw of [
   await waitForApp(window);
 
   const migrated = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
-  assert.equal(migrated.schemaVersion, 10);
+  assert.equal(migrated.schemaVersion, 11);
   assert.equal(migrated.assets[0].updatedAt, "2026-07-29T12:00:00.000Z");
   assert.equal(migrated.assets[0].investmentRole, undefined);
   assert.equal(migrated.decisionProfiles.length, 1);
@@ -643,7 +643,7 @@ for (const protectedRaw of [
   );
   await dispatchImport(window, jsonFile(window, migrated, "round-trip-v2.json"));
   const roundTripped = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
-  assert.equal(roundTripped.schemaVersion, 10);
+  assert.equal(roundTripped.schemaVersion, 11);
   assert.equal(roundTripped.assets[0].id, "legacy-cash");
   assert.equal(roundTripped.snapshots[0].id, "legacy-snapshot");
   assert.equal(roundTripped.decisionProfiles[0].nextReviewAt, "2026-08-31");
@@ -726,8 +726,8 @@ for (const protectedRaw of [
   await waitForApp(window);
 
   const migrated = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
-  assert.equal(migrated.schemaVersion, 10);
-  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v7-to-v10`), v7Raw);
+  assert.equal(migrated.schemaVersion, 11);
+  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v7-to-v11`), v7Raw);
   assert.deepEqual(migrated.snapshots[0].valuation, SNAPSHOT_VALUATION_FIXTURE);
 
   const portable = JSON.parse(window.eval("serializeStateFile(storageSafeState())"));
@@ -991,7 +991,7 @@ for (const protectedRaw of [
   const storagePrototype = Object.getPrototypeOf(window.localStorage);
   const originalSetItem = storagePrototype.setItem;
   storagePrototype.setItem = function setItemWithMigrationFailure(key, value) {
-    if (key === STORAGE_KEY && JSON.parse(String(value)).schemaVersion === 10) {
+    if (key === STORAGE_KEY && JSON.parse(String(value)).schemaVersion === 11) {
       throw new window.DOMException("quota", "QuotaExceededError");
     }
     return originalSetItem.call(this, key, value);
@@ -1001,7 +1001,7 @@ for (const protectedRaw of [
   await waitForApp(window);
 
   assert.equal(window.localStorage.getItem(STORAGE_KEY), legacyRaw, "failed migration must keep the active v4 payload");
-  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v4-to-v10`), legacyRaw);
+  assert.equal(window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v4-to-v11`), legacyRaw);
   assert.equal(window.eval("persist()"), false);
   assert.match(window.document.querySelector("#appNotice").textContent, /자동 저장을 중단|보호/);
   window.document.querySelector("#assetForm").dispatchEvent(
@@ -1496,7 +1496,7 @@ for (const protectedRaw of [
   installBrowserStubs(window, { alerts, downloads });
   window.firebaseConfig = {};
   const futureRaw = JSON.stringify({
-    schemaVersion: 11,
+    schemaVersion: 12,
     futureOnlyData: { mustRemain: true },
     assets: [],
     snapshots: []
@@ -1567,7 +1567,7 @@ for (const protectedRaw of [
   const recovered = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
   assert.equal(downloads.length, 1);
   assert.match(downloads[0], /^finance-ledger-recovery-before-import-/);
-  assert.equal(recovered.schemaVersion, 10);
+  assert.equal(recovered.schemaVersion, 11);
   assert.equal(recovered.assets[0].id, "recovered-cash");
   assert.equal(recovered.watchlist[0].ticker, "MSFT");
   assert.equal(recovered.decisionProfiles[0].subjectKey, "INSTRUMENT:US:MSFT");
@@ -1666,7 +1666,7 @@ for (const protectedRaw of [
   await waitForApp(window, 50);
   const primaryTransactionWrites = () => transactionWrites.filter((write) => write.path === "users/alice/financeData/primary");
   assert.equal(primaryTransactionWrites().length, 1, "legacy remote state must be promoted immediately after download");
-  assert.equal(primaryTransactionWrites()[0].data.schemaVersion, 10);
+  assert.equal(primaryTransactionWrites()[0].data.schemaVersion, 11);
   assert.equal(primaryTransactionWrites()[0].data.revision, 5);
   assert.equal(primaryTransactionWrites()[0].data.meta.cloudRevision, 5);
   assert.equal(primaryTransactionWrites()[0].options.merge, false);
@@ -1693,7 +1693,7 @@ for (const protectedRaw of [
   addCash("추가 현금", 2000000);
   await waitForApp(window, 50);
   assert.equal(primaryTransactionWrites().length, 2);
-  assert.equal(primaryTransactionWrites()[1].data.schemaVersion, 10);
+  assert.equal(primaryTransactionWrites()[1].data.schemaVersion, 11);
   assert.equal(primaryTransactionWrites()[1].data.revision, 6);
   assert.equal(primaryTransactionWrites()[1].data.meta.cloudRevision, 6);
   assert.equal(primaryTransactionWrites()[1].options.merge, false);
