@@ -2,4 +2,4 @@ setuptools==80.9.0
 exchange-calendars==4.13.2
 pykrx==1.0.51
 requests==2.32.5
-yfinance==0.2.66
+yfinance==1.7.0
