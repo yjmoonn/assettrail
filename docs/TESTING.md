@@ -158,7 +158,8 @@ firebase emulators:exec --only firestore "node tests/firestore-rules.test.mjs"
 
 - 기존 v1~v4 데이터가 백업 검증 후 자산별 기초잔액으로 한 번만 이전되는가
 - 기존 US 기초잔액의 과거 환율과 원화 원가를 임의로 추정하지 않는가
-- 매수·매도 시 CASH를 선택하지 않거나 잔액이 부족하면 주식과 현금 모두 바뀌지 않는가
+- CASH 미등록·잔액 부족 매수가 저장되며, 미확인 잔액과 실제 입금을 구분하는가
+- CASH 미등록 매도가 같은 계좌에 자동 집계되고 반복 거래가 같은 항목을 재사용하는가
 - US 거래의 native 가격·환율과 원화 CASH 정산액·수수료·세금이 이중 환산되지 않는가
 - 매수·매도 저장 후 포지션 수량, 평균단가와 CASH 원화 잔액이 이벤트 투영과 일치하는가
 - 입금·출금·배당·이자·수수료·세금과 MANUAL 평가조정이 올바른 분류로 반영되는가
@@ -304,3 +305,15 @@ npx firebase emulators:exec --only firestore --project demo-assettrail-fx \
 브라우저 context의 클라우드 재로딩을 확인한다. 중복 클릭·환율 근거·기존 기록·원장 불변,
 신규 환율 회복, 1440/1280/390/430px 표시, 비소유자/비로그인 읽기·쓰기 거부를 검증한다.
 운영 계정 인증 및 운영 Firestore 쓰기는 실행하지 않는다.
+
+
+## 예수금 자동 연결 브라우저 검증
+
+`tests/app-trade-cash-browser.test.mjs`는 합성 로컬 데이터만 쓰며 외부 요청을 차단한다.
+Playwright/Chromium이 있는 환경에서 다음 명령으로 1440/1280/430/390px의 실제 매도,
+부족 잔액 매수, 재조회, 중복 현금 항목 방지와 가로 넘침을 확인한다.
+
+```sh
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs CHROMIUM_PATH=/absolute/path/to/chrome \
+  node tests/app-trade-cash-browser.test.mjs
+```

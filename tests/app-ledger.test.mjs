@@ -85,14 +85,14 @@ function submit(selector) {
 }
 
 const migrated = stored();
-assert.equal(migrated.schemaVersion, 10);
+assert.equal(migrated.schemaVersion, 11);
 assert.equal(migrated.events.length, 2);
 assert.equal(migrated.events.every((event) => event.type === "OPENING_BALANCE"), true);
 assert.equal(migrated.events.some((event) => event.type === "BUY"), false);
 assert.equal(migrated.events.find((event) => event.assetId === "stock-1").instrumentKey, "INSTRUMENT:KRX:005930");
 assert.equal(migrated.ledgerMeta.baselineDate, "2026-08-01");
 assert.equal(
-  window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v4-to-v10`),
+  window.localStorage.getItem(`${STORAGE_KEY}:migration-backup:v4-to-v11`),
   legacyRaw
 );
 
@@ -129,9 +129,8 @@ setValue("#buyDate", today);
 setValue("#buySettlementDate", today);
 setValue("#buyQuantity", "1000");
 setValue("#buyPrice", "12000");
-submit("#buyForm");
-assert.match(alerts.at(-1), /CASH 잔액/);
-assert.equal(stored().events.length, eventsBeforeInsufficient);
+assert.equal(window.eval("parseBuyForm(true).ok"), true, "예수금 부족이 매수 입력을 막지 않는다");
+assert.equal(stored().events.length, eventsBeforeInsufficient, "미리보기는 원장을 바꾸지 않는다");
 assert.equal(stored().assets.find((asset) => asset.id === "cash-1").amount, cashBeforeInsufficient);
 
 [...window.document.querySelectorAll("#assetRows tr")]

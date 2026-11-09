@@ -818,6 +818,7 @@
   }
 
   function projectLedger(inputEvents, options = {}) {
+    const unconfirmedCash = new Set(options.unconfirmedCashAssetIds || []);
     const validated = validateLedger(inputEvents, { baselineDate: options.baselineDate });
     const diagnostics = [...validated.errors, ...validated.warnings];
     const rawAsOfDate = normalizedText(options.asOfDate);
@@ -945,7 +946,7 @@
       const current = cashFor(cashAssetId, cashAccountId, event.eventId);
       current.amountKRW = round(current.amountKRW + amountKRW, 4);
       current.lastEventDate = event.settlementDate;
-      if (current.amountKRW < -EPSILON) {
+      if (current.amountKRW < -EPSILON && !unconfirmedCash.has(cashAssetId)) {
         diagnostics.push(issue(
           "NEGATIVE_CASH_BALANCE_AT_EVENT",
           `CASH 자산 ${cashAssetId}의 ${event.settlementDate} 반영 직후 잔액이 음수입니다.`,
@@ -1288,7 +1289,12 @@
       }
     });
     projectedCash.forEach((balance) => {
-      if (balance.amountKRW < -EPSILON) {
+      if (unconfirmedCash.has(balance.cashAssetId)) {
+        diagnostics.push(warning("UNCONFIRMED_CASH_BALANCE", "기존 예수금 미확인 · 기록된 거래 기준 증감입니다.", {
+          cashAssetId: balance.cashAssetId
+        }));
+      }
+      if (balance.amountKRW < -EPSILON && !unconfirmedCash.has(balance.cashAssetId)) {
         diagnostics.push(issue(
           "NEGATIVE_CASH_BALANCE",
           `CASH 자산 ${balance.cashAssetId}의 ${balance.currency} 잔액이 음수입니다.`,

@@ -8,7 +8,7 @@
     "test:decision": "node tests/decision-engine.test.mjs",
     "test:action": "node tests/action-engine.test.mjs",
     "test:action-app": "node tests/app-action-support.test.mjs",
-    "test:ledger": "node tests/ledger-engine.test.mjs && node tests/app-ledger.test.mjs",
+    "test:ledger": "node tests/ledger-engine.test.mjs && node tests/app-ledger.test.mjs && node tests/app-trade-cash.test.mjs",
     "test:performance": "node tests/performance-engine.test.mjs && node tests/app-performance.test.mjs",
     "test:broker-csv": "node tests/broker-csv-engine.test.mjs && node tests/app-broker-csv.test.mjs",
     "test:external-data": "node tests/external-data-engine.test.mjs",
@@ -51,6 +51,7 @@
     "fake-indexeddb": "^6.2.5",
     "firebase": "^12.13.0",
     "firebase-tools": "^15.25.0",
-    "jsdom": "^29.1.1"
+    "jsdom": "^29.1.1",
+    "playwright-core": "1.56.1"
   }
 }

@@ -103,6 +103,20 @@ jobs:
           npm run test:cloud-prices
           npm run test:data
 
+      - name: Check automatic trade cash in Chromium
+        env:
+          EVIDENCE_DIR: /tmp/assettrail-trade-cash-ui
+        run: CHROMIUM_PATH="$(command -v google-chrome)" node tests/app-trade-cash-browser.test.mjs
+
+      - name: Keep trade cash UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-cash-ui
+          path: /tmp/assettrail-trade-cash-ui
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Verify static site runtime files
         shell: bash
         run: |

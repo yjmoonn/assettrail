@@ -255,7 +255,7 @@ setValue("#assetCategory", "CASH");
 assert.equal(window.document.querySelector("#assetAmountField").hidden, false);
 setValue("#assetName", "현금");
 setValue("#assetAmount", "0");
-expectAlert(submitAsset, /평가금액은 0보다 커야/);
+assert.equal(window.eval("validateAssetInput({name: '현금', type: 'CASH', amount: 0})"), "");
 setValue("#assetAmount", "1000000");
 submitAsset();
 
@@ -291,6 +291,7 @@ samsungMainRowBeforeBuy.querySelector('[data-action="buy"]').click();
 assert.equal(window.document.querySelector("#buyFormPanel").hidden, false);
 setValue("#buyDate", today);
 setValue("#buySettlementDate", today);
+setValue("#buyCashAssetId", JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1")).assets.find(asset => asset.type === "CASH").id);
 setValue("#buyQuantity", "5");
 setValue("#buyPrice", "80000");
 setValue("#buyFees", "0");
@@ -396,7 +397,7 @@ assert.match(window.document.querySelector("#historySummary").textContent, /기�
 assert.match(window.document.querySelector("#historySummary").textContent, /1회/);
 assert.match(window.document.querySelector("#appNotice").textContent, /조회 기록을 저장했습니다/);
 const savedAfterSnapshot = JSON.parse(window.localStorage.getItem("finance-ledger-retirement-v1"));
-assert.equal(savedAfterSnapshot.schemaVersion, 10);
+assert.equal(savedAfterSnapshot.schemaVersion, 11);
 assert.equal(savedAfterSnapshot.snapshots[0].assets, undefined);
 assert.deepEqual(
   Object.keys(savedAfterSnapshot.snapshots[0]).sort(),
